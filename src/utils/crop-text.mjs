@@ -31,7 +31,7 @@ const clamp = (v, min, max) => {
 /** this function will crop text by keeping the beginning and end */
 export async function cropText(
   text,
-  maxLength = 4096,
+  maxLength = 200000,
   startLength = 0,
   endLength = 0,
   tiktoken = true,
@@ -97,10 +97,10 @@ export async function cropText(
 
   // Construct the cropped text
   croppedText = splits.slice(0, middleIndex).join('\n')
-  if (middleIndex !== endStartIndex) {
+  if (croppedTokens > 0) {
     croppedText += `\n\n**Important disclaimer**, this text is incomplete! ${croppedTokens} or ${
       (croppedTokens / totalTokens).toFixed(2) * 100
-    }% of tokens have been removed from this location in the text due to lack limited model context\n\n`
+    }% of tokens have been removed from this location in the text due to lack limited model context of ${maxLength}\n\n`
   }
   croppedText += splits.slice(endStartIndex).join('\n')
 
