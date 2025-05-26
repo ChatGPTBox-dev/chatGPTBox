@@ -88,6 +88,7 @@ export const poeWebModelKeys = [
   'poeAiWeb_Llama_2_70b',
 ]
 export const moonshotApiModelKeys = ['moonshot_v1_8k', 'moonshot_v1_32k', 'moonshot_v1_128k']
+export const geminiApiModelKeys = ['geminiApiPro']
 
 export const AlwaysCustomGroups = [
   'ollamaApiModelKeys',
@@ -129,6 +130,10 @@ export const ModelGroups = {
   moonshotApiModelKeys: {
     value: moonshotApiModelKeys,
     desc: 'Kimi.Moonshot (API)',
+  },
+  geminiApiModelKeys: {
+    value: geminiApiModelKeys,
+    desc: 'Gemini (API)',
   },
   chatglmApiModelKeys: {
     value: chatglmApiModelKeys,
@@ -267,6 +272,8 @@ export const Models = {
     value: 'moonshot-v1-128k',
     desc: 'Kimi.Moonshot (128k)',
   },
+
+  geminiApiPro: { value: 'gemini-pro', desc: 'Gemini (API, Pro)' },
 }
 
 for (const modelName in Models) {
@@ -317,6 +324,7 @@ export const defaultConfig = {
   claudeApiKey: '',
   chatglmApiKey: '',
   moonshotApiKey: '',
+  geminiApiKey: '',
 
   customApiKey: '',
 
@@ -366,6 +374,7 @@ export const defaultConfig = {
     'bingFree4',
     'moonshotWebFree',
     'moonshot_v1_8k',
+    'geminiApiPro', // Added Gemini API model
     'chatglmTurbo',
     'customModel',
     'azureOpenAi',
@@ -506,6 +515,10 @@ export function isUsingClaudeApiModel(configOrSession) {
 
 export function isUsingMoonshotApiModel(configOrSession) {
   return isInApiModeGroup(moonshotApiModelKeys, configOrSession)
+}
+
+export function isUsingGeminiApiModel(configOrSession) {
+  return isInApiModeGroup(geminiApiModelKeys, configOrSession)
 }
 
 export function isUsingChatGLMApiModel(configOrSession) {
