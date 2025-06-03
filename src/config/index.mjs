@@ -39,6 +39,33 @@ export const chatgptWebModelKeys = [
 export const bingWebModelKeys = ['bingFree4', 'bingFreeSydney']
 export const bardWebModelKeys = ['bardWebFree']
 export const claudeWebModelKeys = ['claude2WebFree']
+export const youWebModelKeys = [
+  'create',
+  'openai_o1',
+  'openai_o1_preview',
+  'openai_o1_mini',
+  'gpt_4o_mini',
+  'gpt_4o',
+  'gpt_4_turbo',
+  'gpt_4',
+  'grok_2',
+  'claude_3_5_sonnet',
+  'claude_3_opus',
+  'claude_3_sonnet',
+  'claude_3_5_haiku',
+  'llama3_3_70b',
+  'llama3_2_90b',
+  'llama3_1_405b',
+  'mistral_large_2',
+  'gemini_1_5_flash',
+  'gemini_1_5_pro',
+  'databricks_dbrx_instruct',
+  'qwen2p5_72b',
+  'qwen2p5_coder_32b',
+  'command_r_plus',
+  'solar_1_mini',
+  'dolphin_2_5',
+]
 export const moonshotWebModelKeys = ['moonshotWebFree']
 export const gptApiModelKeys = ['gptApiInstruct', 'gptApiDavinci']
 export const chatgptApiModelKeys = [
@@ -108,9 +135,13 @@ export const ModelGroups = {
     value: chatgptWebModelKeys,
     desc: 'ChatGPT (Web)',
   },
-  claudeWebModelKeys: {
+   claudeWebModelKeys: {
     value: claudeWebModelKeys,
     desc: 'Claude.ai (Web)',
+  },
+  youWebModelKeys: {
+    value: youWebModelKeys,
+    desc: 'You.com (Web)',
   },
   moonshotWebModelKeys: {
     value: moonshotWebModelKeys,
@@ -246,6 +277,8 @@ export const Models = {
   moonshotWebFree: { value: '', desc: 'Kimi.Moonshot (Web, 100k)' },
 
   bardWebFree: { value: '', desc: 'Gemini (Web)' },
+    youWebFree: { value: "", desc: "You.com (Web)" }, // Added You.com model
+    create: { value: "create", desc: "You.com (Web, Create Mode)" }, // Added You.com create model
 
   chatglmTurbo: { value: 'GLM-4-Air', desc: 'ChatGLM (GLM-4-Air, 128k)' },
   chatglm4: { value: 'GLM-4-0520', desc: 'ChatGLM (GLM-4-0520, 128k)' },
@@ -262,6 +295,33 @@ export const Models = {
 
   gptApiInstruct: { value: 'gpt-3.5-turbo-instruct', desc: 'GPT-3.5-turbo Instruct' },
   gptApiDavinci: { value: 'text-davinci-003', desc: 'GPT-3.5' },
+  
+  create: { value: 'create', desc: 'YouWeb create' },
+  openai_o1: { value: 'openai_o1', desc: 'YouWeb openai_o1' },
+  openai_o1_preview: { value: 'openai_o1_preview', desc: 'YouWeb openai_o1_preview' },
+  openai_o1_mini: { value: 'openai_o1_mini', desc: 'YouWeb openai_o1_mini' },
+  gpt_4o_mini: { value: 'gpt_4o_mini', desc: 'YouWeb gpt_4o_mini' },
+  gpt_4o: { value: 'gpt_4o', desc: 'YouWeb gpt_4o' },
+  gpt_4_turbo: { value: 'gpt_4_turbo', desc: 'YouWeb gpt_4_turbo' },
+  gpt_4: { value: 'gpt_4', desc: 'YouWeb gpt_4' },
+  grok_2: { value: 'grok_2', desc: 'YouWeb grok_2' },
+  claude_3_5_sonnet: { value: 'claude_3_5_sonnet', desc: 'YouWeb claude_3_5_sonnet' },
+  claude_3_opus: { value: 'claude_3_opus', desc: 'YouWeb claude_3_opus' },
+  claude_3_sonnet: { value: 'claude_3_sonnet', desc: 'YouWeb claude_3_sonnet' },
+  claude_3_5_haiku: { value: 'claude_3_5_haiku', desc: 'YouWeb claude_3_5_haiku' },
+  llama3_3_70b: { value: 'llama3_3_70b', desc: 'YouWeb llama3_3_70b' },
+  llama3_2_90b: { value: 'llama3_2_90b', desc: 'YouWeb llama3_2_90b' },
+  llama3_1_405b: { value: 'llama3_1_405b', desc: 'YouWeb llama3_1_405b' },
+  mistral_large_2: { value: 'mistral_large_2', desc: 'YouWeb mistral_large_2' },
+  gemini_1_5_flash: { value: 'gemini_1_5_flash', desc: 'YouWeb gemini_1_5_flash' },
+  gemini_1_5_pro: { value: 'gemini_1_5_pro', desc: 'YouWeb gemini_1_5_pro' },
+  databricks_dbrx_instruct: { value: 'databricks_dbrx_instruct', desc: 'YouWeb databricks_dbrx_instruct' },
+  qwen2p5_72b: { value: 'qwen2p5_72b', desc: 'YouWeb qwen2p5_72b' },
+  qwen2p5_coder_32b: { value: 'qwen2p5_coder_32b', desc: 'YouWeb qwen2p5_coder_32b' },
+  command_r_plus: { value: 'command_r_plus', desc: 'YouWeb command_r_plus' },
+  solar_1_mini: { value: 'solar_1_mini', desc: 'YouWeb solar_1_mini' },
+  dolphin_2_5: { value: 'dolphin_2_5', desc: 'YouWeb dolphin_2_5' },
+
 
   customModel: { value: '', desc: 'Custom Model' },
   ollamaModel: { value: '', desc: 'Ollama API' },
@@ -384,18 +444,31 @@ export const defaultConfig = {
   // It allows the content of activeApiModes to change with version updates when the user has not customized ApiModes.
   // If it were directly written into customApiModes, the value would become fixed, even if the user has not made any customizations.
   activeApiModes: [
-    'chatgptFree35',
-    'chatgptFree4o',
-    'chatgptApi35',
-    'chatgptApi4o_128k',
-    'claude2WebFree',
-    'claude35SonnetApi',
-    'bingFree4',
-    'moonshotWebFree',
-    'moonshot_v1_8k',
-    'chatglmTurbo',
-    'customModel',
-    'azureOpenAi',
+    'create',
+    'openai_o1',
+    'openai_o1_preview',
+    'openai_o1_mini',
+    'gpt_4o_mini',
+    'gpt_4o',
+    'gpt_4_turbo',
+    'gpt_4',
+    'grok_2',
+    'claude_3_5_sonnet',
+    'claude_3_opus',
+    'claude_3_sonnet',
+    'claude_3_5_haiku',
+    'llama3_3_70b',
+    'llama3_2_90b',
+    'llama3_1_405b',
+    'mistral_large_2',
+    'gemini_1_5_flash',
+    'gemini_1_5_pro',
+    'databricks_dbrx_instruct',
+    'qwen2p5_72b',
+    'qwen2p5_coder_32b',
+    'command_r_plus',
+    'solar_1_mini',
+    'dolphin_2_5',
   ],
   customApiModes: [
     {
@@ -497,6 +570,10 @@ export function isUsingChatgptWebModel(configOrSession) {
 
 export function isUsingClaudeWebModel(configOrSession) {
   return isInApiModeGroup(claudeWebModelKeys, configOrSession)
+}
+
+export function isUsingYouWebModel(configOrSession) {
+  return isInApiModeGroup(youWebModelKeys, configOrSession)
 }
 
 export function isUsingMoonshotWebModel(configOrSession) {
