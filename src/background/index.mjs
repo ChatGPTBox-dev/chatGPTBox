@@ -33,6 +33,7 @@ import {
   isUsingClaudeWebModel,
   isUsingMoonshotApiModel,
   isUsingMoonshotWebModel,
+  isUsingGeminiApiModel,
 } from '../config/index.mjs'
 import '../_locales/i18n'
 import { openUrl } from '../utils/open-url'
@@ -49,6 +50,7 @@ import { generateAnswersWithBardWebApi } from '../services/apis/bard-web.mjs'
 import { generateAnswersWithClaudeWebApi } from '../services/apis/claude-web.mjs'
 import { generateAnswersWithMoonshotCompletionApi } from '../services/apis/moonshot-api.mjs'
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
+import { generateAnswersWithGeminiApi } from '../services/apis/gemini-api.mjs' // Added import
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
 
 function setPortProxy(port, proxyTabId) {
@@ -140,6 +142,8 @@ async function executeApi(session, port, config) {
       session,
       config.moonshotApiKey,
     )
+  } else if (isUsingGeminiApiModel(session)) { // Added Gemini condition
+    await generateAnswersWithGeminiApi(port, session.question, session)
   } else if (isUsingChatGLMApiModel(session)) {
     await generateAnswersWithChatGLMApi(port, session.question, session)
   } else if (isUsingOllamaApiModel(session)) {

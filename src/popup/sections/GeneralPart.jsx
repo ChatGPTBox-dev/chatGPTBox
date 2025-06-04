@@ -21,6 +21,7 @@ import {
   ThemeMode,
   TriggerMode,
   isUsingMoonshotApiModel,
+  isUsingGeminiApiModel, // Added import
   Models,
 } from '../../config/index.mjs'
 import Browser from 'webextension-polyfill'
@@ -330,6 +331,18 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
                 </a>
               )}
             </span>
+          )}
+          {isUsingGeminiApiModel(config) && (
+            <input
+              type="password"
+              style="width: 50%;"
+              value={config.geminiApiKey}
+              placeholder={t('Gemini API Key')} // Using t() for consistency, will add to i18n later
+              onChange={(e) => {
+                const apiKey = e.target.value
+                updateConfig({ geminiApiKey: apiKey })
+              }}
+            />
           )}
         </span>
         {isUsingSpecialCustomModel(config) && (
