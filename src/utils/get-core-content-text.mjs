@@ -71,7 +71,7 @@ export function getCoreContentText() {
   }
 
   if (isProbablyReaderable(document)) {
-    const article = new Readability(document.cloneNode(true), {
+    let article = new Readability(document.cloneNode(true), {
       keepClasses: true,
     }).parse()
     if (article?.textContent) {
