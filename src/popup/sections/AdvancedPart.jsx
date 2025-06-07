@@ -23,7 +23,7 @@ function ApiParams({ config, updateConfig }) {
           step="100"
           value={config.maxResponseTokenLength}
           onChange={(e) => {
-            const value = parseIntWithClamp(e.target.value, 1000, 100, 40000)
+            const value = parseIntWithClamp(e.target.value, 100, 40000, 1000)
             updateConfig({ maxResponseTokenLength: value })
           }}
         />
@@ -37,7 +37,7 @@ function ApiParams({ config, updateConfig }) {
           step="1"
           value={config.maxConversationContextLength}
           onChange={(e) => {
-            const value = parseIntWithClamp(e.target.value, 9, 0, 100)
+            const value = parseIntWithClamp(e.target.value, 0, 100, 9)
             updateConfig({ maxConversationContextLength: value })
           }}
         />

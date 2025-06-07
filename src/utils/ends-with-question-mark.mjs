@@ -1,8 +1,9 @@
 export function endsWithQuestionMark(question) {
+  const trimmedQuestion = question.trim();
   return (
-    question.endsWith('?') || // ASCII
-    question.endsWith('？') || // Chinese/Japanese
-    question.endsWith('؟') || // Arabic
-    question.endsWith('⸮') // Arabic
+    trimmedQuestion.endsWith('?') || // ASCII
+    trimmedQuestion.endsWith('？') || // Chinese/Japanese
+    trimmedQuestion.endsWith('؟') || // Arabic
+    trimmedQuestion.endsWith('⸮') // Arabic
   )
 }

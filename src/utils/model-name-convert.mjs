@@ -163,3 +163,13 @@ export function isInApiModeGroup(apiModeGroup, configOrSession) {
   const [, { value: groupValue }] = foundGroup
   return groupValue === apiModeGroup
 }
+
+export function isGPT4(modelName) {
+  if (!modelName) return false;
+  return modelName.startsWith('gpt-4');
+}
+
+export function isClaude3(modelName) {
+  if (!modelName) return false;
+  return modelName.startsWith('claude-3');
+}
