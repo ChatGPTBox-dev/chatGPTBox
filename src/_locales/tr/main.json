@@ -159,5 +159,7 @@
   "Gemini (Web)": "Gemini (Web)",
   "Type": "Tür",
   "Mode": "Mod",
-  "Custom": "Özel"
+  "Custom": "Özel",
+  "Presence Penalty": "Varlık Cezası",
+  "Frequency Penalty": "Frekans Cezası"
 }

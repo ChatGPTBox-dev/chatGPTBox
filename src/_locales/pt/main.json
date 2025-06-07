@@ -159,5 +159,7 @@
   "Gemini (Web)": "Gemini (Web)",
   "Type": "Tipo",
   "Mode": "Modo",
-  "Custom": "Personalizado"
+  "Custom": "Personalizado",
+  "Presence Penalty": "Penalidade de presença",
+  "Frequency Penalty": "Penalidade de frequência"
 }

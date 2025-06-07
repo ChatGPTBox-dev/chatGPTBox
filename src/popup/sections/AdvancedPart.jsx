@@ -56,6 +56,34 @@ function ApiParams({ config, updateConfig }) {
           }}
         />
       </label>
+      <label>
+        {t('Presence Penalty') + `: ${config.presence_penalty}`}
+        <input
+          type="range"
+          min="-2"
+          max="2"
+          step="0.1"
+          value={config.presence_penalty}
+          onChange={(e) => {
+            const value = parseFloatWithClamp(e.target.value, 0, -2, 2)
+            updateConfig({ presence_penalty: value })
+          }}
+        />
+      </label>
+      <label>
+        {t('Frequency Penalty') + `: ${config.frequency_penalty}`}
+        <input
+          type="range"
+          min="-2"
+          max="2"
+          step="0.1"
+          value={config.frequency_penalty}
+          onChange={(e) => {
+            const value = parseFloatWithClamp(e.target.value, 0, -2, 2)
+            updateConfig({ frequency_penalty: value })
+          }}
+        />
+      </label>
     </>
   )
 }

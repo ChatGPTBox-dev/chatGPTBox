@@ -48,6 +48,8 @@ export async function generateAnswersWithGptCompletionApi(port, question, sessio
       stream: true,
       max_tokens: config.maxResponseTokenLength,
       temperature: config.temperature,
+      presence_penalty: config.presence_penalty,
+      frequency_penalty: config.frequency_penalty,
       stop: '\nHuman',
     }),
     onMessage(message) {
@@ -145,6 +147,8 @@ export async function generateAnswersWithChatgptApiCompat(
       stream: true,
       max_tokens: config.maxResponseTokenLength,
       temperature: config.temperature,
+      presence_penalty: config.presence_penalty,
+      frequency_penalty: config.frequency_penalty,
       ...extraBody,
     }),
     onMessage(message) {

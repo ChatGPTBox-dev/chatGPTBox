@@ -159,5 +159,7 @@
   "Gemini (Web)": "Gemini (Web)",
   "Type": "タイプ",
   "Mode": "モード",
-  "Custom": "カスタム"
+  "Custom": "カスタム",
+  "Presence Penalty": "存在ペナルティ",
+  "Frequency Penalty": "頻度ペナルティ"
 }
