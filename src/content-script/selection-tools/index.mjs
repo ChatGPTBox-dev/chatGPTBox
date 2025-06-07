@@ -30,7 +30,7 @@ const createGenPrompt =
       ? `You are a professional translator. Translate the following text into ${preferredLanguage}, preserving meaning, tone, and formatting. Only provide the translated result.`
       : message
     if (enableBidirectional) {
-      fullMessage += ` If it is already in ${preferredLanguage}, translate it into English and only show me the translated content.`
+      fullMessage += ` If the text is already in ${preferredLanguage}, translate it into English instead following the same requirements.`
     }
     const prefix = includeLanguagePrefix ? `Reply in ${preferredLanguage}.` : ''
     return `${prefix}${fullMessage}:\n'''\n${selection}\n'''`
