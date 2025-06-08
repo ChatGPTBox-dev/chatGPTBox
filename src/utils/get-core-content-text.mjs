@@ -75,8 +75,10 @@ export function getCoreContentText() {
       keepClasses: true,
     }).parse()
     if (article?.textContent) {
-      console.log('readerable')
+      console.log('readerable: successfully extracted content')
       return postProcessText(article.textContent)
+    } else {
+      console.log('readerable: parsing failed despite probability check')
     }
   }
 
