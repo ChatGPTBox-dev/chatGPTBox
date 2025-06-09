@@ -1,8 +1,12 @@
 export function endsWithQuestionMark(question) {
+  if (typeof question !== 'string') {
+    return false;
+  }
+  const trimmedQuestion = question.trim();
   return (
-    question.endsWith('?') || // ASCII
-    question.endsWith('？') || // Chinese/Japanese
-    question.endsWith('؟') || // Arabic
-    question.endsWith('⸮') // Arabic
+    trimmedQuestion.endsWith('?') || // ASCII
+    trimmedQuestion.endsWith('？') || // Chinese/Japanese
+    trimmedQuestion.endsWith('؟') || // Arabic
+    trimmedQuestion.endsWith('⸮') // Reversed/inverted question mark (used in some contexts including Arabic)
   )
 }

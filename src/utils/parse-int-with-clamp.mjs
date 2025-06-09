@@ -1,5 +1,5 @@
-export function parseIntWithClamp(value, defaultValue, min, max) {
-  value = parseInt(value)
+export function parseIntWithClamp(value, min, max, defaultValue) {
+  value = parseInt(value, 10)
 
   if (isNaN(value)) value = defaultValue
   else if (value > max) value = max

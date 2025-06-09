@@ -1,0 +1,33 @@
+{
+  "transform": {
+    "^.+\\.(t|j|mj)sx?$": ["babel-jest", {
+      "presets": [
+        [
+          "@babel/preset-env",
+          {
+            "targets": {
+              "node": "current"
+            }
+          }
+        ]
+      ]
+    }]
+  },
+  "moduleFileExtensions": [
+    "js",
+    "mjs",
+    "json",
+    "jsx",
+    "ts",
+    "tsx",
+    "node"
+  ],
+  "testRegex": "(/__tests__/.*|(\\.|/)(test|spec))\\.(mjs|js|jsx|ts|tsx)$",
+  "testEnvironment": "node",
+  "collectCoverage": true,
+  "coverageDirectory": "coverage",
+  "coverageReporters": [
+    "text",
+    "lcov"
+  ]
+}
