@@ -364,6 +364,8 @@ export const defaultConfig = {
   maxResponseTokenLength: 1000,
   maxConversationContextLength: 9,
   temperature: 1,
+  presence_penalty: 0,
+  frequency_penalty: 0,
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',
   customOpenAiApiUrl: 'https://api.openai.com',

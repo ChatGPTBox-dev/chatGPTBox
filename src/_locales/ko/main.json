@@ -159,5 +159,7 @@
   "Gemini (Web)": "Gemini (웹)",
   "Type": "유형",
   "Mode": "모드",
-  "Custom": "사용자 정의"
+  "Custom": "사용자 정의",
+  "Presence Penalty": "존재 패널티",
+  "Frequency Penalty": "빈도 패널티"
 }

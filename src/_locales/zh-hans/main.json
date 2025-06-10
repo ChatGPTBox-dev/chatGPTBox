@@ -164,5 +164,7 @@
   "ChatGLM (GLM-4-Air, 128k)": "ChatGLM (GLM4Air, 性价比, 128k)",
   "ChatGLM (GLM-4-0520, 128k)": "ChatGLM (GLM4-0520, 最智能, 128k)",
   "ChatGLM (Emohaa)": "ChatGLM (Emohaa, 专业情绪咨询)",
-  "ChatGLM (CharGLM-3)": "ChatGLM (CharGLM-3, 角色扮演)"
+  "ChatGLM (CharGLM-3)": "ChatGLM (CharGLM-3, 角色扮演)",
+  "Presence Penalty": "存在惩罚",
+  "Frequency Penalty": "频率惩罚"
 }

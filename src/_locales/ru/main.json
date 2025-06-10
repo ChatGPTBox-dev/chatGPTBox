@@ -159,5 +159,7 @@
   "Gemini (Web)": "Gemini (Веб)",
   "Type": "Тип",
   "Mode": "Режим",
-  "Custom": "Пользовательский"
+  "Custom": "Пользовательский",
+  "Presence Penalty": "Штраф за присутствие",
+  "Frequency Penalty": "Штраф за частоту"
 }

@@ -40,6 +40,8 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
         stream: true,
         max_tokens: config.maxResponseTokenLength,
         temperature: config.temperature,
+        presence_penalty: config.presence_penalty,
+        frequency_penalty: config.frequency_penalty,
       }),
       onMessage(message) {
         console.debug('sse message', message)

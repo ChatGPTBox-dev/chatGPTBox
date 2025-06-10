@@ -159,5 +159,7 @@
   "Gemini (Web)": "Gemini (Web)",
   "Type": "Jenis",
   "Mode": "Mode",
-  "Custom": "Kustom"
+  "Custom": "Kustom",
+  "Presence Penalty": "Penalti Kehadiran",
+  "Frequency Penalty": "Penalti Frekuensi"
 }
