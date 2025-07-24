@@ -51,6 +51,10 @@ export async function getClaudeSessionKey() {
   return (await Browser.cookies.get({ url: 'https://claude.ai/', name: 'sessionKey' }))?.value
 }
 
+export async function getYouSessionKey() {
+  return (await Browser.cookies.get({ url: 'https://you.com/', name: 'sessionKey' }))?.value
+}
+
 export function handlePortError(session, port, err) {
   console.error(err)
   if (err.message) {
