@@ -79,6 +79,7 @@ export const claudeApiModelKeys = [
   'claude35HaikuApi',
   'claude37SonnetApi',
   'claudeOpus4Api',
+  'claudeOpus41Api',
   'claudeSonnet4Api',
 ]
 export const chatglmApiModelKeys = ['chatglmTurbo', 'chatglm4', 'chatglmEmohaa', 'chatglmCharGLM3']
@@ -118,6 +119,7 @@ export const openRouterApiModelKeys = [
 export const aimlApiModelKeys = [
   'aiml_anthropic_claude_opus_4',
   'aiml_anthropic_claude_sonnet_4',
+  'aiml_anthropic_claude_opus_4_1',
   'aiml_claude_3_7_sonnet_20250219',
   'aiml_google_gemini_2_5_pro_preview_05_06',
   'aiml_google_gemini_2_5_flash_preview',
@@ -278,6 +280,10 @@ export const Models = {
     value: 'claude-opus-4-20250514',
     desc: 'Claude.ai (API, Claude Opus 4)',
   },
+  claudeOpus41Api: {
+    value: 'claude-opus-4-1-20250805',
+    desc: 'Claude.ai (API, Claude Opus 4.1)',
+  },
   claudeSonnet4Api: {
     value: 'claude-sonnet-4-20250514',
     desc: 'Claude.ai (API, Claude Sonnet 4)',
@@ -392,6 +398,10 @@ export const Models = {
   aiml_anthropic_claude_opus_4: {
     value: 'anthropic/claude-opus-4',
     desc: 'AIML (Claude Opus 4)',
+  },
+  aiml_anthropic_claude_opus_4_1: {
+    value: 'anthropic/claude-opus-4-1',
+    desc: 'AIML (Claude Opus 4.1)',
   },
   aiml_anthropic_claude_sonnet_4: {
     value: 'anthropic/claude-sonnet-4',
