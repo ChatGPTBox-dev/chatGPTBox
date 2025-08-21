@@ -160,5 +160,17 @@
   "Type": "Type",
   "Mode": "Mode",
   "Custom": "Custom",
+  "Custom Providers": "Custom Providers",
+  "Manage OpenAI-compatible API providers. Each provider can have multiple models sharing the same API key and base URL.": "Manage OpenAI-compatible API providers. Each provider can have multiple models sharing the same API key and base URL.",
+  "Add New Provider": "Add New Provider",
+  "Add Provider": "Add Provider",
+  "Save Provider": "Save Provider",
+  "Provider Name (e.g., \"OpenRouter\", \"LocalAI\")": "Provider Name (e.g., \"OpenRouter\", \"LocalAI\")",
+  "Base URL (e.g., \"https://openrouter.ai/api/v1/chat/completions\")": "Base URL (e.g., \"https://openrouter.ai/api/v1/chat/completions\")",
+  "Models": "Models",
+  "Add Model": "Add Model",
+  "Model Name (e.g., \"gpt-4\", \"claude-3\")": "Model Name (e.g., \"gpt-4\", \"claude-3\")",
+  "Display Name (e.g., \"GPT-4\", \"Claude 3\")": "Display Name (e.g., \"GPT-4\", \"Claude 3\")",
+  "Active": "Active",
   "Crop Text to ensure the input tokens do not exceed the model's limit": "Crop Text to ensure the input tokens do not exceed the model's limit"
 }

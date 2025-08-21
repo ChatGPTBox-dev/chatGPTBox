@@ -5,11 +5,45 @@
 // and it has not yet had a negative impact on maintenance.
 // If necessary, I will refactor.
 
-import { getUserConfig } from '../../config/index.mjs'
+import {
+  getUserConfig,
+  getCustomProvider,
+  isUsingCustomProviderModel,
+} from '../../config/index.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { pushRecord, setAbortController } from './shared.mjs'
+
+/**
+ * Generate answers using custom provider or direct configuration
+ * @param {Browser.Runtime.Port} port
+ * @param {string} question
+ * @param {Session} session
+ */
+export async function generateAnswersWithCustomProviderApi(port, question, session) {
+  const config = await getUserConfig()
+  let apiUrl, apiKey, modelName
+
+  // Check if using provider-based configuration
+  if (isUsingCustomProviderModel(session)) {
+    const provider = getCustomProvider(config, session.providerId)
+    if (!provider) {
+      throw new Error(`Custom provider ${session.providerId} not found`)
+    }
+
+    apiUrl = provider.baseUrl?.trim() || 'http://localhost:8000/v1/chat/completions'
+    apiKey = provider.apiKey?.trim() || ''
+    modelName = session.providerModelName || 'gpt-4'
+  } else {
+    // Fallback to legacy custom model configuration
+    apiUrl = config.customModelApiUrl?.trim() || 'http://localhost:8000/v1/chat/completions'
+    apiKey = config.customApiKey?.trim() || ''
+    modelName = config.customModelName || 'gpt-4'
+  }
+
+  return generateAnswersWithCustomApi(port, question, session, apiUrl, apiKey, modelName)
+}
 
 /**
  * @param {Browser.Runtime.Port} port

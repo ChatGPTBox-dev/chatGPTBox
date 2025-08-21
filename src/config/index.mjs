@@ -553,6 +553,23 @@ export const defaultConfig = {
       active: false,
     },
   ],
+  // Provider-level management for OpenAI-compatible APIs
+  customProviders: [
+    {
+      id: '',
+      name: '',
+      baseUrl: '',
+      apiKey: '',
+      active: true,
+      models: [
+        {
+          name: '',
+          displayName: '',
+          active: true,
+        },
+      ],
+    },
+  ],
   activeSelectionTools: ['translate', 'translateToEn', 'summary', 'polish', 'code', 'ask'],
   customSelectionTools: [
     {
@@ -713,6 +730,53 @@ export function isUsingCustomModel(configOrSession) {
 }
 
 /**
+ * Check if a session is using a custom provider model
+ * @param {object} configOrSession
+ * @returns {boolean}
+ */
+export function isUsingCustomProviderModel(configOrSession) {
+  return configOrSession.providerId && configOrSession.providerModelName
+}
+
+/**
+ * Get provider configuration by ID
+ * @param {UserConfig} config
+ * @param {string} providerId
+ * @returns {object|null}
+ */
+export function getCustomProvider(config, providerId) {
+  return config.customProviders?.find((provider) => provider.id === providerId) || null
+}
+
+/**
+ * Get all active custom providers
+ * @param {UserConfig} config
+ * @returns {array}
+ */
+export function getActiveCustomProviders(config) {
+  return config.customProviders?.filter((provider) => provider.active) || []
+}
+
+/**
+ * Get all active models from all providers
+ * @param {UserConfig} config
+ * @returns {array} Array of {provider, model} objects
+ */
+export function getAllActiveProviderModels(config) {
+  const result = []
+  const activeProviders = getActiveCustomProviders(config)
+
+  for (const provider of activeProviders) {
+    const activeModels = provider.models?.filter((model) => model.active) || []
+    for (const model of activeModels) {
+      result.push({ provider, model })
+    }
+  }
+
+  return result
+}
+
+/**
  * @deprecated
  */
 export function isUsingCustomNameOnlyModel(configOrSession) {
@@ -729,11 +793,60 @@ export async function getPreferredLanguageKey() {
  * get user config from local storage
  * @returns {Promise<UserConfig>}
  */
+/**
+ * Migrate legacy custom model configuration to providers if needed
+ * @param {UserConfig} config
+ * @returns {UserConfig}
+ */
+function migrateCustomModelToProvider(config) {
+  // Skip migration if no legacy custom model or already has providers
+  if (!config.customApiKey || !config.customModelApiUrl || !config.customModelName) {
+    return config
+  }
+
+  // Skip if already has custom providers (user has already migrated or set up providers)
+  if (config.customProviders && config.customProviders.length > 0 && config.customProviders[0].id) {
+    return config
+  }
+
+  // Create a provider from the legacy configuration
+  const legacyProvider = {
+    id: 'legacy_custom_' + Date.now(),
+    name: 'Legacy Custom Model',
+    baseUrl: config.customModelApiUrl,
+    apiKey: config.customApiKey,
+    active: true,
+    models: [
+      {
+        name: config.customModelName,
+        displayName: config.customModelName,
+        active: true,
+      },
+    ],
+  }
+
+  return {
+    ...config,
+    customProviders: [legacyProvider],
+  }
+}
+
 export async function getUserConfig() {
   const options = await Browser.storage.local.get(Object.keys(defaultConfig))
   if (options.customChatGptWebApiUrl === 'https://chat.openai.com')
     options.customChatGptWebApiUrl = 'https://chatgpt.com'
-  return defaults(options, defaultConfig)
+
+  const config = defaults(options, defaultConfig)
+
+  // Run migration for legacy custom models
+  const migratedConfig = migrateCustomModelToProvider(config)
+
+  // Save migrated config if changes were made
+  if (JSON.stringify(migratedConfig.customProviders) !== JSON.stringify(config.customProviders)) {
+    await setUserConfig({ customProviders: migratedConfig.customProviders })
+  }
+
+  return migratedConfig
 }
 
 /**
