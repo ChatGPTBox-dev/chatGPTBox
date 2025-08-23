@@ -105,6 +105,7 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
   }, [
     config.activeApiModes,
     config.customApiModes,
+    config.customProviders,
     config.azureDeploymentName,
     config.ollamaModelName,
   ])

@@ -9,7 +9,10 @@ import {
   generateAnswersWithChatgptApi,
   generateAnswersWithGptCompletionApi,
 } from '../services/apis/openai-api'
-import { generateAnswersWithCustomApi } from '../services/apis/custom-api.mjs'
+import {
+  generateAnswersWithCustomApi,
+  generateAnswersWithCustomProviderApi,
+} from '../services/apis/custom-api.mjs'
 import { generateAnswersWithOllamaApi } from '../services/apis/ollama-api.mjs'
 import { generateAnswersWithAzureOpenaiApi } from '../services/apis/azure-openai-api.mjs'
 import { generateAnswersWithClaudeApi } from '../services/apis/claude-api.mjs'
@@ -84,7 +87,19 @@ async function executeApi(session, port, config) {
   console.debug('modelName', session.modelName)
   console.debug('apiMode', session.apiMode)
   if (isUsingCustomModel(session)) {
-    if (!session.apiMode)
+    if (session.providerId && session.providerModelName) {
+      // Use provider-based configuration from session
+      await generateAnswersWithCustomProviderApi(port, session.question, session)
+    } else if (session.apiMode && session.apiMode.providerId) {
+      // Use provider-based configuration from API mode
+      const providerSession = {
+        ...session,
+        providerId: session.apiMode.providerId,
+        providerModelName: session.apiMode.providerModelName,
+      }
+      await generateAnswersWithCustomProviderApi(port, session.question, providerSession)
+    } else if (!session.apiMode) {
+      // Legacy single custom model
       await generateAnswersWithCustomApi(
         port,
         session.question,
@@ -93,7 +108,8 @@ async function executeApi(session, port, config) {
         config.customApiKey,
         config.customModelName,
       )
-    else
+    } else {
+      // Custom API mode
       await generateAnswersWithCustomApi(
         port,
         session.question,
@@ -104,6 +120,7 @@ async function executeApi(session, port, config) {
         session.apiMode.apiKey.trim() || config.customApiKey,
         session.apiMode.customName,
       )
+    }
   } else if (isUsingChatgptWebModel(session)) {
     let tabId
     if (
