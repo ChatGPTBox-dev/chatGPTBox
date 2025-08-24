@@ -164,3 +164,20 @@ export function isInApiModeGroup(apiModeGroup, configOrSession) {
   const [, { value: groupValue }] = foundGroup
   return groupValue === apiModeGroup
 }
+
+export function isUsingReasoningModel(configOrSession) {
+  const modelValue = getModelValue(configOrSession)
+  if (!modelValue) return false
+
+  // Explicitly match o1, o3, or o4 with optional dash and suffix (e.g., o1, o1-preview, o3-mini, o4-mini)
+  if (/^(o1|o3|o4)(?:-|$)/.test(modelValue)) {
+    return true
+  }
+
+  // Match gpt-5* pattern but exclude gpt-5-chat-* variants
+  if (modelValue.startsWith('gpt-5') && !modelValue.startsWith('gpt-5-chat')) {
+    return true
+  }
+
+  return false
+}
