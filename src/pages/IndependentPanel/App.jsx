@@ -6,7 +6,7 @@ import {
   getSession,
   deleteSession,
 } from '../../services/local-session.mjs'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import './styles.scss'
 import { useConfig } from '../../hooks/use-config.mjs'
 import { useTranslation } from 'react-i18next'
@@ -25,6 +25,7 @@ function App() {
   const [sessionId, setSessionId] = useState(null)
   const [currentSession, setCurrentSession] = useState(null)
   const [renderContent, setRenderContent] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const currentPort = useRef(null)
 
   const setSessionIdSafe = async (sessionId) => {
@@ -103,6 +104,35 @@ function App() {
     await setSessionIdSafe(sessions[0].sessionId)
   }
 
+  // Utility function to safely convert any value to a string
+  const toSafeString = (value) =>
+    typeof value === 'string' ? value : value == null ? '' : String(value)
+
+  // Filter sessions based on search query (memoized for performance)
+  const filteredSessions = useMemo(() => {
+    const query = toSafeString(searchQuery).trim().toLowerCase()
+    if (!query) return sessions
+
+    return sessions.filter((session) => {
+      // Search in session name
+      const sessionName = toSafeString(session.sessionName).toLowerCase()
+      if (sessionName.includes(query)) {
+        return true
+      }
+
+      // Search in conversation records
+      if (Array.isArray(session.conversationRecords)) {
+        return session.conversationRecords.some((record) => {
+          const question = toSafeString(record?.question).toLowerCase()
+          const answer = toSafeString(record?.answer).toLowerCase()
+          return question.includes(query) || answer.includes(query)
+        })
+      }
+
+      return false
+    })
+  }, [sessions, searchQuery])
+
   return (
     <div className="IndependentPanel">
       <div className="chat-container">
@@ -119,36 +149,51 @@ function App() {
             </button>
           </div>
           <hr />
+          <div className="search-container">
+            <input
+              type="search"
+              placeholder={t('Search conversations...')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="search-input"
+              aria-label={t('Search')}
+              autoComplete="off"
+            />
+          </div>
           <div className="chat-list">
-            {sessions.map(
-              (
-                session,
-                index, // TODO editable session name
-              ) => (
-                <button
-                  key={index}
-                  className={`normal-button ${sessionId === session.sessionId ? 'active' : ''}`}
-                  style="display: flex; align-items: center; justify-content: space-between;"
-                  onClick={() => {
-                    setSessionIdSafe(session.sessionId)
-                  }}
-                >
-                  {session.sessionName}
-                  <span className="gpt-util-group">
-                    <DeleteButton
-                      size={14}
-                      text={t('Delete Conversation')}
-                      onConfirm={() =>
-                        deleteSession(session.sessionId).then((sessions) => {
-                          setSessions(sessions)
-                          setSessionIdSafe(sessions[0].sessionId)
-                        })
+            {filteredSessions.map((session, index) => (
+              <button
+                key={session.sessionId || `session-${index}`}
+                className={`normal-button ${sessionId === session.sessionId ? 'active' : ''}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+                onClick={() => {
+                  setSessionIdSafe(session.sessionId)
+                }}
+              >
+                {session.sessionName}
+                <span className="gpt-util-group">
+                  <DeleteButton
+                    size={14}
+                    text={t('Delete Conversation')}
+                    onConfirm={async () => {
+                      const updatedSessions = await deleteSession(session.sessionId)
+                      setSessions(updatedSessions)
+                      if (updatedSessions && updatedSessions.length > 0) {
+                        await setSessionIdSafe(updatedSessions[0].sessionId)
+                      } else {
+                        // No sessions left after deletion
+                        setSessionId(null)
+                        setCurrentSession(null)
                       }
-                    />
-                  </span>
-                </button>
-              ),
-            )}
+                    }}
+                  />
+                </span>
+              </button>
+            ))}
           </div>
           <hr />
           <div className="chat-sidebar-button-group">
@@ -165,7 +210,7 @@ function App() {
         </div>
         <div className="chat-content">
           {renderContent && currentSession && currentSession.conversationRecords && (
-            <div className="chatgptbox-container" style="height:100%;">
+            <div className="chatgptbox-container" style={{ height: '100%' }}>
               <ConversationCard
                 session={currentSession}
                 notClampSize={true}

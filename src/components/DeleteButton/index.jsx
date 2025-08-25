@@ -35,7 +35,8 @@ function DeleteButton({ onConfirm, size, text }) {
         onBlur={() => {
           setWaitConfirm(false)
         }}
-        onClick={() => {
+        onClick={(e) => {
+          e.stopPropagation()
           setWaitConfirm(false)
           onConfirm()
         }}
@@ -46,7 +47,8 @@ function DeleteButton({ onConfirm, size, text }) {
         title={text}
         className="gpt-util-icon"
         style={waitConfirm ? { display: 'none' } : {}}
-        onClick={() => {
+        onClick={(e) => {
+          e.stopPropagation()
           setWaitConfirm(true)
         }}
       >
