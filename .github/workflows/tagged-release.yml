@@ -45,7 +45,7 @@ jobs:
       - run: |
           gh release create ${{github.ref_name}} -d -F CURRENT_CHANGE.md -t ${{github.ref_name}}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
       - run: npm ci
