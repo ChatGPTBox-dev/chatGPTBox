@@ -15,19 +15,14 @@ const __dirname = path.resolve()
 const isProduction = process.argv[2] !== '--development' // --production and --analyze are both production
 const isAnalyzing = process.argv[2] === '--analyze'
 // Env helpers
-function parseBooleanEnv(val) {
-  if (val == null) return false
+function getBooleanEnv(val, defaultValue) {
+  if (val == null) return defaultValue
   const s = String(val).trim().toLowerCase()
   return !(s === '' || s === '0' || s === 'false' || s === 'no' || s === 'off')
 }
-function isDisabledEnv(val) {
-  if (val == null) return false
-  const s = String(val).trim().toLowerCase()
-  return s === '' || s === '0' || s === 'false' || s === 'no' || s === 'off'
-}
 // Default: parallel build ON unless explicitly disabled
-const parallelBuild = !isDisabledEnv(process.env.BUILD_PARALLEL)
-const isWatchOnce = parseBooleanEnv(process.env.BUILD_WATCH_ONCE)
+const parallelBuild = getBooleanEnv(process.env.BUILD_PARALLEL, true)
+const isWatchOnce = getBooleanEnv(process.env.BUILD_WATCH_ONCE, false)
 // Cache compression control: default none; allow override via env
 function parseCacheCompressionOption(envVal) {
   if (envVal == null) return undefined
@@ -77,7 +72,30 @@ if (process.env.BUILD_POOL_TIMEOUT) {
   }
 }
 // Enable threads by default; allow disabling via BUILD_THREAD=0/false/no/off
-const enableThread = !isDisabledEnv(process.env.BUILD_THREAD)
+const enableThread = getBooleanEnv(process.env.BUILD_THREAD, true)
+
+// Cache and resolve Sass implementation once per process
+let sassImplPromise
+async function getSassImplementation() {
+  if (!sassImplPromise) {
+    sassImplPromise = (async () => {
+      try {
+        const mod = await import('sass-embedded')
+        return mod.default || mod
+      } catch (e1) {
+        try {
+          const mod = await import('sass')
+          return mod.default || mod
+        } catch (e2) {
+          console.error('[build] Failed to load sass-embedded:', e1 && e1.message ? e1.message : e1)
+          console.error('[build] Failed to load sass:', e2 && e2.message ? e2.message : e2)
+          throw new Error("No Sass implementation available. Install 'sass-embedded' or 'sass'.")
+        }
+      }
+    })()
+  }
+  return sassImplPromise
+}
 
 async function deleteOldDir() {
   await fs.rm(outdir, { recursive: true, force: true })
@@ -98,18 +116,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
   ]
   if (isWithoutKatex) shared.push('./src/components')
 
-  let sassImpl
-  try {
-    const mod = await import('sass-embedded')
-    sassImpl = mod.default || mod
-  } catch (e1) {
-    try {
-      const mod = await import('sass')
-      sassImpl = mod.default || mod
-    } catch (e2) {
-      throw new Error("No Sass implementation available. Install 'sass-embedded' or 'sass'.")
-    }
-  }
+  const sassImpl = await getSassImplementation()
 
   const dirKey = path.basename(sourceBuildDir || outdir)
   const variantParts = [
