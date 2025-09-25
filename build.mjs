@@ -32,7 +32,7 @@ const parallelBuild = getBooleanEnv(process.env.BUILD_PARALLEL, true)
 const isWatchOnce = getBooleanEnv(process.env.BUILD_WATCH_ONCE, false)
 // Cache compression control: default none; allow override via env
 function parseCacheCompressionOption(envVal) {
-  if (envVal == null) return undefined
+  if (envVal == null) return false
   const v = String(envVal).trim().toLowerCase()
   if (v === '' || v === '0' || v === 'false' || v === 'none') return false
   if (v === 'gzip' || v === 'brotli') return v
@@ -48,7 +48,7 @@ try {
   cpuCount = 1
 }
 function parseThreadWorkerCount(envValue, cpuCount) {
-  const maxWorkers = Math.max(1, cpuCount - 1)
+  const maxWorkers = Math.max(1, cpuCount)
   if (envValue !== undefined && envValue !== null) {
     const rawStr = String(envValue).trim()
     if (/^[1-9]\d*$/.test(rawStr)) {
@@ -66,6 +66,7 @@ function parseThreadWorkerCount(envValue, cpuCount) {
 }
 const threadWorkers = parseThreadWorkerCount(process.env.BUILD_THREAD_WORKERS, cpuCount)
 // Thread-loader pool timeout constants (allow override via env)
+// Keep worker pool warm briefly to amortize repeated builds while still exiting quickly in CI
 let PRODUCTION_POOL_TIMEOUT_MS = 2000
 if (process.env.BUILD_POOL_TIMEOUT) {
   const n = parseInt(process.env.BUILD_POOL_TIMEOUT, 10)
@@ -79,6 +80,8 @@ if (process.env.BUILD_POOL_TIMEOUT) {
 }
 // Enable threads by default; allow disabling via BUILD_THREAD=0/false/no/off
 const enableThread = getBooleanEnv(process.env.BUILD_THREAD, true)
+// Allow opt-in symlink resolution for linked/workspace development when needed
+const resolveSymlinks = getBooleanEnv(process.env.BUILD_RESOLVE_SYMLINKS, false)
 
 // Cache and resolve Sass implementation once per process
 let sassImplPromise
@@ -93,8 +96,8 @@ async function getSassImplementation() {
           const mod = await import('sass')
           return mod.default || mod
         } catch (e2) {
-          console.error('[build] Failed to load sass-embedded:', e1 && e1.message ? e1.message : e1)
-          console.error('[build] Failed to load sass:', e2 && e2.message ? e2.message : e2)
+          console.error('[build] Failed to load sass-embedded:', e1)
+          console.error('[build] Failed to load sass:', e2)
           throw new Error("No Sass implementation available. Install 'sass-embedded' or 'sass'.")
         }
       }
@@ -166,7 +169,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
       // unnecessary cache invalidations across machines/CI runners
       version: JSON.stringify({ PROD: isProduction }),
       // default none; override via BUILD_CACHE_COMPRESSION=gzip|brotli
-      compression: cacheCompressionOption ?? false,
+      compression: cacheCompressionOption,
       buildDependencies: {
         config: [
           path.resolve('build.mjs'),
@@ -224,9 +227,8 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
     ],
     resolve: {
       extensions: ['.jsx', '.mjs', '.js'],
-      // Disable symlink resolution for consistent behavior/perf; note this can
-      // affect `npm link`/pnpm workspaces during local development
-      symlinks: false,
+      // Disable symlink resolution for consistent behavior/perf; enable via BUILD_RESOLVE_SYMLINKS=1 when working with linked deps
+      symlinks: resolveSymlinks,
       alias: {
         parse5: path.resolve(__dirname, 'node_modules/parse5'),
         ...(minimal
@@ -296,7 +298,12 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
             },
             {
               loader: 'sass-loader',
-              options: { implementation: sassImpl },
+              options: {
+                implementation: sassImpl,
+                sassOptions: {
+                  quietDeps: true,
+                },
+              },
             },
           ],
         },
@@ -399,10 +406,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
   if (isProduction) {
     // Ensure compiler is properly closed after production runs
     compiler.run((err, stats) => {
-      const hasErrors = !!(
-        err ||
-        (stats && typeof stats.hasErrors === 'function' && stats.hasErrors())
-      )
+      const hasErrors = !!(err || stats?.hasErrors?.())
       let callbackFailed = false
       const finishClose = () =>
         compiler.close((closeErr) => {
@@ -424,18 +428,15 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
         } else {
           finishClose()
         }
-      } catch (err) {
-        console.error('[build] Callback error:', err)
+      } catch (callbackErr) {
+        console.error('[build] Callback error:', callbackErr)
         callbackFailed = true
         finishClose()
       }
     })
   } else {
     const watching = compiler.watch({}, (err, stats) => {
-      const hasErrors = !!(
-        err ||
-        (stats && typeof stats.hasErrors === 'function' && stats.hasErrors())
-      )
+      const hasErrors = !!(err || stats?.hasErrors?.())
       // Normalize callback return into a Promise to catch synchronous throws
       const ret = Promise.resolve().then(() => callback(err, stats))
       if (isWatchOnce) {
@@ -504,7 +505,7 @@ async function copyFiles(entryPoints, targetDir) {
       try {
         await fs.copy(entryPoint.src, `${targetDir}/${entryPoint.dst}`)
       } catch (e) {
-        const isCss = String(entryPoint.dst).endsWith('.css')
+        const isCss = typeof entryPoint.dst === 'string' && entryPoint.dst.endsWith('.css')
         if (e && e.code === 'ENOENT') {
           if (!isProduction && isCss) {
             console.log(
@@ -613,7 +614,7 @@ async function build() {
         minimal,
         tmpDir,
         async (err, stats) => {
-          if (err || (stats && typeof stats.hasErrors === 'function' && stats.hasErrors())) {
+          if (err || stats?.hasErrors?.()) {
             console.error(err || stats.toString())
             reject(err || new Error('webpack error'))
             return
@@ -656,10 +657,7 @@ async function build() {
 
   await new Promise((resolve, reject) => {
     const ret = runWebpack(false, false, false, outdir, async (err, stats) => {
-      const hasErrors = !!(
-        err ||
-        (stats && typeof stats.hasErrors === 'function' && stats.hasErrors())
-      )
+      const hasErrors = !!(err || stats?.hasErrors?.())
       if (hasErrors) {
         console.error(err || stats.toString())
         // In normal dev watch, keep process alive on initial errors; only fail when watch-once
@@ -674,6 +672,10 @@ async function build() {
       } catch (e) {
         // Packaging failure should stop even in dev to avoid silent success
         reject(e)
+        if (isWatchOnce) {
+          // Re-throw to surface an error and exit non-zero even if rejection isn't awaited
+          throw e
+        }
       }
     })
     // Early setup failures (e.g., dynamic imports) should fail fast

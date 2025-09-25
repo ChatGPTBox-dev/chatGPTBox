@@ -28,11 +28,12 @@ Always reference these instructions first and fall back to search or bash comman
   - Default: `0` (no compression) for faster warm builds on CPU-bound SSD machines
   - Options: `0|false|none`, `gzip` (or `brotli` if explicitly desired)
   - Affects only `.cache/webpack` size/speed; does not change final artifacts
+  - Note: Babel loader cache uses its own compression setting (currently disabled for speed) and is independent of BUILD_CACHE_COMPRESSION
 - BUILD_WATCH_ONCE (dev): When set, `npm run dev` runs a single build and exits (useful for timing)
 - BUILD_POOL_TIMEOUT: Override thread-loader production pool timeout (ms)
   - Default: `2000`. Increase if workers recycle too aggressively on slow machines/CI
+- BUILD_RESOLVE_SYMLINKS: When set to `1`/`true`, re-enable Webpack symlink resolution for `npm link`/pnpm workspace development. Default is `false` to improve performance and ensure consistent module identity (avoids duplicate module instances)
 - Source maps (dev): Dev builds emit external `.map` files next to JS bundles for CSP-safe debugging; production builds disable source maps
-- Symlinks: Webpack uses `resolve.symlinks: false` to improve performance and ensure consistent module identity; if you rely on `npm link`/pnpm workspaces, temporarily enable symlink resolution while developing linked packages
 
 Performance defaults: esbuild handles JS/CSS minification. In development, CSS is injected via style-loader; in production, CSS is extracted via MiniCssExtractPlugin. Thread-loader is enabled by default in both dev and prod.
 

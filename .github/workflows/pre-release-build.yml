@@ -26,8 +26,8 @@ jobs:
           node-version: 20
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
-      - name: Detect Node major version
-        run: echo "NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')" >> $GITHUB_ENV
+      - name: Detect Node version
+        run: echo "NODE_VERSION=$(node -p 'process.versions.node')" >> $GITHUB_ENV
       - run: npm ci
       - name: Cache Webpack filesystem cache
         uses: actions/cache@v4
@@ -35,9 +35,9 @@ jobs:
           path: |
             .cache/webpack
             node_modules/.cache/webpack
-          key: ${{ runner.os }}-node${{ env.NODE_MAJOR }}-webpack-${{ hashFiles('**/package-lock.json', 'build.mjs') }}
+          key: ${{ runner.os }}-node${{ env.NODE_VERSION }}-webpack-${{ hashFiles('**/package-lock.json', 'build.mjs') }}
           restore-keys: |
-            ${{ runner.os }}-node${{ env.NODE_MAJOR }}-webpack-
+            ${{ runner.os }}-node${{ env.NODE_VERSION }}-webpack-
       - run: npm run build
 
       - uses: josStorer/get-current-time@v2
