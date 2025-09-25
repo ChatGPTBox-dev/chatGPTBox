@@ -39,7 +39,7 @@ const parallelBuild = getBooleanEnv(process.env.BUILD_PARALLEL, true)
 const isWatchOnce = getBooleanEnv(process.env.BUILD_WATCH_ONCE, false)
 // Cache compression control: default none; allow override via env
 function parseCacheCompressionOption(envVal) {
-  if (envVal == null) return undefined
+  if (envVal == null) return false
   const v = String(envVal).trim().toLowerCase()
   if (v === '' || v === '0' || v === 'false' || v === 'none') return false
   if (v === 'gzip' || v === 'brotli') return v
@@ -73,6 +73,7 @@ function parseThreadWorkerCount(envValue, cpuCount) {
 }
 const threadWorkers = parseThreadWorkerCount(process.env.BUILD_THREAD_WORKERS, cpuCount)
 // Thread-loader pool timeout constants (allow override via env)
+// Keep worker pool warm briefly to amortize repeated builds while still exiting quickly in CI
 let PRODUCTION_POOL_TIMEOUT_MS = 2000
 if (process.env.BUILD_POOL_TIMEOUT) {
   const n = parseInt(process.env.BUILD_POOL_TIMEOUT, 10)
@@ -86,6 +87,8 @@ if (process.env.BUILD_POOL_TIMEOUT) {
 }
 // Enable threads by default; allow disabling via BUILD_THREAD=0/false/no/off
 const enableThread = getBooleanEnv(process.env.BUILD_THREAD, true)
+// Allow opt-in symlink resolution for linked/workspace development when needed
+const resolveSymlinks = getBooleanEnv(process.env.BUILD_RESOLVE_SYMLINKS, false)
 
 // Cache and resolve Sass implementation once per process
 let sassImplPromise
@@ -173,7 +176,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
       // unnecessary cache invalidations across machines/CI runners
       version: JSON.stringify({ PROD: isProduction }),
       // default none; override via BUILD_CACHE_COMPRESSION=gzip|brotli
-      compression: cacheCompressionOption ?? false,
+      compression: cacheCompressionOption,
       buildDependencies: {
         config: [
           path.resolve('build.mjs'),
@@ -231,9 +234,8 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
     ],
     resolve: {
       extensions: ['.jsx', '.mjs', '.js'],
-      // Disable symlink resolution for consistent behavior/perf; note this can
-      // affect `npm link`/pnpm workspaces during local development
-      symlinks: false,
+      // Disable symlink resolution for consistent behavior/perf; enable via BUILD_RESOLVE_SYMLINKS=1 when working with linked deps
+      symlinks: resolveSymlinks,
       alias: {
         parse5: path.resolve(__dirname, 'node_modules/parse5'),
         ...(minimal
@@ -303,7 +305,12 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
             },
             {
               loader: 'sass-loader',
-              options: { implementation: sassImpl },
+              options: {
+                implementation: sassImpl,
+                sassOptions: {
+                  silentDeps: true,
+                },
+              },
             },
           ],
         },
@@ -510,7 +517,7 @@ async function copyFiles(entryPoints, targetDir) {
       try {
         await fs.copy(entryPoint.src, `${targetDir}/${entryPoint.dst}`)
       } catch (e) {
-        const isCss = String(entryPoint.dst).endsWith('.css')
+        const isCss = typeof entryPoint.dst === 'string' && entryPoint.dst.endsWith('.css')
         if (e && e.code === 'ENOENT') {
           if (!isProduction && isCss) {
             console.log(
