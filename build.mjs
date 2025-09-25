@@ -406,21 +406,33 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
   if (isProduction) {
     // Ensure compiler is properly closed after production runs
     compiler.run((err, stats) => {
+      const hasErrors = !!(
+        err ||
+        (stats && typeof stats.hasErrors === 'function' && stats.hasErrors())
+      )
+      let callbackFailed = false
       const finishClose = () =>
         compiler.close((closeErr) => {
           if (closeErr) {
             console.error('Error closing compiler:', closeErr)
             process.exitCode = 1
           }
+          if (hasErrors || callbackFailed) {
+            process.exitCode = 1
+          }
         })
       try {
         const ret = callback(err, stats)
         if (ret && typeof ret.then === 'function') {
-          ret.then(finishClose, finishClose)
+          ret.then(finishClose, () => {
+            callbackFailed = true
+            finishClose()
+          })
         } else {
           finishClose()
         }
       } catch (_) {
+        callbackFailed = true
         finishClose()
       }
     })
