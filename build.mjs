@@ -529,18 +529,19 @@ async function copyFiles(entryPoints, targetDir) {
 }
 
 // In development, create placeholder CSS and sourcemap files to avoid 404 noise
-async function ensureDevCssPlaceholders(targetDir) {
-  if (isProduction) return
-  const cssFiles = [path.join(targetDir, 'popup.css'), path.join(targetDir, 'content-script.css')]
-  for (const cssPath of cssFiles) {
-    if (!(await fs.pathExists(cssPath))) {
-      await fs.outputFile(cssPath, '/* dev placeholder */\n')
-    }
-    const mapPath = `${cssPath}.map`
-    if (!(await fs.pathExists(mapPath))) {
-      await fs.outputFile(mapPath, '{"version":3,"sources":[],"mappings":"","names":[]}')
-    }
-  }
+async function ensureDevCssPlaceholders(cssFiles) {
+  if (isProduction || cssFiles.length === 0) return
+  await Promise.all(
+    cssFiles.map(async (cssPath) => {
+      if (!(await fs.pathExists(cssPath))) {
+        await fs.outputFile(cssPath, '/* dev placeholder */\n')
+      }
+      const mapPath = `${cssPath}.map`
+      if (!(await fs.pathExists(mapPath))) {
+        await fs.outputFile(mapPath, '{"version":3,"sources":[],"mappings":"","names":[]}')
+      }
+    }),
+  )
 }
 
 async function finishOutput(outputDirSuffix, sourceBuildDir = outdir) {
@@ -579,7 +580,15 @@ async function finishOutput(outputDirSuffix, sourceBuildDir = outdir) {
     [...commonFiles, { src: 'src/manifest.json', dst: 'manifest.json' }],
     chromiumOutputDir,
   )
-  await ensureDevCssPlaceholders(chromiumOutputDir)
+  await ensureDevCssPlaceholders(
+    Array.from(
+      new Set(
+        commonFiles
+          .filter((file) => file.dst.endsWith('.css'))
+          .map((file) => path.join(chromiumOutputDir, file.dst)),
+      ),
+    ),
+  )
   if (isProduction) await zipFolder(chromiumOutputDir)
 
   // firefox
@@ -588,7 +597,15 @@ async function finishOutput(outputDirSuffix, sourceBuildDir = outdir) {
     [...commonFiles, { src: 'src/manifest.v2.json', dst: 'manifest.json' }],
     firefoxOutputDir,
   )
-  await ensureDevCssPlaceholders(firefoxOutputDir)
+  await ensureDevCssPlaceholders(
+    Array.from(
+      new Set(
+        commonFiles
+          .filter((file) => file.dst.endsWith('.css'))
+          .map((file) => path.join(firefoxOutputDir, file.dst)),
+      ),
+    ),
+  )
   if (isProduction) await zipFolder(firefoxOutputDir)
 }
 
