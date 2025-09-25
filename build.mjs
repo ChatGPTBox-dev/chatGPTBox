@@ -18,7 +18,21 @@ const isAnalyzing = process.argv[2] === '--analyze'
 function getBooleanEnv(val, defaultValue) {
   if (val == null) return defaultValue
   const s = String(val).trim().toLowerCase()
-  return !(s === '' || s === '0' || s === 'false' || s === 'no' || s === 'off')
+  if (
+    s === '' ||
+    s === '0' ||
+    s === 'false' ||
+    s === 'no' ||
+    s === 'off' ||
+    s === 'null' ||
+    s === 'undefined'
+  ) {
+    return false
+  }
+  if (s === '1' || s === 'true' || s === 'yes' || s === 'on') {
+    return true
+  }
+  return defaultValue
 }
 // Default: parallel build ON unless explicitly disabled
 const parallelBuild = getBooleanEnv(process.env.BUILD_PARALLEL, true)
@@ -41,20 +55,19 @@ try {
   cpuCount = 1
 }
 function parseThreadWorkerCount(envValue, cpuCount) {
-  const maxWorkers = Math.max(1, cpuCount)
+  const maxWorkers = Math.max(1, cpuCount - 1)
   if (envValue !== undefined && envValue !== null) {
-    const raw = parseInt(envValue, 10)
-    if (Number.isInteger(raw) && raw > 0) {
-      if (raw > maxWorkers) {
+    const rawStr = String(envValue).trim()
+    if (/^[1-9]\d*$/.test(rawStr)) {
+      const raw = Number(rawStr)
+      if (raw > cpuCount) {
         console.warn(
-          `[build] BUILD_THREAD_WORKERS=${raw} exceeds CPU count (${cpuCount}); capping to ${maxWorkers}`,
+          `[build] BUILD_THREAD_WORKERS=${raw} exceeds CPU count (${cpuCount}); capping to ${cpuCount}`,
         )
       }
-      return Math.min(raw, maxWorkers)
+      return Math.min(raw, cpuCount)
     }
-    console.warn(
-      `[build] Invalid BUILD_THREAD_WORKERS="${envValue}", defaulting to CPU count (${cpuCount})`,
-    )
+    console.warn(`[build] Invalid BUILD_THREAD_WORKERS="${envValue}", defaulting to ${maxWorkers}`)
   }
   return maxWorkers
 }
