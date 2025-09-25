@@ -14,6 +14,14 @@ function DeleteButton({ onConfirm, size, text }) {
   const [waitConfirm, setWaitConfirm] = useState(false)
   const confirmRef = useRef(null)
   const [confirming, setConfirming] = useState(false)
+  const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     if (waitConfirm) confirmRef.current.focus()
@@ -31,12 +39,14 @@ function DeleteButton({ onConfirm, size, text }) {
         }}
         disabled={confirming}
         aria-busy={confirming ? 'true' : 'false'}
+        aria-hidden={waitConfirm ? undefined : 'true'}
+        tabIndex={waitConfirm ? 0 : -1}
         onMouseDown={(e) => {
           e.preventDefault()
           e.stopPropagation()
         }}
         onBlur={() => {
-          if (!confirming) setWaitConfirm(false)
+          if (!confirming && isMountedRef.current) setWaitConfirm(false)
         }}
         onClick={async (e) => {
           if (confirming) return
@@ -45,13 +55,13 @@ function DeleteButton({ onConfirm, size, text }) {
           setConfirming(true)
           try {
             await onConfirm()
-            setWaitConfirm(false)
+            if (isMountedRef.current) setWaitConfirm(false)
           } catch (err) {
             // Keep confirmation visible to allow retry; optionally log
             // eslint-disable-next-line no-console
             console.error(err)
           } finally {
-            setConfirming(false)
+            if (isMountedRef.current) setConfirming(false)
           }
         }}
       >
