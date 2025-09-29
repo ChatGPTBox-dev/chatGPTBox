@@ -82,6 +82,7 @@ export const claudeApiModelKeys = [
   'claudeOpus4Api',
   'claudeOpus41Api',
   'claudeSonnet4Api',
+  'claudeSonnet45Api',
 ]
 export const chatglmApiModelKeys = ['chatglmTurbo', 'chatglm4', 'chatglmEmohaa', 'chatglmCharGLM3']
 export const githubThirdPartyApiModelKeys = ['waylaidwandererApi']
@@ -110,6 +111,7 @@ export const moonshotApiModelKeys = [
 export const deepSeekApiModelKeys = ['deepseek_chat', 'deepseek_reasoner']
 export const openRouterApiModelKeys = [
   'openRouter_anthropic_claude_sonnet4',
+  'openRouter_anthropic_claude_sonnet4_5',
   'openRouter_anthropic_claude_3_7_sonnet',
   'openRouter_google_gemini_2_5_pro',
   'openRouter_google_gemini_2_5_flash',
@@ -120,6 +122,7 @@ export const openRouterApiModelKeys = [
 export const aimlApiModelKeys = [
   'aiml_anthropic_claude_opus_4',
   'aiml_anthropic_claude_sonnet_4',
+  'aiml_anthropic_claude_sonnet_4_5',
   'aiml_anthropic_claude_opus_4_1',
   'aiml_claude_3_7_sonnet_20250219',
   'aiml_google_gemini_2_5_pro_preview_05_06',
@@ -290,6 +293,10 @@ export const Models = {
     value: 'claude-sonnet-4-20250514',
     desc: 'Claude.ai (API, Claude Sonnet 4)',
   },
+  claudeSonnet45Api: {
+    value: 'claude-sonnet-4-5-20250929',
+    desc: 'Claude.ai (API, Claude Sonnet 4.5)',
+  },
 
   bingFree4: { value: '', desc: 'Bing (Web, GPT-4)' },
   bingFreeSydney: { value: '', desc: 'Bing (Web, GPT-4, Sydney)' },
@@ -372,6 +379,10 @@ export const Models = {
     value: 'anthropic/claude-sonnet-4',
     desc: 'OpenRouter (Claude Sonnet 4)',
   },
+  openRouter_anthropic_claude_sonnet4_5: {
+    value: 'anthropic/claude-sonnet-4.5',
+    desc: 'OpenRouter (Claude Sonnet 4.5)',
+  },
   openRouter_anthropic_claude_3_7_sonnet: {
     value: 'anthropic/claude-3.7-sonnet',
     desc: 'OpenRouter (Claude 3.7 Sonnet)',
@@ -408,6 +419,10 @@ export const Models = {
   aiml_anthropic_claude_sonnet_4: {
     value: 'anthropic/claude-sonnet-4',
     desc: 'AIML (Claude Sonnet 4)',
+  },
+  aiml_anthropic_claude_sonnet_4_5: {
+    value: 'anthropic/claude-sonnet-4-5',
+    desc: 'AIML (Claude Sonnet 4.5)',
   },
   aiml_claude_3_7_sonnet_20250219: {
     value: 'claude-3-7-sonnet-20250219',
@@ -538,7 +553,7 @@ export const defaultConfig = {
     'ollamaModel',
     'customModel',
     'azureOpenAi',
-    'openRouter_anthropic_claude_sonnet4',
+    'openRouter_anthropic_claude_sonnet4_5',
     'openRouter_google_gemini_2_5_pro',
     'openRouter_openai_o3',
   ],
