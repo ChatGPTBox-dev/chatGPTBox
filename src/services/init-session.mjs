@@ -38,6 +38,8 @@ import { t } from 'i18next'
  * @param {boolean|null} autoClean
  * @param {Object|null} apiMode
  * @param {string} extraCustomModelName
+ * @param {string|null} providerId
+ * @param {string|null} providerModelName
  * @returns {Session}
  */
 export function initSession({
@@ -48,6 +50,8 @@ export function initSession({
   autoClean = false,
   apiMode = null,
   extraCustomModelName = '',
+  providerId = null,
+  providerModelName = null,
 } = {}) {
   return {
     // common
@@ -69,6 +73,10 @@ export function initSession({
         : null,
     modelName,
     apiMode,
+
+    // provider-based custom models
+    providerId,
+    providerModelName,
 
     autoClean,
     isRetry: false,

@@ -109,10 +109,36 @@ export function getApiModesFromConfig(config, onlyActive) {
       return modelNameToApiMode(modelName)
     })
     .filter((apiMode) => apiMode)
-  return [
-    ...originalApiModes,
-    ...config.customApiModes.filter((apiMode) => (onlyActive ? apiMode.active : true)),
-  ]
+
+  // Add custom API modes
+  const customApiModes = config.customApiModes.filter((apiMode) =>
+    onlyActive ? apiMode.active : true,
+  )
+
+  // Add provider models as API modes
+  const providerApiModes = []
+  if (config.customProviders) {
+    for (const provider of config.customProviders) {
+      if (!onlyActive || provider.active) {
+        const activeModels = provider.models?.filter((model) => !onlyActive || model.active) || []
+        for (const model of activeModels) {
+          providerApiModes.push({
+            groupName: 'customProviderModel',
+            itemName: `${provider.id}_${model.name}`,
+            isCustom: true,
+            customName: model.displayName || model.name,
+            customUrl: provider.baseUrl,
+            apiKey: provider.apiKey,
+            active: provider.active && model.active,
+            providerId: provider.id,
+            providerModelName: model.name,
+          })
+        }
+      }
+    }
+  }
+
+  return [...originalApiModes, ...customApiModes, ...providerApiModes]
 }
 
 export function getApiModesStringArrayFromConfig(config, onlyActive) {
