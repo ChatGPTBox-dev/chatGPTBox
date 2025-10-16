@@ -83,6 +83,7 @@ export const claudeApiModelKeys = [
   'claudeOpus41Api',
   'claudeSonnet4Api',
   'claudeSonnet45Api',
+  'claudeHaiku45Api',
 ]
 export const chatglmApiModelKeys = ['chatglmTurbo', 'chatglm4', 'chatglmEmohaa', 'chatglmCharGLM3']
 export const githubThirdPartyApiModelKeys = ['waylaidwandererApi']
@@ -112,6 +113,7 @@ export const deepSeekApiModelKeys = ['deepseek_chat', 'deepseek_reasoner']
 export const openRouterApiModelKeys = [
   'openRouter_anthropic_claude_sonnet4',
   'openRouter_anthropic_claude_sonnet4_5',
+  'openRouter_anthropic_claude_haiku4_5',
   'openRouter_anthropic_claude_3_7_sonnet',
   'openRouter_google_gemini_2_5_pro',
   'openRouter_google_gemini_2_5_flash',
@@ -297,6 +299,10 @@ export const Models = {
     value: 'claude-sonnet-4-5-20250929',
     desc: 'Claude.ai (API, Claude Sonnet 4.5)',
   },
+  claudeHaiku45Api: {
+    value: 'claude-haiku-4-5-20251001',
+    desc: 'Claude.ai (API, Claude Haiku 4.5)',
+  },
 
   bingFree4: { value: '', desc: 'Bing (Web, GPT-4)' },
   bingFreeSydney: { value: '', desc: 'Bing (Web, GPT-4, Sydney)' },
@@ -382,6 +388,10 @@ export const Models = {
   openRouter_anthropic_claude_sonnet4_5: {
     value: 'anthropic/claude-sonnet-4.5',
     desc: 'OpenRouter (Claude Sonnet 4.5)',
+  },
+  openRouter_anthropic_claude_haiku4_5: {
+    value: 'anthropic/claude-haiku-4.5',
+    desc: 'OpenRouter (Claude Haiku 4.5)',
   },
   openRouter_anthropic_claude_3_7_sonnet: {
     value: 'anthropic/claude-3.7-sonnet',
