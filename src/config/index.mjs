@@ -486,7 +486,7 @@ export const defaultConfig = {
   /** @type {keyof ThemeMode}*/
   themeMode: 'auto',
   /** @type {keyof Models}*/
-  modelName: getNavigatorLanguage() === 'zh' ? 'moonshotWebFree' : 'claude2WebFree',
+  modelName: 'claude2WebFree',
   apiMode: null,
 
   preferredLanguage: getNavigatorLanguage(),
@@ -656,9 +656,8 @@ export const defaultConfig = {
 }
 
 export function getNavigatorLanguage() {
-  const l = navigator.language.toLowerCase()
-  if (['zh-hk', 'zh-mo', 'zh-tw', 'zh-cht', 'zh-hant'].includes(l)) return 'zhHant'
-  return navigator.language.substring(0, 2)
+  // Simplified to always return English as only English locale is included
+  return 'en'
 }
 
 export function isUsingChatgptWebModel(configOrSession) {

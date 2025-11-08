@@ -67,7 +67,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, callback) 
         }),
         new CssMinimizerPlugin(),
       ],
-      concatenateModules: !isAnalyzing,
+      concatenateModules: false,
     },
     plugins: [
       minimal
@@ -300,21 +300,13 @@ async function finishOutput(outputDirSuffix) {
     { src: 'src/pages/IndependentPanel/index.html', dst: 'IndependentPanel.html' },
   ]
 
-  // chromium
+  // chromium only
   const chromiumOutputDir = `./${outdir}/chromium${outputDirSuffix}`
   await copyFiles(
     [...commonFiles, { src: 'src/manifest.json', dst: 'manifest.json' }],
     chromiumOutputDir,
   )
   if (isProduction) await zipFolder(chromiumOutputDir)
-
-  // firefox
-  const firefoxOutputDir = `./${outdir}/firefox${outputDirSuffix}`
-  await copyFiles(
-    [...commonFiles, { src: 'src/manifest.v2.json', dst: 'manifest.json' }],
-    firefoxOutputDir,
-  )
-  if (isProduction) await zipFolder(firefoxOutputDir)
 }
 
 function generateWebpackCallback(finishOutputFunc) {
@@ -331,21 +323,7 @@ function generateWebpackCallback(finishOutputFunc) {
 
 async function build() {
   await deleteOldDir()
-  if (isProduction && !isAnalyzing) {
-    // await runWebpack(
-    //   true,
-    //   false,
-    //   generateWebpackCallback(() => finishOutput('-without-katex')),
-    // )
-    // await new Promise((r) => setTimeout(r, 5000))
-    await runWebpack(
-      true,
-      true,
-      true,
-      generateWebpackCallback(() => finishOutput('-without-katex-and-tiktoken')),
-    )
-    await new Promise((r) => setTimeout(r, 10000))
-  }
+  // Build only full version with all features for Chrome
   await runWebpack(
     false,
     false,

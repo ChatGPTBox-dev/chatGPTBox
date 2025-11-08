@@ -2,7 +2,6 @@
   "name": "chatgptbox",
   "scripts": {
     "build": "node build.mjs --production",
-    "build:safari": "bash ./safari/build.sh",
     "dev": "node build.mjs --development",
     "analyze": "node build.mjs --analyze",
     "lint": "eslint --ext .js,.mjs,.jsx .",
