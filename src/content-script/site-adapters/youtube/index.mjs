@@ -73,10 +73,66 @@ export default {
       subtitleContent = replaceHtmlEntities(subtitleContent)
 
       return await cropText(
-        `You are an expert video summarizer. Create a comprehensive summary of the following YouTube video in markdown format, ` +
-          `highlighting key takeaways, crucial information, and main topics. Include the video title.\n` +
-          `Video Title: "${title}"\n` +
-          `Subtitle content:\n${subtitleContent}`,
+        `## Role
+<role>
+You are an expert video content analyst specializing in distilling long-form video content into actionable insights.
+</role>
+
+## Task
+<task>
+Create a structured summary of the YouTube video based on the subtitle transcript provided.
+</task>
+
+## Instructions
+<instructions>
+1. **Open with context**: Begin with the video title and a one-sentence overview
+2. **Identify main topics**: List 3-5 primary themes or segments
+3. **Extract key takeaways**: Provide 5-7 bullet points of actionable insights or crucial information
+4. **Note important details**: Include specific data, quotes, or examples that support main points
+5. **Structure chronologically**: Maintain the flow of the video's narrative when relevant
+</instructions>
+
+## Output Format
+<output_format>
+# [Video Title]
+
+## Overview
+[One-sentence description of video purpose/topic]
+
+## Main Topics
+1. [Topic 1] - [Brief description]
+2. [Topic 2] - [Brief description]
+3. [Topic 3] - [Brief description]
+
+## Key Takeaways
+- [Actionable insight 1]
+- [Actionable insight 2]
+- [Actionable insight 3]
+- [Continue as needed]
+
+## Important Details
+- [Specific data point, quote, or example]
+- [Another relevant detail]
+
+## Conclusion
+[One-sentence summary of main message]
+</output_format>
+
+## Input Data
+<input_data>
+Video Title: "${title}"
+
+Subtitle Content:
+${subtitleContent}
+</input_data>
+
+## Constraints
+<constraints>
+- Focus on information actually present in the subtitles
+- Do not add external knowledge or assumptions
+- If subtitles are incomplete or unclear, note this limitation
+- Keep summary concise while capturing essential information
+</constraints>`,
       )
     } catch (e) {
       console.log(e)

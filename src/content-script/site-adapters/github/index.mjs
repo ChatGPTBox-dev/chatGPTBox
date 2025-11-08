@@ -85,25 +85,64 @@ function createChatGPtSummaryPrompt(issueData, isIssue = true) {
   const { title, messages, commentBoxContent } = issueData
 
   // Start crafting the prompt
-  let prompt = ''
+  let prompt = `## Role
+<role>
+You are an expert software engineer specializing in code review and issue tracking analysis.
+</role>
 
-  if (isIssue) {
-    prompt =
-      `You are an expert in analyzing GitHub discussions. ` +
-      `Please provide a concise summary of the following GitHub issue thread. ` +
-      `Identify the main problem reported, key points discussed by participants, proposed solutions (if any), and the current status or next steps. ` +
-      `Present the summary in a structured markdown format.\n\n`
-  } else {
-    prompt =
-      `You are an expert in analyzing GitHub discussions and code reviews. ` +
-      `Please provide a concise summary of the following GitHub pull request thread. ` +
-      `Identify the main problem this pull request aims to solve, the proposed changes, key discussion points from the review, and the overall status of the PR (e.g., approved, needs changes, merged). ` +
-      `Present the summary in a structured markdown format.\n\n`
-  }
+## Task
+<task>
+Analyze the GitHub thread (${isIssue ? 'issue' : 'pull request'}) and provide a structured summary that captures the problem, discussion, and resolution status.
+</task>
 
-  prompt += '---\n\n'
+## Instructions
+<instructions>
+1. **Identify thread type**: This is a ${isIssue ? 'issue report' : 'pull request'}
+2. **Extract problem statement**: ${isIssue ? 'What problem is being reported?' : 'What problem does this PR aim to solve?'}
+3. **Summarize discussion**: Capture key points from comments in chronological order
+4. **List proposed solutions**: Note all suggested approaches with brief rationale
+5. **Determine current status**:
+   - Open/Closed
+   - Awaiting response/review
+   - Merged/Rejected (for PRs)
+   - Action items remaining
+6. **Identify stakeholders**: Note primary participants and their roles
+</instructions>
 
-  prompt += `Title:\n${title}\n\n`
+## Output Format
+<output_format>
+# [${isIssue ? 'Issue' : 'PR'} Title]
+
+**Type**: ${isIssue ? 'Issue' : 'Pull Request'}
+**Status**: [Open | Closed | Merged | Rejected]
+**Primary Reporter**: [@username]
+
+## Problem Statement
+[Clear description of the problem being addressed]
+
+## Discussion Summary
+1. **[@username]** ([date]): [Key point or contribution]
+2. **[@username]** ([date]): [Key point or contribution]
+3. [Continue chronologically]
+
+## Proposed Solutions
+- **Solution 1**: [Description] - [Rationale or outcome]
+- **Solution 2**: [Description] - [Rationale or outcome]
+
+## Current Status
+[Detailed status including next steps or blocking issues]
+
+## Action Items
+- [ ] [Action item 1]
+- [ ] [Action item 2]
+</output_format>
+
+## Input Data
+<input_data>
+Thread Type: ${isIssue ? 'Issue' : 'Pull Request'}
+Title: ${title}
+
+`
 
   // Add each message to the prompt
   messages.forEach((message, index) => {
@@ -112,12 +151,19 @@ function createChatGPtSummaryPrompt(issueData, isIssue = true) {
 
   // If there's content in the comment box, add it as a draft message
   if (commentBoxContent) {
-    prompt += '---\n\n'
-    prompt += `Draft message in comment box:\n${commentBoxContent}\n\n`
+    prompt += `Draft Content: ${commentBoxContent}\n`
   }
 
-  // Add a request for summary at the end of the prompt
-  // prompt += 'What is the main issue and key points discussed in this thread?'
+  prompt += `</input_data>
+
+## Constraints
+<constraints>
+- Base analysis solely on provided thread content
+- Preserve technical accuracy of proposed solutions
+- Note when information is incomplete or unclear
+- Maintain neutral tone when summarizing disagreements
+- Do not infer unstated intentions or decisions
+</constraints>`
 
   return prompt
 }
@@ -159,12 +205,100 @@ export default {
       if (!patchData) return
 
       return await cropText(
-        `You are an expert in analyzing git commits and crafting clear, concise commit messages. ` +
-          `Based on the following git patch, please perform two tasks:\n` +
-          `1. Generate a suitable commit message. It should follow standard conventions: a short imperative subject line (max 50 chars), ` +
-          `followed by a blank line and a more detailed body if necessary, explaining the "what" and "why" of the changes.\n` +
-          `2. Provide a brief summary of the changes introduced in this commit, highlighting the main purpose and impact.\n\n` +
-          `The patch contents are as follows:\n${patchData}`,
+        `## Role
+<role>
+You are a senior software engineer specializing in version control and code review, with expertise in writing clear, conventional commit messages.
+</role>
+
+## Task
+<task>
+Analyze the provided git patch and generate both a properly formatted commit message and a technical summary of changes.
+</task>
+
+## Instructions
+<instructions>
+1. **Analyze the patch**:
+   - Identify files modified, added, or deleted
+   - Understand the nature of changes (feature, bugfix, refactor, docs, etc.)
+   - Determine the scope or component affected
+
+2. **Generate commit message following Conventional Commits**:
+   - **Subject line** (max 50 characters):
+     * Format: \`type(scope): brief description\`
+     * Types: feat, fix, docs, style, refactor, test, chore
+     * Use imperative mood: "add" not "added" or "adds"
+   - **Body** (wrap at 72 characters):
+     * Explain WHAT changed and WHY
+     * Include motivation and contrast with previous behavior
+     * Reference issue numbers if apparent from patch context
+
+3. **Create technical summary**:
+   - List affected files with change type
+   - Describe functional impact
+   - Note any API changes or breaking changes
+   - Identify test coverage changes
+</instructions>
+
+## Output Format
+<output_format>
+## Commit Message
+
+\`\`\`
+type(scope): subject line (max 50 chars)
+
+Detailed explanation of what changed and why. Wrap at 72
+characters per line. Explain the motivation for the change
+and contrast with previous behavior.
+
+Include context that helps reviewers understand the change.
+
+Refs: #123
+\`\`\`
+
+## Summary of Changes
+
+**Files Modified**: [count]
+**Change Type**: [Feature | Bugfix | Refactor | Documentation | Test | Chore]
+
+### Affected Files
+- \`path/to/file1.js\`: [Brief description of changes]
+- \`path/to/file2.py\`: [Brief description of changes]
+
+### Functional Impact
+[Description of how this changes application behavior]
+
+### API Changes
+[List any public API additions, modifications, or deprecations]
+- None, OR
+- Added: [new API]
+- Modified: [changed API]
+- Deprecated: [old API]
+
+### Breaking Changes
+[None, OR list of breaking changes]
+
+### Test Coverage
+[Changes to test files or coverage]
+</output_format>
+
+## Input Data
+<input_data>
+Patch Content:
+${patchData}
+
+[Patch limited to 40KB]
+</input_data>
+
+## Constraints
+<constraints>
+- Follow Conventional Commits specification strictly
+- Subject line must be 50 characters or less
+- Body lines must wrap at 72 characters
+- Use imperative mood in subject ("add" not "added")
+- If patch is truncated (40KB limit), note this in summary
+- Infer intent from code changes, don't assume unstated motivations
+- If commit type is unclear, default to "chore" and explain in body
+</constraints>`,
       )
     } catch (e) {
       console.log(e)
