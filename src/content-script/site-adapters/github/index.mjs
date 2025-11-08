@@ -92,13 +92,17 @@ You are an expert software engineer specializing in code review and issue tracki
 
 ## Task
 <task>
-Analyze the GitHub thread (${isIssue ? 'issue' : 'pull request'}) and provide a structured summary that captures the problem, discussion, and resolution status.
+Analyze the GitHub thread (${
+    isIssue ? 'issue' : 'pull request'
+  }) and provide a structured summary that captures the problem, discussion, and resolution status.
 </task>
 
 ## Instructions
 <instructions>
 1. **Identify thread type**: This is a ${isIssue ? 'issue report' : 'pull request'}
-2. **Extract problem statement**: ${isIssue ? 'What problem is being reported?' : 'What problem does this PR aim to solve?'}
+2. **Extract problem statement**: ${
+    isIssue ? 'What problem is being reported?' : 'What problem does this PR aim to solve?'
+  }
 3. **Summarize discussion**: Capture key points from comments in chronological order
 4. **List proposed solutions**: Note all suggested approaches with brief rationale
 5. **Determine current status**:
