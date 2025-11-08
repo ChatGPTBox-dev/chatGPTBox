@@ -27,13 +27,6 @@ jobs:
           field: version
           value: ${{ env.VERSION }}
 
-      - name: Update manifest.v2.json version
-        uses: jossef/action-set-json-field@v2.2
-        with:
-          file: src/manifest.v2.json
-          field: version
-          value: ${{ env.VERSION }}
-
       - name: Push files
         continue-on-error: true
         run: |
@@ -50,22 +43,8 @@ jobs:
           node-version: 20
       - run: npm ci
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.10' # for appdmg
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 16.2
-      - run: sed -i '' "s/0.0.0/${{ env.VERSION }}/g" safari/project.pre.patch
-      - run: sed -i '' "s/0.0.0/${{ env.VERSION }}/g" safari/project.patch
-      - run: npm run build:safari
-
       - run: |
           gh release upload ${{github.ref_name}} build/chromium.zip
-          gh release upload ${{github.ref_name}} build/firefox.zip
-          gh release upload ${{github.ref_name}} build/safari.dmg
-          gh release upload ${{github.ref_name}} build/chromium-without-katex-and-tiktoken.zip
-          gh release upload ${{github.ref_name}} build/firefox-without-katex-and-tiktoken.zip
 
       - run: |
           gh release edit ${{github.ref_name}} --draft=false

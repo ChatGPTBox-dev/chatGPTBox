@@ -1,3 +1,4 @@
 export function isSafari() {
-  return navigator.vendor === 'Apple Computer, Inc.'
+  // Always return false - Chrome-only build
+  return false
 }

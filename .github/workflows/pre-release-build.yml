@@ -37,21 +37,6 @@ jobs:
           name: Chromium_Build_${{ steps.current-time.outputs.formattedTime }}
           path: build/chromium/*
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Firefox_Build_${{ steps.current-time.outputs.formattedTime }}
-          path: build/firefox/*
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Chromium_Build_WithoutKatex_${{ steps.current-time.outputs.formattedTime }}
-          path: build/chromium-without-katex-and-tiktoken/*
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Firefox_Build_WithoutKatex_${{ steps.current-time.outputs.formattedTime }}
-          path: build/firefox-without-katex-and-tiktoken/*
-
       - uses: marvinpinto/action-automatic-releases@v1.2.1
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
@@ -60,6 +45,3 @@ jobs:
           title: "Development Build"
           files: |
             build/chromium.zip
-            build/firefox.zip
-            build/chromium-without-katex-and-tiktoken.zip
-            build/firefox-without-katex-and-tiktoken.zip

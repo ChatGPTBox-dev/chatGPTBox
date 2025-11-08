@@ -15,20 +15,15 @@ Always reference these instructions first and fall back to search or bash comman
 - Analyze bundle: `npm run analyze` -- Inspects the size of webpack output files.
 - Format code: `npm run pretty` -- uses Prettier to format all JS/JSX/CSS files. Run this before linting.
 - Lint code: `npm run lint` -- uses ESLint.
-- Safari build: `npm run build:safari` (see Platform-Specific Instructions for details)
 
 ### Build Output Structure
 
-Production build creates multiple variants in `build/` directory:
+Production build creates output in `build/` directory:
 
 - `chromium/` - Chromium-based browsers (Chrome, Edge) with full features
-- `firefox/` - Firefox with manifest v2
-- `chromium-without-katex-and-tiktoken/` - Minimal build without math rendering and token encoding
-- `firefox-without-katex-and-tiktoken/` - Minimal Firefox build without math rendering and token encoding
-- Distribution artifacts:
-  - Chromium: `build/chromium.zip`
-  - Firefox: `build/firefox.zip`
-  - Safari: `Fission - ChatBox.app` and `safari.dmg` (see Safari Build section for details)
+- Distribution artifact: `build/chromium.zip`
+
+Note: This is a Chrome-only build. Firefox and Safari variants have been removed for simplified development.
 
 ## Architecture Overview
 
@@ -46,8 +41,7 @@ The project uses Preact (for React-like components), SCSS (for styling), and Web
 ### Manifests
 
 - `src/manifest.json` - Manifest v3 for Chromium browsers (Chrome, Edge, Opera, etc.)
-- `src/manifest.v2.json` - Manifest v2 for Firefox (current status; future MV3 migration may change this)
-  - Background runs as service worker (MV3) vs background page (MV2)
+  - Background runs as service worker (MV3)
   - Different permission models between manifest versions
 
 ## Testing and Validation

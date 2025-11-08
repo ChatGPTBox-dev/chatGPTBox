@@ -1,3 +1,4 @@
 export function isFirefox() {
-  return navigator.userAgent.toLowerCase().includes('firefox')
+  // Always return false - Chrome-only build
+  return false
 }
