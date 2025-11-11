@@ -74,8 +74,11 @@
   flex-grow: 1;
   margin-bottom: 20px;
 
+  display: flex;
+  min-height: 0;
+
   .gpt-inner {
-    height: 100%;
+    flex: 1;
     display: flex;
     position: relative;
     flex-direction: column;
@@ -99,6 +102,8 @@
     color: var(--font-color);
     overflow-y: auto;
     overflow-x: hidden;
+    flex: 1; /* <-- ADD THIS (tells it to grow/shrink) */
+    min-height: 0; /* <-- ADD THIS (critical for it to shrink properly) */
 
     ::-webkit-scrollbar {
       background-color: var(--theme-color);
@@ -1357,7 +1362,10 @@
     border: 0;
     border-top: 1px solid var(--theme-border-color);
     width: 100%;
-    height: 100%;
+    // height: 100%;  <-- COMMENT OUT OR DELETE THIS LINE
+    height: 70px; /* <-- SET A FIXED STARTING HEIGHT */
+    min-height: 70px; /* <-- SET A MINIMUM HEIGHT */
+    resize: none !important; /* <-- DISABLE THE TEXTAREA'S OWN RESIZE */
     background-color: var(--theme-color);
     color: var(--font-color);
 
@@ -1445,8 +1453,17 @@
 }
 
 .chatgptbox-selection-window {
-  height: auto;
   border-radius: 8px;
   background-color: var(--theme-color);
   box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.2);
+
+  width: 500px;
+  height: 450px;
+  resize: both;
+  overflow: hidden;
+  min-width: 350px;
+  min-height: 300px;
+
+  display: flex;
+  flex-direction: column;
 }
