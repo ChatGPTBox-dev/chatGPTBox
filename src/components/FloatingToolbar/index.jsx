@@ -90,7 +90,7 @@ function FloatingToolbar(props) {
           onStop={dragEvent.onStop}
           position={virtualPosition}
         >
-          <div className="chatgptbox-selection-window">
+          <div className="chatgptbox-selection-window resizable-popup">
             <div className="chatgptbox-container">
               <ConversationCard
                 session={props.session}
