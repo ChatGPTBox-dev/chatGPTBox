@@ -4,7 +4,6 @@ import PropTypes from 'prop-types'
 import { config as toolsConfig } from '../../content-script/selection-tools'
 import { getClientPosition, isMobile, setElementPositionInViewport } from '../../utils'
 import Draggable from 'react-draggable'
-import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
 import { useTranslation } from 'react-i18next'
 import { useConfig } from '../../hooks/use-config.mjs'
 
@@ -19,7 +18,6 @@ function FloatingToolbar(props) {
   const [closeable, setCloseable] = useState(props.closeable)
   const [position, setPosition] = useState(getClientPosition(props.container))
   const [virtualPosition, setVirtualPosition] = useState({ x: 0, y: 0 })
-  const windowSize = useClampWindowSize([750, 1500], [0, Infinity])
   const config = useConfig(() => {
     setRender(true)
     if (!triggered && selection) {
@@ -92,10 +90,7 @@ function FloatingToolbar(props) {
           onStop={dragEvent.onStop}
           position={virtualPosition}
         >
-          <div
-            className="chatgptbox-selection-window"
-            style={{ width: windowSize[0] * 0.4 + 'px' }}
-          >
+          <div className="chatgptbox-selection-window resizable-popup">
             <div className="chatgptbox-container">
               <ConversationCard
                 session={props.session}
