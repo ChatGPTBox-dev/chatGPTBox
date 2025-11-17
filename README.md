@@ -157,7 +157,7 @@ encounter 'something went wrong' with ChatGPTBox extension enabled
 
 3. Re-enable it
 
-**not officially fixed yet**
+**Note: This issue remains unresolved.**
 
 
 ### Google Gemini not working
@@ -165,7 +165,7 @@ encounter 'something went wrong' with ChatGPTBox extension enabled
 #### [#786](https://github.com/josStorer/chatGPTBox/issues/786), [#757](https://github.com/josStorer/chatGPTBox/issues/757)
 
 Sometimes working
-**not officially fixed yet**
+**Note: This issue remains unresolved.**
 
 **Possible causes:**
 
