@@ -140,7 +140,7 @@ If you still haven't found what you're looking for, please submit an [Issue](htt
 
 ### Cannot login to ChatGPT.com with this extension active using Brave web browser
 
-#### [#794]( https://github.com/josStorer/chatGPTBox/issues/794 )
+#### [#794](https://github.com/josStorer/chatGPTBox/issues/794)
 
 encounter 'something went wrong' with ChatGPTBox extension enabled
 
@@ -150,8 +150,11 @@ encounter 'something went wrong' with ChatGPTBox extension enabled
 - Brave browser’s built-in privacy protections( shields, blocking scripts or cookies ) may conflict with the extension.
 
 **Solution:**
+
 1. disable the extension
+
 2. Log in
+
 3. Re-enable it
 
 **not officially fixed yet**
@@ -159,12 +162,12 @@ encounter 'something went wrong' with ChatGPTBox extension enabled
 
 ### Google Gemini not working
 
-#### [#786]( https://github.com/josStorer/chatGPTBox/issues/786 ), [#757]( https://github.com/josStorer/chatGPTBox/issues/757 )
+#### [#786](https://github.com/josStorer/chatGPTBox/issues/786), [#757](https://github.com/josStorer/chatGPTBox/issues/757)
 
 Sometimes working
 **not officially fixed yet**
 
-**Possible causes: **
+**Possible causes:**
 
 - Google Gemini’s web interface/API may have changed or is unstable.
 
@@ -174,7 +177,7 @@ Sometimes working
 
 - Gemini may block access depending on region or account type. 
 
-**Possible solutions: **
+**Possible solutions:**
 
 - Try refreshing the page or restarting the browser. 
 
@@ -184,11 +187,11 @@ Sometimes working
 
 
 
-### bilibili not working correctly
+### Bilibili not working correctly
 
-#### [#732]( https://github.com/josStorer/chatGPTBox/issues/732 ), [#703]( https://github.com/josStorer/chatGPTBox/issues/703 )
+#### [#732](https://github.com/josStorer/chatGPTBox/issues/732), [#703](https://github.com/josStorer/chatGPTBox/issues/703)
 
-** Possible causes: **
+**Possible causes:**
 
 - Bilibili uses dynamic page loading (SPA) and complex DOM structure, which may interfere with the extension’s side panel injection. 
 
@@ -200,10 +203,9 @@ Sometimes working
 
 - Extension may not detect the correct text input areas on the site.
 
-**Possible solutions: **
+**Possible solutions:**
 
-
-- Try enabling floating window mode in ChatGPTBox settings.This works better on sites that block side panels.
+- Try enabling floating window mode in ChatGPTBox settings. This works better on sites that block side panels.
 
 - Test on different pages (e.g. video page vs. homepage vs. comments)
 
