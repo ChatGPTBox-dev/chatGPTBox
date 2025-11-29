@@ -147,7 +147,7 @@ encounter 'something went wrong' with ChatGPTBox extension enabled
 **Possible causes:**
 - The extension modifies some network requests or page content, which may interfere with the ChatGPT.com login flow.
 
-- Brave browser’s built-in privacy protections( shields, blocking scripts or cookies ) may conflict with the extension.
+- Brave browser’s built-in privacy protections (shields, blocking scripts or cookies) may conflict with the extension.
 
 **Solution:**
 
