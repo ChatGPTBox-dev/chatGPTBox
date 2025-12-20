@@ -21,6 +21,7 @@ const logo = Browser.runtime.getURL('logo.png')
 
 function App() {
   const { t } = useTranslation()
+  const hasUserToggledRef = useRef(false)
   const [collapsed, setCollapsed] = useState(true)
   const config = useConfig(null, false)
   const [sessions, setSessions] = useState([])
@@ -67,6 +68,22 @@ function App() {
   }, [])
 
   useEffect(() => {
+    // Default open only on the standalone IndependentPanel (tab/window) when wide enough.
+    // Keep the existing side-panel behavior (closed by default).
+    void (async () => {
+      if (hasUserToggledRef.current) return
+      if (!window.matchMedia('(min-width: 900px)').matches) return
+      try {
+        // In a regular tab, this returns the current tab object; in the side panel it returns null.
+        const tab = await Browser.tabs.getCurrent()
+        if (!hasUserToggledRef.current && tab) setCollapsed(false)
+      } catch (e) {
+        // If we can't tell, keep current (closed) default.
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
     if ('sessions' in config && config['sessions']) setSessions(config['sessions'])
   }, [config])
 
@@ -84,10 +101,12 @@ function App() {
   }, [sessionId])
 
   const toggleSidebar = () => {
+    hasUserToggledRef.current = true
     setCollapsed(!collapsed)
   }
 
   const closeSidebar = () => {
+    hasUserToggledRef.current = true
     setCollapsed(true)
   }
 
@@ -124,7 +143,10 @@ function App() {
         <div className={`chat-sidebar ${collapsed ? 'collapsed' : ''}`}>
           <div className="chat-sidebar-content">
             <div className="chat-sidebar-topbar">
-              <img className="chat-sidebar-logo" src={logo} alt="ChatGPTBox" />
+              <div className="chat-sidebar-brand-group">
+                <img className="chat-sidebar-logo" src={logo} alt="ChatGPTBox" />
+                <div className="chat-sidebar-brand">ChatGPTBox</div>
+              </div>
               <button
                 type="button"
                 className="gpt-util-icon gpt-menu-toggle chat-sidebar-close"

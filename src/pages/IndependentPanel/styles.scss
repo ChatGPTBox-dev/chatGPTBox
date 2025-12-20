@@ -118,15 +118,30 @@
     gap: 10px;
     margin: -10px -10px 0;
     height: 78px;
-    padding: 0 15px;
+    padding: 15px;
     box-sizing: border-box;
     border-bottom: 1px solid var(--theme-border-color);
+  }
+
+  .chat-sidebar-brand-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
 
   .chat-sidebar-logo {
     width: 20px;
     height: 20px;
     flex: 0 0 auto;
+  }
+
+  .chat-sidebar-brand {
+    color: var(--font-color);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .chat-sidebar-topbar .gpt-menu-toggle {
