@@ -347,7 +347,11 @@ function ConversationCard(props) {
           className="gpt-util-group"
           style={{
             padding: '15px 0 15px 15px',
-            ...(props.notClampSize ? {} : { flexGrow: isSafari() ? 0 : 1 }),
+            ...(props.pageMode
+              ? { flexGrow: 1, minWidth: 0 }
+              : props.notClampSize
+              ? {}
+              : { flexGrow: isSafari() ? 0 : 1 }),
             ...(isSafari() ? { maxWidth: '200px' } : {}),
           }}
         >
@@ -372,11 +376,28 @@ function ConversationCard(props) {
             >
               <Pin size={16} />
             </span>
+          ) : props.onToggleSidebar ? (
+            <button
+              type="button"
+              className="gpt-util-icon gpt-menu-toggle"
+              title="Toggle sidebar"
+              aria-label="Toggle sidebar"
+              aria-expanded={Boolean(props.sidebarOpen)}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                props.onToggleSidebar()
+              }}
+            >
+              ☰
+            </button>
           ) : (
             <img src={logo} style="user-select:none;width:20px;height:20px;" />
           )}
           <select
-            style={props.notClampSize ? {} : { width: 0, flexGrow: 1 }}
+            style={
+              props.pageMode || !props.notClampSize ? { width: 0, flexGrow: 1, minWidth: 0 } : {}
+            }
             className="normal-button"
             required
             onChange={(e) => {
@@ -425,7 +446,8 @@ function ConversationCard(props) {
           style={{
             padding: '15px 15px 15px 0',
             justifyContent: 'flex-end',
-            flexGrow: props.draggable && !completeDraggable ? 0 : 1,
+            flexGrow: props.pageMode ? 0 : props.draggable && !completeDraggable ? 0 : 1,
+            flexShrink: 0,
           }}
         >
           {!config.disableWebModeHistory && session && session.conversationId && (
@@ -622,6 +644,8 @@ ConversationCard.propTypes = {
   notClampSize: PropTypes.bool,
   pageMode: PropTypes.bool,
   waitForTrigger: PropTypes.bool,
+  onToggleSidebar: PropTypes.func,
+  sidebarOpen: PropTypes.bool,
 }
 
 export default memo(ConversationCard)
