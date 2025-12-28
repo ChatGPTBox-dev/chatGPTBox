@@ -413,10 +413,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
   if (isProduction) {
     // Ensure compiler is properly closed after production runs
     compiler.run((err, stats) => {
-      const hasErrors = !!(
-        err ||
-        (stats && typeof stats.hasErrors === 'function' && stats.hasErrors())
-      )
+      const hasErrors = !!(err || stats?.hasErrors?.())
       let callbackFailed = false
       const finishClose = () =>
         compiler.close((closeErr) => {
@@ -445,10 +442,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
     })
   } else {
     const watching = compiler.watch({}, (err, stats) => {
-      const hasErrors = !!(
-        err ||
-        (stats && typeof stats.hasErrors === 'function' && stats.hasErrors())
-      )
+      const hasErrors = !!(err || stats?.hasErrors?.())
       // Normalize callback return into a Promise to catch synchronous throws
       const ret = Promise.resolve().then(() => callback(err, stats))
       if (isWatchOnce) {
@@ -626,7 +620,7 @@ async function build() {
         minimal,
         tmpDir,
         async (err, stats) => {
-          if (err || (stats && typeof stats.hasErrors === 'function' && stats.hasErrors())) {
+          if (err || stats?.hasErrors?.()) {
             console.error(err || stats.toString())
             reject(err || new Error('webpack error'))
             return
@@ -665,10 +659,7 @@ async function build() {
 
   await new Promise((resolve, reject) => {
     const ret = runWebpack(false, false, false, outdir, async (err, stats) => {
-      const hasErrors = !!(
-        err ||
-        (stats && typeof stats.hasErrors === 'function' && stats.hasErrors())
-      )
+      const hasErrors = !!(err || stats?.hasErrors?.())
       if (hasErrors) {
         console.error(err || stats.toString())
         // In normal dev watch, keep process alive on initial errors; only fail when watch-once
