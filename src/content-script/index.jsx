@@ -284,8 +284,19 @@ async function prepareForRightClickMenu() {
     if (message.type === 'CREATE_CHAT') {
       const data = message.data
       let prompt = ''
+      const userConfig = await getUserConfig()
+
       if (data.itemId in toolsConfig) {
         prompt = await toolsConfig[data.itemId].genPrompt(data.selectionText)
+      } else if (data.itemId.startsWith('custom_')) {
+        // Handle custom selection tools from context menu
+        const customIndex = parseInt(data.itemId.replace('custom_', ''), 10)
+        if (!isNaN(customIndex) && customIndex >= 0) {
+          const customTool = userConfig.customSelectionTools?.[customIndex]
+          if (customTool?.active && customTool?.name) {
+            prompt = customTool.prompt.replace('{{selection}}', data.selectionText)
+          }
+        }
       } else if (data.itemId in menuConfig) {
         const menuItem = menuConfig[data.itemId]
         if (!menuItem.genPrompt) return
@@ -298,7 +309,6 @@ async function prepareForRightClickMenu() {
         : { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 - 200 }
       const container = createElementAtPosition(position.x, position.y)
       container.className = 'chatgptbox-toolbar-container-not-queryable'
-      const userConfig = await getUserConfig()
       render(
         <FloatingToolbar
           session={initSession({
