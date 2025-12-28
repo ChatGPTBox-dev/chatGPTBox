@@ -1,34 +1,42 @@
 [data-theme='auto'] {
   @media screen and (prefers-color-scheme: dark) {
     --font-color: #c9d1d9;
+    --font-muted-color: rgba(255, 255, 255, 0.6);
     --font-active-color: #ffffff;
     --theme-color: #202124;
     --theme-border-color: #3c4043;
     --active-color: #3c4043;
+    --theme-secondary-color: #1f1f1f;
   }
   @media screen and (prefers-color-scheme: light) {
     --font-color: #24292f;
+    --font-muted-color: rgba(36, 41, 47, 0.6);
     --font-active-color: #cc3333;
     --theme-color: #ffffff;
     --theme-border-color: #aeafb2;
     --active-color: #d0d4da;
+    --theme-secondary-color: #f6f8fa;
   }
 }
 
 [data-theme='dark'] {
   --font-color: #c9d1d9;
+  --font-muted-color: rgba(255, 255, 255, 0.6);
   --font-active-color: #ffffff;
   --theme-color: #202124;
   --theme-border-color: #3c4043;
   --active-color: #3c4043;
+  --theme-secondary-color: #1f1f1f;
 }
 
 [data-theme='light'] {
   --font-color: #24292f;
+  --font-muted-color: rgba(36, 41, 47, 0.6);
   --font-active-color: #cc3333;
   --theme-color: #ffffff;
   --theme-border-color: #aeafb2;
   --active-color: #d0d4da;
+  --theme-secondary-color: #f6f8fa;
 }
 
 .IndependentPanel * {
@@ -71,6 +79,11 @@
     width: 60px;
   }
 
+  // Keep search visible even when collapsed (will expand on hover)
+  .chat-sidebar.collapsed .search-container {
+    display: block;
+  }
+
   .chat-sidebar:hover,
   .chat-sidebar:not(.collapsed) {
     min-width: 250px;
@@ -85,6 +98,40 @@
     gap: 15px;
   }
 
+  .search-container {
+    padding: 0;
+    background-color: inherit;
+    margin-top: 15px;
+  }
+
+  .search-input {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--theme-border-color);
+    border-radius: 5px;
+    background-color: var(--theme-secondary-color, var(--theme-color));
+    color: var(--font-color);
+    font-size: 14px;
+    font-family: 'Cairo', sans-serif;
+    box-sizing: border-box;
+    line-height: 1.2;
+  }
+
+  .search-input::placeholder {
+    color: var(--font-muted-color, rgba(255, 255, 255, 0.6));
+    opacity: 1;
+  }
+
+  .search-input:focus {
+    border-color: var(--font-active-color);
+  }
+
+  .search-input:focus-visible {
+    outline: 2px solid var(--font-active-color, #3b82f6);
+    outline-offset: 2px;
+  }
+
   .chat-list {
     display: flex;
     flex-direction: column;
@@ -96,10 +143,49 @@
     gap: 15px;
   }
 
+  .no-results {
+    color: var(--font-color);
+    opacity: 0.6;
+    padding: 8px 12px;
+  }
+
   .chat-content {
     flex-grow: 1;
     border: 1px solid var(--theme-border-color);
     background-color: var(--theme-color);
+  }
+
+  .chatgptbox-container {
+    height: 100%;
+  }
+
+  .chat-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  // Ensure title shrinks and ellipsizes, keeping util group visible
+  .chat-list-title {
+    // Grow to use remaining space but allow shrinking with ellipsis
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-right: 8px;
+  }
+
+  .gpt-util-group {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex: 0 0 auto; // do not shrink utility area to keep it visible
+  }
+
+  // Hide utility group (delete button) when collapsed and not hovered
+  .chat-sidebar.collapsed:not(:hover) .gpt-util-group {
+    display: none;
   }
 
   .normal-button {
@@ -117,10 +203,21 @@
     overflow: hidden;
   }
 
-  .gpt-util-group {
-    display: flex;
-    gap: 15px;
-    align-items: center;
+  // Avoid inner utility confirm button stretching across the entire row
+  .gpt-util-group .normal-button {
+    width: auto;
+    min-height: unset;
+    padding: 2px 8px;
+  }
+
+  // Keep list rows within sidebar bounds
+  .normal-button.chat-list-item {
+    overflow: hidden;
+  }
+
+  .normal-button:focus-visible {
+    outline: 2px solid var(--font-active-color);
+    outline-offset: 2px;
   }
 
   .gpt-util-icon {
