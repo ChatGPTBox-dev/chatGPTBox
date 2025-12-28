@@ -55,7 +55,7 @@ try {
   cpuCount = 1
 }
 function parseThreadWorkerCount(envValue, cpuCount) {
-  const maxWorkers = Math.max(1, cpuCount - 1)
+  const maxWorkers = Math.max(1, cpuCount)
   if (envValue !== undefined && envValue !== null) {
     const rawStr = String(envValue).trim()
     if (/^[1-9]\d*$/.test(rawStr)) {
