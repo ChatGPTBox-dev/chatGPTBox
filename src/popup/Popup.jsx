@@ -18,6 +18,7 @@ import { GeneralPart } from './sections/GeneralPart'
 import { FeaturePages } from './sections/FeaturePages'
 import { AdvancedPart } from './sections/AdvancedPart'
 import { ModulesPart } from './sections/ModulesPart'
+import { CustomProviders } from './sections/CustomProviders'
 
 // eslint-disable-next-line react/prop-types
 function Footer({ currentVersion, latestVersion }) {
@@ -106,6 +107,7 @@ function Popup() {
             <Tab className="popup-tab">{t('General')}</Tab>
             <Tab className="popup-tab">{t('Feature Pages')}</Tab>
             <Tab className="popup-tab">{t('Modules')}</Tab>
+            <Tab className="popup-tab">{t('Custom Providers')}</Tab>
             <Tab className="popup-tab">{t('Advanced')}</Tab>
           </TabList>
 
@@ -117,6 +119,9 @@ function Popup() {
           </TabPanel>
           <TabPanel>
             <ModulesPart config={config} updateConfig={updateConfig} />
+          </TabPanel>
+          <TabPanel>
+            <CustomProviders config={config} updateConfig={updateConfig} />
           </TabPanel>
           <TabPanel>
             <AdvancedPart config={config} updateConfig={updateConfig} />
