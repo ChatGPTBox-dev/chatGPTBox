@@ -106,6 +106,7 @@
   "Keep Conversation Window in Background": "Mantieni la finestra di conversazione in background, per aprirla in qualsiasi programma tramite scorciatoie",
   "Max Response Token Length": "Lunghezza massima del token di risposta",
   "Max Conversation Length": "Lunghezza massima della conversazione",
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "Ritaglia il testo per garantire che i token di input non superino il limite del modello",
   "Always pin the floating window": "Fissare sempre la finestra flottante",
   "Export": "Esporta",
   "Always Create New Conversation Window": "Crea sempre una nuova finestra di conversazione",

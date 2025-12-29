@@ -106,6 +106,7 @@
   "Keep Conversation Window in Background": "Chatfenster im Hintergrund halten, um es mit Tastenkombinationen in jeder Anwendung aufzurufen",
   "Max Response Token Length": "Maximale Tokenlänge der Antwort",
   "Max Conversation Length": "Maximale Gesprächslänge",
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "Text zuschneiden, um sicherzustellen, dass die Eingabe-Token das Limit des Modells nicht überschreiten",
   "Always pin the floating window": "Immer das schwebende Fenster anheften",
   "Export": "Exportieren",
   "Always Create New Conversation Window": "Immer ein neues Chatfenster erstellen",

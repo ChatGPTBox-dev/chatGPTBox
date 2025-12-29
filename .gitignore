@@ -4,3 +4,4 @@ node_modules/
 build/
 .DS_Store
 *.zip
+ICON_SYSTEM_ANALYSIS.md

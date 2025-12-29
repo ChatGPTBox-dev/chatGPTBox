@@ -106,6 +106,7 @@
   "Keep Conversation Window in Background": "会話ウィンドウをバックグラウンドで保持して、任意のプログラムでショートカットキーを使用できます",
   "Max Response Token Length": "最大応答トークン長",
   "Max Conversation Length": "最大会話長",
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "入力トークンがモデルの制限を超えないようにテキストをトリミングする",
   "Always pin the floating window": "常にフローティングウィンドウをピン留め",
   "Export": "エクスポート",
   "Always Create New Conversation Window": "常に新しい会話ウィンドウを作成",

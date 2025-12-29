@@ -106,6 +106,7 @@
   "Keep Conversation Window in Background": "대화 창을 백그라운드로 유지하여 어떤 프로그램에서도 단축키로 호출할 수 있도록 합니다",
   "Max Response Token Length": "최대 응답 토큰 길이",
   "Max Conversation Length": "최대 대화 길이",
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "입력 토큰이 모델 제한을 초과하지 않도록 텍스트 자르기",
   "Always pin the floating window": "항상 떠다니는 창 고정",
   "Export": "내보내기",
   "Always Create New Conversation Window": "항상 새 대화 창 만들기",

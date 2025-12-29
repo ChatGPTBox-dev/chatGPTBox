@@ -106,6 +106,7 @@
   "Keep Conversation Window in Background": "Biarkan jendela percakapan di latar belakang, sehingga Anda dapat menggunakan pintasan keyboard untuk memanggilnya di program mana pun",
   "Max Response Token Length": "Panjang Token Respon Maksimum",
   "Max Conversation Length": "Panjang Percakapan Maksimum",
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "Pangkas teks untuk memastikan token input tidak melebihi batas model",
   "Always pin the floating window": "Selalu selipkan jendela mengambang",
   "Export": "Ekspor",
   "Always Create New Conversation Window": "Selalu Buat Jendela Percakapan Baru",
