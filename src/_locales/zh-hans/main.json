@@ -90,7 +90,8 @@
   "Confirm": "确认",
   "Clear Conversation": "清理对话",
   "Retry": "重试",
-  "Exceeded maximum context length": "超出最大上下文长度, 请清理对话并重试",
+  "Exceeded maximum context length": "超出最大上下文长度",
+  "Please clear the conversation and try again": "请清理对话并重试",
   "Regenerate the answer after switching model": "快捷切换模型时自动重新生成回答",
   "Pin": "固定侧边",
   "Unpin": "收缩侧边",
@@ -105,6 +106,7 @@
   "Keep Conversation Window in Background": "保持对话窗口在后台, 以便在任何程序中使用快捷键呼出",
   "Max Response Token Length": "响应的最大token长度",
   "Max Conversation Length": "对话处理的最大长度",
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "裁剪文本以确保输入token不超过模型限制",
   "Always pin the floating window": "总是固定浮动窗口",
   "Export": "导出",
   "Always Create New Conversation Window": "总是创建新的对话窗口",
@@ -165,6 +167,5 @@
   "ChatGLM (GLM-4-0520, 128k)": "ChatGLM (GLM4-0520, 最智能, 128k)",
   "ChatGLM (Emohaa)": "ChatGLM (Emohaa, 专业情绪咨询)",
   "ChatGLM (CharGLM-3)": "ChatGLM (CharGLM-3, 角色扮演)",
-  "Crop Text to ensure the input tokens do not exceed the model's limit": "裁剪文本以确保输入token不超过模型限制",
   "Thinking Content": "思考内容"
 }

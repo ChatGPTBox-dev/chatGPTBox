@@ -60,7 +60,14 @@ export function handlePortError(session, port, err) {
           err.message.includes(m),
         )
       )
-        port.postMessage({ error: t('Exceeded maximum context length') + '\n\n' + err.message })
+        port.postMessage({
+          error:
+            t('Exceeded maximum context length') +
+            '\n' +
+            t('Please clear the conversation and try again') +
+            '\n\n' +
+            err.message,
+        })
       else if (['CaptchaChallenge', 'CAPTCHA'].some((m) => err.message.includes(m)))
         port.postMessage({ error: t('Bing CaptchaChallenge') + '\n\n' + err.message })
       else if (['exceeded your current quota'].some((m) => err.message.includes(m)))

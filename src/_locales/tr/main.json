@@ -47,7 +47,7 @@
   "Please login at https://claude.ai first, and then click the retry button": "Lütfen önce https://claude.ai adresinde oturum açın ve ardından yeniden dene düğmesine tıklayın",
   "Please login at https://bing.com first": "Lütfen önce https://bing.com adresinde oturum açın",
   "Then open https://chatgpt.com/api/auth/session": "Ardından https://chatgpt.com/api/auth/session adresini açın",
-  "And refresh this page or type you question again": "Ve bu sayfayı yenileyin veya sorunuzu tekrar yazın",
+  "And refresh this page or type you question again": "Ve sağ üst köşedeki yeniden dene düğmesine tıklayın",
   "Consider creating an api key at https://platform.openai.com/account/api-keys": "https://platform.openai.com/account/api-keys adresinde bir api anahtarı oluşturmayı düşünün",
   "OpenAI Security Check Required": "OpenAI Güvenlik Doğrulaması Gerekli",
   "Please open https://chatgpt.com/api/auth/session": "Lütfen https://chatgpt.com/api/auth/session adresini açın",
@@ -90,7 +90,8 @@
   "Confirm": "Onayla",
   "Clear Conversation": "Konuşmayı Temizle",
   "Retry": "Tekrar Dene",
-  "Exceeded maximum context length": "Maksimum bağlam uzunluğu aşıldı, lütfen konuşmayı temizleyip yeniden deneyin",
+  "Exceeded maximum context length": "Maksimum bağlam uzunluğu aşıldı",
+  "Please clear the conversation and try again": "Lütfen konuşmayı temizleyip yeniden deneyin",
   "Regenerate the answer after switching model": "Modeli değiştirdikten sonra cevabı yeniden oluştur",
   "Pin": "Sabitle",
   "Unpin": "Sabitlemeyi Kaldır",
@@ -105,6 +106,7 @@
   "Keep Conversation Window in Background": "Konuşma penceresini arka planda tut; böylece herhangi bir programda çağırmak için kısayol tuşlarını kullanabilirsiniz",
   "Max Response Token Length": "Maksimum Cevap Token Uzunluğu",
   "Max Conversation Length": "Maksimum Konuşma Uzunluğu",
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "Girdi token sayısının model sınırını aşmaması için metni kırp",
   "Always pin the floating window": "Her zaman kayan pencereyi sabitle",
   "Export": "Dışa Aktar",
   "Always Create New Conversation Window": "Her zaman yeni bir konuşma penceresi oluştur",
@@ -159,6 +161,5 @@
   "Gemini (Web)": "Gemini (Web)",
   "Type": "Tür",
   "Mode": "Mod",
-  "Custom": "Özel",
-  "Crop Text to ensure the input tokens do not exceed the model's limit": "Girdi token sayısının model sınırını aşmaması için metni kırp"
+  "Custom": "Özel"
 }

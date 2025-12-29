@@ -90,7 +90,8 @@
   "Confirm": "Confirm",
   "Clear Conversation": "Clear Conversation",
   "Retry": "Retry",
-  "Exceeded maximum context length": "Exceeded maximum context length, please clear the conversation and try again",
+  "Exceeded maximum context length": "Exceeded maximum context length",
+  "Please clear the conversation and try again": "Please clear the conversation and try again",
   "Regenerate the answer after switching model": "Regenerate the answer after switching model",
   "Pin": "Pin",
   "Unpin": "Unpin",
@@ -105,6 +106,7 @@
   "Keep Conversation Window in Background": "Keep conversation window in background, so that you can use shortcut keys to call it up in any program",
   "Max Response Token Length": "Max Response Token Length",
   "Max Conversation Length": "Max Conversation Length",
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "Crop Text to ensure the input tokens do not exceed the model's limit",
   "Always pin the floating window": "Always pin the floating window",
   "Export": "Export",
   "Always Create New Conversation Window": "Always Create New Conversation Window",
@@ -159,6 +161,5 @@
   "Gemini (Web)": "Gemini (Web)",
   "Type": "Type",
   "Mode": "Mode",
-  "Custom": "Custom",
-  "Crop Text to ensure the input tokens do not exceed the model's limit": "Crop Text to ensure the input tokens do not exceed the model's limit"
+  "Custom": "Custom"
 }

@@ -90,7 +90,8 @@
   "Confirm": "確認",
   "Clear Conversation": "清除對話",
   "Retry": "重試",
-  "Exceeded maximum context length": "超出最大上下文長度，請清除對話並重試",
+  "Exceeded maximum context length": "超出最大上下文長度",
+  "Please clear the conversation and try again": "請清除對話並重試",
   "Regenerate the answer after switching model": "切換模型後自動重新產生回答",
   "Pin": "固定側邊",
   "Unpin": "取消固定側邊",
@@ -105,6 +106,7 @@
   "Keep Conversation Window in Background": "保持對話視窗在背景，以便在任何程序中使用快捷鍵呼叫",
   "Max Response Token Length": "回應的最大 token 長度",
   "Max Conversation Length": "對話處理的最大長度",
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "裁剪文本以確保輸入token不超過模型限制",
   "Always pin the floating window": "總是固定浮動視窗",
   "Export": "匯出",
   "Always Create New Conversation Window": "總是建立新的對話視窗",
@@ -160,6 +162,5 @@
   "Type": "類型",
   "Mode": "模式",
   "Custom": "自訂",
-  "Crop Text to ensure the input tokens do not exceed the model's limit": "裁剪文本以確保輸入token不超過模型限制",
   "Thinking Content": "思考內容"
 }
