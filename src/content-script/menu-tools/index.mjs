@@ -2,6 +2,7 @@ import { getCoreContentText } from '../../utils/get-core-content-text'
 import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../../config/index.mjs'
 import { openUrl } from '../../utils/open-url'
+import { speakText, isTtsAvailable } from '../../services/openai-tts.mjs'
 
 export const config = {
   newChat: {
@@ -14,6 +15,61 @@ export const config = {
     label: 'Summarize Page',
     genPrompt: async () => {
       return `You are an expert summarizer. Carefully analyze the following web page content and provide a concise summary focusing on the key points:\n${getCoreContentText()}`
+    },
+  },
+  readSelectedText: {
+    label: 'Read Selected Text',
+    action: async (fromBackground) => {
+      console.debug('read selected text action from background', fromBackground)
+
+      const selection = window.getSelection()
+      const selectedText = selection ? selection.toString().trim() : ''
+
+      if (!selectedText) {
+        alert('Please select some text first')
+        return
+      }
+
+      try {
+        const config = await getUserConfig()
+        const useTts = await isTtsAvailable()
+
+        if (useTts) {
+          // Use OpenAI TTS
+          await speakText(selectedText, {
+            voice: config.openAiTtsVoice,
+            model: config.openAiTtsModel,
+            speed: config.openAiTtsSpeed,
+          })
+        } else {
+          // Fallback to system TTS
+          const synth = window.speechSynthesis
+          synth.cancel()
+
+          const utterance = new SpeechSynthesisUtterance(selectedText)
+          const voices = synth.getVoices()
+
+          let voice
+          if (config.preferredLanguage.includes('en') && navigator.language.includes('en'))
+            voice = voices.find((v) => v.name.toLowerCase().includes('microsoft aria'))
+          else if (config.preferredLanguage.includes('zh') || navigator.language.includes('zh'))
+            voice = voices.find((v) => v.name.toLowerCase().includes('xiaoyi'))
+          else if (config.preferredLanguage.includes('ja') || navigator.language.includes('ja'))
+            voice = voices.find((v) => v.name.toLowerCase().includes('nanami'))
+          if (!voice)
+            voice = voices.find((v) => v.lang.substring(0, 2) === config.preferredLanguage)
+          if (!voice) voice = voices.find((v) => v.lang === navigator.language)
+
+          if (voice) utterance.voice = voice
+          utterance.rate = 1
+          utterance.volume = 1
+
+          synth.speak(utterance)
+        }
+      } catch (error) {
+        console.error('Error reading selected text:', error)
+        alert('Error reading selected text: ' + error.message)
+      }
     },
   },
   openConversationPage: {

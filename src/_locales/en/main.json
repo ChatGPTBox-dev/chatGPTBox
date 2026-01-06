@@ -160,5 +160,12 @@
   "Type": "Type",
   "Mode": "Mode",
   "Custom": "Custom",
-  "Crop Text to ensure the input tokens do not exceed the model's limit": "Crop Text to ensure the input tokens do not exceed the model's limit"
+  "Crop Text to ensure the input tokens do not exceed the model's limit": "Crop Text to ensure the input tokens do not exceed the model's limit",
+  "Text-to-Speech Settings": "Text-to-Speech Settings",
+  "Enable OpenAI TTS (requires API key)": "Enable OpenAI TTS (requires API key)",
+  "TTS Voice": "TTS Voice",
+  "TTS Model": "TTS Model",
+  "TTS Speed": "TTS Speed",
+  "Read Aloud": "Read Aloud",
+  "Read Selected Text": "Read Selected Text"
 }
