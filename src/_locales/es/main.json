@@ -91,7 +91,7 @@
   "Clear Conversation": "Borrar conversación",
   "Retry": "Reintentar",
   "Exceeded maximum context length": "Se superó la longitud máxima del contexto",
-  "Please clear the conversation and try again": "borre la conversación y vuelva a intentarlo",
+  "Please clear the conversation and try again": "Borre la conversación y vuelva a intentarlo",
   "Regenerate the answer after switching model": "Regenerar la respuesta después de cambiar el modelo",
   "Pin": "Fijar",
   "Unpin": "Desfijar",
