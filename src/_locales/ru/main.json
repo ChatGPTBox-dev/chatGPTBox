@@ -91,7 +91,7 @@
   "Clear Conversation": "Очистить беседу",
   "Retry": "Повторить",
   "Exceeded maximum context length": "Превышена максимальная длина контекста",
-  "Please clear the conversation and try again": "очистите беседу и повторите попытку",
+  "Please clear the conversation and try again": "Очистите беседу и повторите попытку",
   "Regenerate the answer after switching model": "Генерировать ответ после смены модели",
   "Pin": "Закрепить",
   "Unpin": "Открепить",
