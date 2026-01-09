@@ -53,6 +53,7 @@
     "rehype-highlight": "^6.0.0",
     "rehype-katex": "^6.0.3",
     "rehype-raw": "^6.1.1",
+    "rehype-sanitize": "^6.0.0",
     "remark-breaks": "^3.0.3",
     "remark-gfm": "^3.0.1",
     "remark-math": "^5.1.1",
