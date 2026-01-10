@@ -775,7 +775,13 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         }
       }
       case 'GET_COOKIE': {
-        console.log('[background] Processing GET_COOKIE message:', message.data)
+        const senderId = sender?.id
+        if (!senderId || senderId !== Browser.runtime.id) {
+          console.warn('[background] Rejecting GET_COOKIE message from untrusted sender:', sender)
+          return null
+        }
+
+        console.debug('[background] Processing GET_COOKIE message for:', message.data?.url)
         try {
           const cookie = await Browser.cookies.get({
             url: message.data.url,
