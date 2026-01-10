@@ -1,10 +1,23 @@
 {
   "env": {
     "browser": true,
-    "es2021": true
+    "es2021": true,
+    "webextensions": true
   },
   "extends": ["eslint:recommended", "plugin:react/recommended"],
-  "overrides": [],
+  "overrides": [
+    {
+      "files": [
+        "build.mjs",
+        ".github/workflows/scripts/*.mjs",
+        "scripts/**/*.js",
+        "scripts/**/*.mjs"
+      ],
+      "env": {
+        "node": true
+      }
+    }
+  ],
   "parserOptions": {
     "ecmaVersion": "latest",
     "sourceType": "module"
@@ -12,7 +25,7 @@
   "rules": {
     "react/react-in-jsx-scope": "off"
   },
-  "ignorePatterns": ["build/**", "build.mjs", "src/utils/is-mobile.mjs"],
+  "ignorePatterns": ["build/**", "src/utils/is-mobile.mjs"],
   "settings": {
     "react": {
       "version": "detect"
