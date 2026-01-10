@@ -781,17 +781,38 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
           return null
         }
 
-        console.debug('[background] Processing GET_COOKIE message for:', message.data?.url)
+        const cookieUrlInput = message?.data?.url
+        const cookieNameInput = message?.data?.name
+        if (
+          typeof cookieUrlInput !== 'string' ||
+          !cookieUrlInput.trim() ||
+          typeof cookieNameInput !== 'string' ||
+          !cookieNameInput.trim()
+        ) {
+          console.warn('[background] Rejecting GET_COOKIE with invalid payload:', message.data)
+          return null
+        }
+
+        let cookieUrl
+        try {
+          cookieUrl = new URL(cookieUrlInput.trim())
+        } catch (error) {
+          console.warn('[background] Rejecting GET_COOKIE with invalid URL:', cookieUrlInput)
+          return null
+        }
+
+        const cookieName = cookieNameInput.trim()
+        console.debug('[background] Processing GET_COOKIE message for:', cookieUrl.href)
         try {
           const cookie = await Browser.cookies.get({
-            url: message.data.url,
-            name: message.data.name,
+            url: cookieUrl.href,
+            name: cookieName,
           })
           console.debug('[background] Cookie found:', cookie ? 'yes' : 'no')
           return cookie?.value
         } catch (error) {
           console.error(
-            `[background] Error getting cookie ${message.data.name} for ${message.data.url}:`,
+            `[background] Error getting cookie ${cookieName} for ${cookieUrl.href}:`,
             error,
           )
           return null
