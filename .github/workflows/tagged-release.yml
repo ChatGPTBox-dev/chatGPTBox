@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: master
 
@@ -45,7 +45,7 @@ jobs:
       - run: |
           gh release create ${{github.ref_name}} -d -F CURRENT_CHANGE.md -t ${{github.ref_name}}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
       - run: npm ci

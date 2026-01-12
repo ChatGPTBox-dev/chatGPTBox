@@ -20,11 +20,24 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+      - name: Detect Node version
+        run: echo "NODE_VERSION=$(node -p 'process.versions.node')" >> $GITHUB_ENV
       - run: npm ci
+      - name: Cache Webpack filesystem cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/webpack
+            node_modules/.cache/webpack
+          key: ${{ runner.os }}-node${{ env.NODE_VERSION }}-webpack-${{ hashFiles('**/package-lock.json', 'build.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-node${{ env.NODE_VERSION }}-webpack-
       - run: npm run build
 
       - uses: josStorer/get-current-time@v2
@@ -32,22 +45,22 @@ jobs:
         with:
           format: YYYY_MMDD_HHmm
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Chromium_Build_${{ steps.current-time.outputs.formattedTime }}
           path: build/chromium/*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Firefox_Build_${{ steps.current-time.outputs.formattedTime }}
           path: build/firefox/*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Chromium_Build_WithoutKatex_${{ steps.current-time.outputs.formattedTime }}
           path: build/chromium-without-katex-and-tiktoken/*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Firefox_Build_WithoutKatex_${{ steps.current-time.outputs.formattedTime }}
           path: build/firefox-without-katex-and-tiktoken/*

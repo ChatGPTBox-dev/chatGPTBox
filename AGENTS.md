@@ -17,6 +17,26 @@ Always reference these instructions first and fall back to search or bash comman
 - Lint code: `npm run lint` -- uses ESLint.
 - Safari build: `npm run build:safari` (see Platform-Specific Instructions for details)
 
+### Build Performance Options
+
+- BUILD_PARALLEL: Toggle parallel build of production variants
+  - Default: on (parallel). Set to `0` to run sequentially (lower CPU/IO spikes on low-core machines)
+- BUILD_THREAD / BUILD_THREAD_WORKERS: Control Babel parallelism via thread-loader
+  - Default: threads enabled in dev/prod; workers = CPU cores
+  - Set `BUILD_THREAD=0` to disable; set `BUILD_THREAD_WORKERS=<n>` to override worker count
+- BUILD_CACHE_COMPRESSION: Webpack filesystem cache compression
+  - Default: `0` (no compression) for faster warm builds on CPU-bound SSD machines
+  - Options: `0|false|none`, `gzip` (or `brotli` if explicitly desired)
+  - Affects only `.cache/webpack` size/speed; does not change final artifacts
+  - Note: Babel loader cache uses its own compression setting (currently disabled for speed) and is independent of BUILD_CACHE_COMPRESSION
+- BUILD_WATCH_ONCE (dev): When set, `npm run dev` runs a single build and exits (useful for timing)
+- BUILD_POOL_TIMEOUT: Override thread-loader production pool timeout (ms)
+  - Default: `2000`. Increase if workers recycle too aggressively on slow machines/CI
+- BUILD_RESOLVE_SYMLINKS: When set to `1`/`true`, re-enable Webpack symlink resolution for `npm link`/pnpm workspace development. Default is `false` to improve performance and ensure consistent module identity (avoids duplicate module instances)
+- Source maps (dev): Dev builds emit external `.map` files next to JS bundles for CSP-safe debugging; production builds disable source maps
+
+Performance defaults: esbuild handles JS/CSS minification. In development, CSS is injected via style-loader; in production, CSS is extracted via MiniCssExtractPlugin. Thread-loader is enabled by default in both dev and prod.
+
 ### Build Output Structure
 
 Production build creates multiple variants in `build/` directory:
