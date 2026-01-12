@@ -123,8 +123,8 @@ const sanitizeSchema = {
     img: ['src', 'alt', 'title', 'width', 'height'],
     video: ['src', 'controls', 'width', 'height'],
     code: ['className'],
-    div: ['className', 'id', 'dir'],
-    span: ['className', 'id'],
+    div: ['className', 'id', 'dir', 'style'],
+    span: ['className', 'id', 'style'],
     // Add custom element 'think'
     think: [],
   },
