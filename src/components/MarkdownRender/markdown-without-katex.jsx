@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
@@ -108,6 +109,34 @@ const ThinkComponent = ({ node, children, ...props }) => {
   )
 }
 
+// Configure sanitize schema to prevent XSS attacks
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    // Allow safe attributes
+    '*': ['className', 'id', 'dir'],
+    a: ['href', 'title', 'target', 'rel'],
+    img: ['src', 'alt', 'title', 'width', 'height'],
+    video: ['src', 'controls', 'width', 'height'],
+    code: ['className'],
+    div: ['className', 'id', 'dir', 'style'],
+    span: ['className', 'id', 'style'],
+    // Add custom element 'think'
+    think: [],
+  },
+  tagNames: [
+    ...(defaultSchema.tagNames || []),
+    'think', // Add custom think tag
+  ].filter(
+    // Remove dangerous tags
+    (tag) =>
+      !['script', 'iframe', 'object', 'embed', 'link', 'style', 'form', 'input', 'button'].includes(
+        tag,
+      ),
+  ),
+}
+
 export function MarkdownRender(props) {
   return (
     <div dir="auto">
@@ -178,6 +207,7 @@ export function MarkdownRender(props) {
         remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[
           rehypeRaw,
+          [rehypeSanitize, sanitizeSchema], // Add sanitization after rehypeRaw to prevent XSS
           [
             rehypeHighlight,
             {
