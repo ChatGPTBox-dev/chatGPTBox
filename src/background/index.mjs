@@ -714,10 +714,11 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         break
       case 'PIN_TAB': {
         console.log('[background] Processing PIN_TAB message:', message.data)
-        let tabId = message.data.tabId ?? sender.tab?.id
+        const data = message.data ?? {}
+        let tabId = data.tabId ?? sender.tab?.id
         if (tabId) {
           await Browser.tabs.update(tabId, { pinned: true })
-          if (message.data.saveAsChatgptConfig) {
+          if (data.saveAsChatgptConfig) {
             console.debug('[background] Saving pinned tab as ChatGPT config tab:', tabId)
             await setUserConfig({ chatgptTabId: tabId })
           }
@@ -744,20 +745,28 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
           console.warn('[background] Invalid FETCH input:', message.data?.input)
           return [null, { message: 'Invalid fetch input' }]
         }
-        if (!fetchInput.startsWith('https://') && !fetchInput.startsWith('http://')) {
-          console.warn('[background] Rejecting FETCH for non-http(s) URL:', fetchInput)
-          return [null, { message: 'Unsupported fetch protocol' }]
+        let validatedUrl
+        try {
+          const url = new URL(fetchInput)
+          if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+            console.warn('[background] Rejecting FETCH for non-http(s) URL:', fetchInput)
+            return [null, { message: 'Unsupported fetch protocol' }]
+          }
+          validatedUrl = url.toString()
+        } catch (error) {
+          console.warn('[background] Invalid FETCH input URL:', fetchInput, error)
+          return [null, { message: 'Invalid fetch URL' }]
         }
 
-        console.log('[background] Processing FETCH message for URL:', fetchInput)
-        if (fetchInput.includes('bing.com')) {
+        console.log('[background] Processing FETCH message for URL:', validatedUrl)
+        if (validatedUrl.includes('bing.com')) {
           console.debug('[background] Fetching Bing access token for FETCH message.')
           const accessToken = await getBingAccessToken()
           await setUserConfig({ bingAccessToken: accessToken })
         }
 
         try {
-          const response = await fetch(fetchInput, message.data?.init)
+          const response = await fetch(validatedUrl, message.data?.init)
           const text = await response.text()
           const responseObject = {
             // Defined for clarity before conditional error property
@@ -770,15 +779,15 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
           if (!response.ok) {
             responseObject.error = `HTTP error ${response.status}: ${response.statusText}`
             console.warn(
-              `[background] FETCH received error status: ${response.status} for ${fetchInput}`,
+              `[background] FETCH received error status: ${response.status} for ${validatedUrl}`,
             )
           }
           console.debug(
-            `[background] FETCH successful for ${fetchInput}, status: ${response.status}`,
+            `[background] FETCH successful for ${validatedUrl}, status: ${response.status}`,
           )
           return [responseObject, null]
         } catch (error) {
-          console.error(`[background] FETCH error for ${fetchInput}:`, error)
+          console.error(`[background] FETCH error for ${validatedUrl}:`, error)
           return [null, { message: error.message }]
         }
       }
@@ -806,6 +815,13 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
           cookieUrl = new URL(cookieUrlInput.trim())
         } catch (error) {
           console.warn('[background] Rejecting GET_COOKIE with invalid URL:', cookieUrlInput)
+          return null
+        }
+        if (cookieUrl.protocol !== 'http:' && cookieUrl.protocol !== 'https:') {
+          console.warn(
+            '[background] Rejecting GET_COOKIE with disallowed protocol:',
+            cookieUrl.protocol,
+          )
           return null
         }
 
@@ -905,20 +921,24 @@ try {
         const headers = details.requestHeaders
         let modified = false
         for (let i = 0; i < headers.length; i++) {
-          if (!headers[i]) {
+          const header = headers[i]
+          if (!header || !header.name) {
             continue
           }
-          const headerNameLower = headers[i].name?.toLowerCase()
+          const headerNameLower = header.name.toLowerCase()
           if (headerNameLower === 'origin') {
-            headers[i].value = 'https://www.bing.com'
+            header.value = 'https://www.bing.com'
             modified = true
           } else if (headerNameLower === 'referer') {
-            headers[i].value = 'https://www.bing.com/search?q=Bing+AI&showconv=1&FORM=hpcodx'
+            header.value = 'https://www.bing.com/search?q=Bing+AI&showconv=1&FORM=hpcodx'
             modified = true
           }
         }
         if (modified) {
-          console.debug('[background] Modified headers for Bing:', headers)
+          console.debug(
+            '[background] Modified headers for Bing (names only):',
+            headers.map((header) => header?.name).filter(Boolean),
+          )
         }
         return { requestHeaders: headers }
       } catch (error) {
@@ -941,11 +961,15 @@ try {
     (details) => {
       const headers = details.requestHeaders
       for (let i = 0; i < headers.length; i++) {
-        const headerNameLower = headers[i]?.name?.toLowerCase()
+        const header = headers[i]
+        if (!header || !header.name) {
+          continue
+        }
+        const headerNameLower = header.name.toLowerCase()
         if (headerNameLower === 'origin') {
-          headers[i].value = 'https://claude.ai'
+          header.value = 'https://claude.ai'
         } else if (headerNameLower === 'referer') {
-          headers[i].value = 'https://claude.ai'
+          header.value = 'https://claude.ai'
         }
       }
       return { requestHeaders: headers }
