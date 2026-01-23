@@ -190,7 +190,15 @@ function setPortProxy(port, proxyTabId) {
         port._reconnectAttempts = 0
         console.debug('[background] Reset reconnect attempts after successful proxy message.')
       }
-      port.postMessage(msg)
+      if (port._isClosed) {
+        console.debug('[background] Main port closed; skipping proxy message.')
+        return
+      }
+      try {
+        port.postMessage(msg)
+      } catch (e) {
+        console.warn('[background] Failed to post message to main port (likely disconnected):', e)
+      }
     }
     port._portOnMessage = (msg) => {
       if (msg?.session && !msg?.stop) {
