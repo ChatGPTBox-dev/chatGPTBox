@@ -969,7 +969,9 @@ async function run() {
 
     await prepareForSelectionTools()
     await prepareForSelectionToolsTouch()
-    await prepareForStaticCard()
+    prepareForStaticCard().catch((error) => {
+      console.error('[content] Error in prepareForStaticCard (unhandled):', error)
+    })
     await prepareForRightClickMenu()
     prepareForJumpBackNotification().catch((error) => {
       console.error('[content] Error in prepareForJumpBackNotification (unhandled):', error)
