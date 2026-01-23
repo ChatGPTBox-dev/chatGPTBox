@@ -162,7 +162,11 @@ async function executeApi(session, port, config) {
     await generateAnswersWithGptCompletionApi(port, session.question, session, config.apiKey)
   } else if (isUsingGithubThirdPartyApiModel(session)) {
     await generateAnswersWithWaylaidwandererApi(port, session.question, session)
+  } else if (isUsingGeminiApiModel(session)) {
+    await generateAnswersWithGeminiApi(port, session.question, session)
   }
+  
+  
 }
 
 Browser.runtime.onMessage.addListener(async (message, sender) => {
