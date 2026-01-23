@@ -19,6 +19,12 @@ const onClickMenu = (info, tab) => {
         type: 'CREATE_CHAT',
         data: message,
       })
+    } else if (message.itemId.startsWith('custom_')) {
+      // Handle custom selection tools
+      Browser.tabs.sendMessage(currentTab.id, {
+        type: 'CREATE_CHAT',
+        data: message,
+      })
     } else if (message.itemId in menuConfig) {
       if (menuConfig[message.itemId].action) {
         menuConfig[message.itemId].action(true, tab)
@@ -37,7 +43,8 @@ export function refreshMenu() {
   if (Browser.contextMenus.onClicked.hasListener(onClickMenu))
     Browser.contextMenus.onClicked.removeListener(onClickMenu)
   Browser.contextMenus.removeAll().then(async () => {
-    if ((await getUserConfig()).hideContextMenu) return
+    const userConfig = await getUserConfig()
+    if (userConfig.hideContextMenu) return
 
     await getPreferredLanguageKey().then((lang) => {
       changeLanguage(lang)
@@ -62,16 +69,32 @@ export function refreshMenu() {
       contexts: ['selection'],
       type: 'separator',
     })
+
+    // Add default selection tools that are active
     for (const index in defaultConfig.selectionTools) {
       const key = defaultConfig.selectionTools[index]
       const desc = defaultConfig.selectionToolsDesc[index]
-      Browser.contextMenus.create({
-        id: menuId + key,
-        parentId: menuId,
-        title: t(desc),
-        contexts: ['selection'],
-      })
+      if (userConfig.activeSelectionTools.includes(key)) {
+        Browser.contextMenus.create({
+          id: menuId + key,
+          parentId: menuId,
+          title: t(desc),
+          contexts: ['selection'],
+        })
+      }
     }
+
+    // Add custom selection tools that are active
+    userConfig.customSelectionTools?.forEach((tool, i) => {
+      if (tool?.active && tool?.name) {
+        Browser.contextMenus.create({
+          id: menuId + 'custom_' + i,
+          parentId: menuId,
+          title: tool.name,
+          contexts: ['selection'],
+        })
+      }
+    })
 
     Browser.contextMenus.onClicked.addListener(onClickMenu)
   })
