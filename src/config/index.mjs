@@ -82,6 +82,8 @@ export const claudeApiModelKeys = [
   'claude37SonnetApi',
   'claudeOpus4Api',
   'claudeOpus41Api',
+  'claudeOpus45Api',
+  'claudeOpus46Api',
   'claudeSonnet4Api',
   'claudeSonnet45Api',
   'claudeHaiku45Api',
@@ -114,6 +116,8 @@ export const deepSeekApiModelKeys = ['deepseek_chat', 'deepseek_reasoner']
 export const openRouterApiModelKeys = [
   'openRouter_anthropic_claude_sonnet4',
   'openRouter_anthropic_claude_sonnet4_5',
+  'openRouter_anthropic_claude_opus4_5',
+  'openRouter_anthropic_claude_opus4_6',
   'openRouter_anthropic_claude_haiku4_5',
   'openRouter_anthropic_claude_3_7_sonnet',
   'openRouter_google_gemini_2_5_pro',
@@ -293,6 +297,14 @@ export const Models = {
     value: 'claude-opus-4-1-20250805',
     desc: 'Claude.ai (API, Claude Opus 4.1)',
   },
+  claudeOpus45Api: {
+    value: 'claude-opus-4-5',
+    desc: 'Claude.ai (API, Claude Opus 4.5)',
+  },
+  claudeOpus46Api: {
+    value: 'claude-opus-4-6',
+    desc: 'Claude.ai (API, Claude Opus 4.6)',
+  },
   claudeSonnet4Api: {
     value: 'claude-sonnet-4-20250514',
     desc: 'Claude.ai (API, Claude Sonnet 4)',
@@ -394,6 +406,14 @@ export const Models = {
   openRouter_anthropic_claude_haiku4_5: {
     value: 'anthropic/claude-haiku-4.5',
     desc: 'OpenRouter (Claude Haiku 4.5)',
+  },
+  openRouter_anthropic_claude_opus4_5: {
+    value: 'anthropic/claude-opus-4.5',
+    desc: 'OpenRouter (Claude Opus 4.5)',
+  },
+  openRouter_anthropic_claude_opus4_6: {
+    value: 'anthropic/claude-opus-4.6',
+    desc: 'OpenRouter (Claude Opus 4.6)',
   },
   openRouter_anthropic_claude_3_7_sonnet: {
     value: 'anthropic/claude-3.7-sonnet',
