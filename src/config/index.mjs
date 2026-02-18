@@ -67,13 +67,7 @@ export const customApiModelKeys = ['customModel']
 export const ollamaApiModelKeys = ['ollamaModel']
 export const azureOpenAiApiModelKeys = ['azureOpenAi']
 export const claudeApiModelKeys = [
-  'claude12Api',
-  'claude2Api',
-  'claude21Api',
   'claude3HaikuApi',
-  'claude3SonnetApi',
-  'claude3OpusApi',
-  'claude35SonnetApi',
   'claude35HaikuApi',
   'claude37SonnetApi',
   'claudeOpus4Api',
@@ -261,18 +255,9 @@ export const Models = {
   chatgptApi4_1_nano: { value: 'gpt-4.1-nano', desc: 'ChatGPT (GPT-4.1 nano)' },
 
   claude2WebFree: { value: '', desc: 'Claude.ai (Web)' },
-  claude12Api: { value: 'claude-instant-1.2', desc: 'Claude.ai (API, Claude Instant 1.2)' },
-  claude2Api: { value: 'claude-2.0', desc: 'Claude.ai (API, Claude 2)' },
-  claude21Api: { value: 'claude-2.1', desc: 'Claude.ai (API, Claude 2.1)' },
   claude3HaikuApi: {
     value: 'claude-3-haiku-20240307',
     desc: 'Claude.ai (API, Claude 3 Haiku)',
-  },
-  claude3SonnetApi: { value: 'claude-3-sonnet-20240229', desc: 'Claude.ai (API, Claude 3 Sonnet)' },
-  claude3OpusApi: { value: 'claude-3-opus-20240229', desc: 'Claude.ai (API, Claude 3 Opus)' },
-  claude35SonnetApi: {
-    value: 'claude-3-5-sonnet-20241022',
-    desc: 'Claude.ai (API, Claude 3.5 Sonnet)',
   },
   claude35HaikuApi: {
     value: 'claude-3-5-haiku-20241022',
