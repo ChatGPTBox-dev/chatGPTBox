@@ -114,19 +114,11 @@ export const openRouterApiModelKeys = [
   'openRouter_google_gemini_2_5_flash',
   'openRouter_openai_o3',
   'openRouter_openai_gpt_4_1_mini',
-  'openRouter_deepseek_deepseek_chat_v3_0324_free',
 ]
 export const aimlApiModelKeys = [
-  'aiml_anthropic_claude_opus_4',
-  'aiml_anthropic_claude_sonnet_4',
-  'aiml_anthropic_claude_sonnet_4_5',
-  'aiml_anthropic_claude_opus_4_1',
   'aiml_claude_3_7_sonnet_20250219',
-  'aiml_google_gemini_2_5_pro_preview_05_06',
-  'aiml_google_gemini_2_5_flash_preview',
   'aiml_openai_o3_2025_04_16',
   'aiml_openai_gpt_4_1_2025_04_14',
-  'aiml_deepseek_deepseek_chat',
   'aiml_moonshot_kimi_k2_preview',
 ]
 
@@ -411,38 +403,9 @@ export const Models = {
     value: 'openai/gpt-4.1-mini',
     desc: 'OpenRouter (GPT-4.1 Mini)',
   },
-  openRouter_deepseek_deepseek_chat_v3_0324_free: {
-    value: 'deepseek/deepseek-chat-v3-0324:free',
-    desc: 'OpenRouter (DeepSeek Chat v3 Free)',
-  },
-
-  aiml_anthropic_claude_opus_4: {
-    value: 'anthropic/claude-opus-4',
-    desc: 'AIML (Claude Opus 4)',
-  },
-  aiml_anthropic_claude_opus_4_1: {
-    value: 'anthropic/claude-opus-4-1',
-    desc: 'AIML (Claude Opus 4.1)',
-  },
-  aiml_anthropic_claude_sonnet_4: {
-    value: 'anthropic/claude-sonnet-4',
-    desc: 'AIML (Claude Sonnet 4)',
-  },
-  aiml_anthropic_claude_sonnet_4_5: {
-    value: 'anthropic/claude-sonnet-4-5',
-    desc: 'AIML (Claude Sonnet 4.5)',
-  },
   aiml_claude_3_7_sonnet_20250219: {
     value: 'claude-3-7-sonnet-20250219',
     desc: 'AIML (Claude 3.7 Sonnet)',
-  },
-  aiml_google_gemini_2_5_pro_preview_05_06: {
-    value: 'google/gemini-2.5-pro-preview-05-06',
-    desc: 'AIML (Gemini 2.5 Pro)',
-  },
-  aiml_google_gemini_2_5_flash_preview: {
-    value: 'google/gemini-2.5-flash-preview',
-    desc: 'AIML (Gemini 2.5 Flash)',
   },
   aiml_openai_o3_2025_04_16: {
     value: 'openai/o3-2025-04-16',
@@ -451,10 +414,6 @@ export const Models = {
   aiml_openai_gpt_4_1_2025_04_14: {
     value: 'openai/gpt-4.1-2025-04-14',
     desc: 'AIML (GPT-4.1)',
-  },
-  aiml_deepseek_deepseek_chat: {
-    value: 'deepseek/deepseek-chat',
-    desc: 'AIML (DeepSeek Chat)',
   },
   aiml_moonshot_kimi_k2_preview: {
     value: 'moonshot/kimi-k2-preview',
