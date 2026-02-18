@@ -29,7 +29,6 @@ export const ModelMode = {
 
 export const chatgptWebModelKeys = [
   'chatgptFree35',
-  'chatgptFree4o',
   'chatgptFree4oMini',
   'chatgptPlus4',
   'chatgptFree35Mobile',
@@ -44,21 +43,18 @@ export const moonshotWebModelKeys = [
   'moonshotWebFreeK15',
   'moonshotWebFreeK15Think',
 ]
-export const gptApiModelKeys = ['gptApiInstruct', 'gptApiDavinci']
+export const gptApiModelKeys = ['gptApiInstruct']
 export const chatgptApiModelKeys = [
   'chatgptApi35',
   'chatgptApi35_16k',
   'chatgptApi35_1106',
   'chatgptApi35_0125',
   'chatgptApi4o_128k',
-  'chatgptApi4oLatest',
   'chatgptApi5Latest',
   'chatgptApi5_1Latest',
   'chatgptApi4oMini',
   'chatgptApi4_8k',
   'chatgptApi4_8k_0613',
-  'chatgptApi4_32k',
-  'chatgptApi4_32k_0613',
   'chatgptApi4_128k',
   'chatgptApi4_128k_preview',
   'chatgptApi4_128k_1106_preview',
@@ -230,7 +226,6 @@ export const ModelGroups = {
 export const Models = {
   chatgptFree35: { value: 'auto', desc: 'ChatGPT (Web)' },
 
-  chatgptFree4o: { value: 'gpt-4o', desc: 'ChatGPT (Web, GPT-4o)' },
   chatgptFree4oMini: { value: 'gpt-4o-mini', desc: 'ChatGPT (Web, GPT-4o mini)' },
 
   chatgptPlus4: { value: 'gpt-4', desc: 'ChatGPT (Web, GPT-4)' },
@@ -242,7 +237,6 @@ export const Models = {
   chatgptApi4o_128k: { value: 'gpt-4o', desc: 'ChatGPT (GPT-4o, 128k)' },
   chatgptApi4oMini: { value: 'gpt-4o-mini', desc: 'ChatGPT (GPT-4o mini)' },
   chatgptApi4_8k: { value: 'gpt-4', desc: 'ChatGPT (GPT-4-8k)' },
-  chatgptApi4_32k: { value: 'gpt-4-32k', desc: 'ChatGPT (GPT-4-32k)' },
   chatgptApi4_128k: {
     value: 'gpt-4-turbo',
     desc: 'ChatGPT (GPT-4-Turbo 128k)',
@@ -259,7 +253,6 @@ export const Models = {
     value: 'gpt-4-0125-preview',
     desc: 'ChatGPT (GPT-4-Turbo 128k 0125 Preview)',
   },
-  chatgptApi4oLatest: { value: 'chatgpt-4o-latest', desc: 'ChatGPT (ChatGPT-4o latest)' },
   chatgptApi5Latest: { value: 'gpt-5-chat-latest', desc: 'ChatGPT (ChatGPT-5 latest)' },
   chatgptApi5_1Latest: { value: 'gpt-5.1-chat-latest', desc: 'ChatGPT (ChatGPT-5.1 latest)' },
 
@@ -341,10 +334,8 @@ export const Models = {
   chatgptApi35_1106: { value: 'gpt-3.5-turbo-1106', desc: 'ChatGPT (GPT-3.5-turbo 1106)' },
   chatgptApi35_0125: { value: 'gpt-3.5-turbo-0125', desc: 'ChatGPT (GPT-3.5-turbo 0125)' },
   chatgptApi4_8k_0613: { value: 'gpt-4', desc: 'ChatGPT (GPT-4-8k 0613)' },
-  chatgptApi4_32k_0613: { value: 'gpt-4-32k', desc: 'ChatGPT (GPT-4-32k 0613)' },
 
   gptApiInstruct: { value: 'gpt-3.5-turbo-instruct', desc: 'GPT-3.5-turbo Instruct' },
-  gptApiDavinci: { value: 'text-davinci-003', desc: 'GPT-3.5' },
 
   customModel: { value: '', desc: 'Custom Model' },
   ollamaModel: { value: '', desc: 'Ollama API' },
