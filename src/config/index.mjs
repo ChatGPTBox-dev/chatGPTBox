@@ -62,6 +62,10 @@ export const chatgptApiModelKeys = [
   'chatgptApi4_1',
   'chatgptApi4_1_mini',
   'chatgptApi4_1_nano',
+  'chatgptApiO4Mini',
+  'chatgptApiGpt5',
+  'chatgptApiGpt5Mini',
+  'chatgptApiGpt5Nano',
 ]
 export const customApiModelKeys = ['customModel']
 export const ollamaApiModelKeys = ['ollamaModel']
@@ -245,6 +249,11 @@ export const Models = {
   chatgptApi4_1: { value: 'gpt-4.1', desc: 'ChatGPT (GPT-4.1)' },
   chatgptApi4_1_mini: { value: 'gpt-4.1-mini', desc: 'ChatGPT (GPT-4.1 mini)' },
   chatgptApi4_1_nano: { value: 'gpt-4.1-nano', desc: 'ChatGPT (GPT-4.1 nano)' },
+
+  chatgptApiO4Mini: { value: 'o4-mini', desc: 'ChatGPT (o4-mini)' },
+  chatgptApiGpt5: { value: 'gpt-5', desc: 'ChatGPT (gpt-5)' },
+  chatgptApiGpt5Mini: { value: 'gpt-5-mini', desc: 'ChatGPT (gpt-5-mini)' },
+  chatgptApiGpt5Nano: { value: 'gpt-5-nano', desc: 'ChatGPT (gpt-5-nano)' },
 
   claude2WebFree: { value: '', desc: 'Claude.ai (Web)' },
   claude3HaikuApi: {
@@ -523,6 +532,10 @@ export const defaultConfig = {
     'openRouter_anthropic_claude_sonnet4_5',
     'openRouter_google_gemini_2_5_pro',
     'openRouter_openai_o3',
+    'chatgptApiO4Mini',
+    'chatgptApiGpt5',
+    'chatgptApiGpt5Mini',
+    'chatgptApiGpt5Nano',
   ],
   customApiModes: [
     {
