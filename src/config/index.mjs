@@ -104,6 +104,9 @@ export const moonshotApiModelKeys = [
 ]
 export const deepSeekApiModelKeys = ['deepseek_chat', 'deepseek_reasoner']
 export const openRouterApiModelKeys = [
+  'openRouter_google_gemini_3_pro',
+  'openRouter_google_gemini_3_flash',
+  'openRouter_google_gemini_3_1_pro',
   'openRouter_anthropic_claude_sonnet4',
   'openRouter_anthropic_claude_sonnet4_5',
   'openRouter_anthropic_claude_opus4_5',
@@ -386,6 +389,18 @@ export const Models = {
   openRouter_anthropic_claude_3_7_sonnet: {
     value: 'anthropic/claude-3.7-sonnet',
     desc: 'OpenRouter (Claude 3.7 Sonnet)',
+  },
+  openRouter_google_gemini_3_pro: {
+    value: 'google/gemini-3-pro-preview',
+    desc: 'OpenRouter (Gemini 3 Pro)',
+  },
+  openRouter_google_gemini_3_flash: {
+    value: 'google/gemini-3-flash-preview',
+    desc: 'OpenRouter (Gemini 3 Flash)',
+  },
+  openRouter_google_gemini_3_1_pro: {
+    value: 'google/gemini-3.1-pro-preview',
+    desc: 'OpenRouter (Gemini 3.1 Pro)',
   },
   openRouter_google_gemini_2_5_pro: {
     value: 'google/gemini-2.5-pro',
