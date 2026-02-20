@@ -6,6 +6,7 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 
 /**
  * @param {Browser.Runtime.Port} port
@@ -103,6 +104,8 @@ export async function generateAnswersWithChatgptApi(port, question, session, api
     question,
     session,
     apiKey,
+    {},
+    'openai',
   )
 }
 
@@ -113,6 +116,7 @@ export async function generateAnswersWithChatgptApiCompat(
   session,
   apiKey,
   extraBody = {},
+  provider = 'compat',
 ) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
   const model = getModelValue(session)
@@ -123,6 +127,12 @@ export async function generateAnswersWithChatgptApiCompat(
     false,
   )
   prompt.push({ role: 'user', content: question })
+  const tokenParams = getChatCompletionsTokenParams(provider, model, config.maxResponseTokenLength)
+  const conflictingTokenParamKey =
+    'max_completion_tokens' in tokenParams ? 'max_tokens' : 'max_completion_tokens'
+  // Avoid sending both token-limit fields when caller passes extraBody.
+  const safeExtraBody = { ...extraBody }
+  delete safeExtraBody[conflictingTokenParamKey]
 
   let answer = ''
   let finished = false
@@ -143,9 +153,9 @@ export async function generateAnswersWithChatgptApiCompat(
       messages: prompt,
       model,
       stream: true,
-      max_tokens: config.maxResponseTokenLength,
+      ...tokenParams,
       temperature: config.temperature,
-      ...extraBody,
+      ...safeExtraBody,
     }),
     onMessage(message) {
       console.debug('sse message', message)

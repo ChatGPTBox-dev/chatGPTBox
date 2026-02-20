@@ -10,6 +10,7 @@ import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { pushRecord, setAbortController } from './shared.mjs'
+import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 
 /**
  * @param {Browser.Runtime.Port} port
@@ -55,7 +56,7 @@ export async function generateAnswersWithCustomApi(
       messages: prompt,
       model: modelName,
       stream: true,
-      max_tokens: config.maxResponseTokenLength,
+      ...getChatCompletionsTokenParams('custom', modelName, config.maxResponseTokenLength),
       temperature: config.temperature,
     }),
     onMessage(message) {
