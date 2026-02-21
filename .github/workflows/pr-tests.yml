@@ -9,6 +9,20 @@ on:
     paths:
       - "src/**"
       - "build.mjs"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/pr-tests.yml"
+  push:
+    branches:
+      - "master"
+    paths:
+      - "src/**"
+      - "build.mjs"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/pr-tests.yml"
 
 jobs:
   tests:
@@ -20,5 +34,6 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
+      - run: npm test
       - run: npm run lint
       - run: npm run build
