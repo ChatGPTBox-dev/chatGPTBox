@@ -6,6 +6,7 @@
     "dev": "node build.mjs --development",
     "analyze": "node build.mjs --analyze",
     "lint": "eslint --ext .js,.mjs,.jsx .",
+    "test": "node --import ./tests/setup/browser-shim.mjs --test",
     "lint:fix": "eslint --ext .js,.mjs,.jsx . --fix",
     "pretty": "prettier --write ./**/*.{js,mjs,jsx,json,css,scss}",
     "stage": "run-script-os",
