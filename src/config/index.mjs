@@ -472,6 +472,7 @@ export const defaultConfig = {
   selectionToolsNextToInputBox: false,
   alwaysPinWindow: false,
   focusAfterAnswer: true,
+  independentPanelCollapsed: true,
 
   apiKey: '', // openai ApiKey
 
