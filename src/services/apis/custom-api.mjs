@@ -39,6 +39,14 @@ export async function generateAnswersWithCustomApi(
 
   let answer = ''
   let finished = false
+
+  let with_reasoning = false
+  let has_reasoning_start = false
+  let has_reasoning_end = false
+
+  const REASONING_START_SIGN = '[Think]\n\n'
+  const REASONING_END_SIGN = '\n\n[Response]\n\n'
+
   const finish = () => {
     finished = true
     pushRecord(session, question, answer)
@@ -77,12 +85,34 @@ export async function generateAnswersWithCustomApi(
       if (data.response) answer = data.response
       else {
         const delta = data.choices[0]?.delta?.content
+        const delta_reasoning = data.choices[0]?.delta?.reasoning_content
         const content = data.choices[0]?.message?.content
+        const content_reasoning = data.choices[0]?.message?.reasoning_content
         const text = data.choices[0]?.text
         if (delta !== undefined) {
-          answer += delta
+          // streaming handling
+          if (delta_reasoning) {
+            with_reasoning = true
+            if (!has_reasoning_start) {
+              answer += REASONING_START_SIGN
+              has_reasoning_start = true
+            }
+            answer += delta_reasoning
+          }
+          if (delta) {
+            if (with_reasoning && !has_reasoning_end) {
+              answer += REASONING_END_SIGN
+              has_reasoning_end = true
+            }
+            answer += delta
+          }
         } else if (content) {
-          answer = content
+          // single response handling
+          if (content_reasoning) {
+            answer = REASONING_START_SIGN + content_reasoning + REASONING_END_SIGN + content
+          } else {
+            answer = content
+          }
         } else if (text) {
           answer += text
         }
