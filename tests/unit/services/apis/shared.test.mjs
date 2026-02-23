@@ -76,3 +76,34 @@ test('setAbortController aborts on disconnect and removes disconnect listener', 
   assert.equal(onDisconnectCalled, 1)
   assert.deepEqual(port.listenerCounts(), { onMessage: 1, onDisconnect: 0 })
 })
+
+test('setAbortController ignores non-stop messages', (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const port = createFakePort()
+  let onStopCalled = 0
+
+  const { controller } = setAbortController(port, () => {
+    onStopCalled += 1
+  })
+
+  port.emitMessage({ stop: false })
+  port.emitMessage({ foo: 'bar' })
+
+  assert.equal(controller.signal.aborted, false)
+  assert.equal(onStopCalled, 0)
+  assert.deepEqual(port.postedMessages, [])
+  assert.deepEqual(port.listenerCounts(), { onMessage: 1, onDisconnect: 1 })
+})
+
+test('setAbortController cleanController removes listeners safely', (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const port = createFakePort()
+  const { cleanController } = setAbortController(port)
+
+  assert.deepEqual(port.listenerCounts(), { onMessage: 1, onDisconnect: 1 })
+
+  cleanController()
+  cleanController()
+
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
