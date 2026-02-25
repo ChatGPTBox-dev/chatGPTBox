@@ -5,18 +5,10 @@ import {
   sendMessageFeedback,
 } from '../services/apis/chatgpt-web'
 import { generateAnswersWithBingWebApi } from '../services/apis/bing-web.mjs'
-import {
-  generateAnswersWithChatgptApi,
-  generateAnswersWithGptCompletionApi,
-} from '../services/apis/openai-api'
-import { generateAnswersWithCustomApi } from '../services/apis/custom-api.mjs'
-import { generateAnswersWithOllamaApi } from '../services/apis/ollama-api.mjs'
+import { generateAnswersWithOpenAICompatibleApi } from '../services/apis/openai-api'
 import { generateAnswersWithAzureOpenaiApi } from '../services/apis/azure-openai-api.mjs'
 import { generateAnswersWithClaudeApi } from '../services/apis/claude-api.mjs'
-import { generateAnswersWithChatGLMApi } from '../services/apis/chatglm-api.mjs'
 import { generateAnswersWithWaylaidwandererApi } from '../services/apis/waylaidwanderer-api.mjs'
-import { generateAnswersWithOpenRouterApi } from '../services/apis/openrouter-api.mjs'
-import { generateAnswersWithAimlApi } from '../services/apis/aiml-api.mjs'
 import {
   defaultConfig,
   getUserConfig,
@@ -52,10 +44,8 @@ import { refreshMenu } from './menus.mjs'
 import { registerCommands } from './commands.mjs'
 import { generateAnswersWithBardWebApi } from '../services/apis/bard-web.mjs'
 import { generateAnswersWithClaudeWebApi } from '../services/apis/claude-web.mjs'
-import { generateAnswersWithMoonshotCompletionApi } from '../services/apis/moonshot-api.mjs'
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
-import { generateAnswersWithDeepSeekApi } from '../services/apis/deepseek-api.mjs'
 
 const RECONNECT_CONFIG = {
   MAX_ATTEMPTS: 5,
@@ -419,6 +409,20 @@ function setPortProxy(port, proxyTabId) {
   }
 }
 
+function isUsingOpenAICompatibleApiSession(session) {
+  return (
+    isUsingCustomModel(session) ||
+    isUsingChatgptApiModel(session) ||
+    isUsingMoonshotApiModel(session) ||
+    isUsingChatGLMApiModel(session) ||
+    isUsingDeepSeekApiModel(session) ||
+    isUsingOllamaApiModel(session) ||
+    isUsingOpenRouterApiModel(session) ||
+    isUsingAimlApiModel(session) ||
+    isUsingGptCompletionApiModel(session)
+  )
+}
+
 async function executeApi(session, port, config) {
   console.log(
     `[background] executeApi called for model: ${session.modelName}, apiMode: ${session.apiMode}`,
@@ -434,29 +438,7 @@ async function executeApi(session, port, config) {
     )
   }
   try {
-    if (isUsingCustomModel(session)) {
-      console.debug('[background] Using Custom Model API')
-      if (!session.apiMode)
-        await generateAnswersWithCustomApi(
-          port,
-          session.question,
-          session,
-          config.customModelApiUrl.trim() || 'http://localhost:8000/v1/chat/completions',
-          config.customApiKey,
-          config.customModelName,
-        )
-      else
-        await generateAnswersWithCustomApi(
-          port,
-          session.question,
-          session,
-          session.apiMode.customUrl?.trim() ||
-            config.customModelApiUrl.trim() ||
-            'http://localhost:8000/v1/chat/completions',
-          session.apiMode.apiKey?.trim() || config.customApiKey,
-          session.apiMode.customName,
-        )
-    } else if (isUsingChatgptWebModel(session)) {
+    if (isUsingChatgptWebModel(session)) {
       console.debug('[background] Using ChatGPT Web Model')
       let tabId
       if (
@@ -581,46 +563,15 @@ async function executeApi(session, port, config) {
       console.debug('[background] Using Gemini Web Model')
       const cookies = await getBardCookies()
       await generateAnswersWithBardWebApi(port, session.question, session, cookies)
-    } else if (isUsingChatgptApiModel(session)) {
-      console.debug('[background] Using ChatGPT API Model')
-      await generateAnswersWithChatgptApi(port, session.question, session, config.apiKey)
+    } else if (isUsingOpenAICompatibleApiSession(session)) {
+      console.debug('[background] Using OpenAI-compatible API provider')
+      await generateAnswersWithOpenAICompatibleApi(port, session.question, session, config)
     } else if (isUsingClaudeApiModel(session)) {
       console.debug('[background] Using Claude API Model')
       await generateAnswersWithClaudeApi(port, session.question, session)
-    } else if (isUsingMoonshotApiModel(session)) {
-      console.debug('[background] Using Moonshot API Model')
-      await generateAnswersWithMoonshotCompletionApi(
-        port,
-        session.question,
-        session,
-        config.moonshotApiKey,
-      )
-    } else if (isUsingChatGLMApiModel(session)) {
-      console.debug('[background] Using ChatGLM API Model')
-      await generateAnswersWithChatGLMApi(port, session.question, session)
-    } else if (isUsingDeepSeekApiModel(session)) {
-      console.debug('[background] Using DeepSeek API Model')
-      await generateAnswersWithDeepSeekApi(port, session.question, session, config.deepSeekApiKey)
-    } else if (isUsingOllamaApiModel(session)) {
-      console.debug('[background] Using Ollama API Model')
-      await generateAnswersWithOllamaApi(port, session.question, session)
-    } else if (isUsingOpenRouterApiModel(session)) {
-      console.debug('[background] Using OpenRouter API Model')
-      await generateAnswersWithOpenRouterApi(
-        port,
-        session.question,
-        session,
-        config.openRouterApiKey,
-      )
-    } else if (isUsingAimlApiModel(session)) {
-      console.debug('[background] Using AIML API Model')
-      await generateAnswersWithAimlApi(port, session.question, session, config.aimlApiKey)
     } else if (isUsingAzureOpenAiApiModel(session)) {
       console.debug('[background] Using Azure OpenAI API Model')
       await generateAnswersWithAzureOpenaiApi(port, session.question, session)
-    } else if (isUsingGptCompletionApiModel(session)) {
-      console.debug('[background] Using GPT Completion API Model')
-      await generateAnswersWithGptCompletionApi(port, session.question, session, config.apiKey)
     } else if (isUsingGithubThirdPartyApiModel(session)) {
       console.debug('[background] Using Github Third Party API Model')
       await generateAnswersWithWaylaidwandererApi(port, session.question, session)
