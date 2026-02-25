@@ -9,9 +9,7 @@ import {
   apiModeToModelName,
 } from '../../utils/index.mjs'
 import {
-  isUsingOpenAiApiModel,
   isUsingAzureOpenAiApiModel,
-  isUsingChatGLMApiModel,
   isUsingClaudeApiModel,
   isUsingCustomModel,
   isUsingOllamaApiModel,
@@ -20,17 +18,18 @@ import {
   ModelMode,
   ThemeMode,
   TriggerMode,
-  isUsingMoonshotApiModel,
   Models,
-  isUsingOpenRouterApiModel,
-  isUsingAimlApiModel,
-  isUsingDeepSeekApiModel,
 } from '../../config/index.mjs'
 import Browser from 'webextension-polyfill'
 import { languageList } from '../../config/language.mjs'
 import PropTypes from 'prop-types'
 import { config as menuConfig } from '../../content-script/menu-tools'
 import { PencilIcon } from '@primer/octicons-react'
+import {
+  getProviderById,
+  resolveOpenAICompatibleRequest,
+} from '../../services/apis/provider-registry.mjs'
+import { buildProviderSecretUpdate } from './provider-secret-utils.mjs'
 
 GeneralPart.propTypes = {
   config: PropTypes.object.isRequired,
@@ -109,16 +108,29 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
     config.ollamaModelName,
   ])
 
+  const selectedProviderSession =
+    config.apiMode && typeof config.apiMode === 'object'
+      ? { apiMode: config.apiMode }
+      : { modelName: config.modelName }
+  const selectedProviderRequest = resolveOpenAICompatibleRequest(config, selectedProviderSession)
+  const selectedProviderId = selectedProviderRequest?.providerId || ''
+  const selectedProvider = selectedProviderRequest
+    ? getProviderById(config, selectedProviderRequest.providerId)
+    : null
+  const selectedProviderApiKey = selectedProviderRequest?.apiKey || ''
+  const isUsingOpenAICompatibleProvider = Boolean(selectedProviderRequest)
+
   const getBalance = async () => {
-    const response = await fetch(`${config.customOpenAiApiUrl}/dashboard/billing/credit_grants`, {
+    const openAiApiUrl = selectedProvider?.baseUrl || config.customOpenAiApiUrl
+    const response = await fetch(`${openAiApiUrl}/dashboard/billing/credit_grants`, {
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
+        Authorization: `Bearer ${selectedProviderApiKey}`,
       },
     })
     if (response.ok) setBalance((await response.json()).total_available.toFixed(2))
     else {
-      const billing = await checkBilling(config.apiKey, config.customOpenAiApiUrl)
+      const billing = await checkBilling(selectedProviderApiKey, openAiApiUrl)
       if (billing && billing.length > 2 && billing[2]) setBalance(`${billing[2].toFixed(2)}`)
       else openUrl('https://platform.openai.com/account/usage')
     }
@@ -178,12 +190,11 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
         <span style="display: flex; gap: 15px;">
           <select
             style={
-              isUsingOpenAiApiModel(config) ||
+              isUsingOpenAICompatibleProvider ||
               isUsingMultiModeModel(config) ||
               isUsingSpecialCustomModel(config) ||
               isUsingAzureOpenAiApiModel(config) ||
-              isUsingClaudeApiModel(config) ||
-              isUsingMoonshotApiModel(config)
+              isUsingClaudeApiModel(config)
                 ? 'width: 50%;'
                 : undefined
             }
@@ -230,36 +241,37 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
               })}
             </select>
           )}
-          {isUsingOpenAiApiModel(config) && (
+          {isUsingOpenAICompatibleProvider && (
             <span style="width: 50%; display: flex; gap: 5px;">
               <input
                 type="password"
-                value={config.apiKey}
+                value={selectedProviderApiKey}
                 placeholder={t('API Key')}
                 onChange={(e) => {
                   const apiKey = e.target.value
-                  updateConfig({ apiKey: apiKey })
+                  updateConfig(buildProviderSecretUpdate(config, selectedProviderId, apiKey))
                 }}
               />
-              {config.apiKey.length === 0 ? (
-                <a
-                  href="https://platform.openai.com/account/api-keys"
-                  target="_blank"
-                  rel="nofollow noopener noreferrer"
-                >
-                  <button style="white-space: nowrap;" type="button">
-                    {t('Get')}
+              {selectedProviderId === 'openai' &&
+                (selectedProviderApiKey.length === 0 ? (
+                  <a
+                    href="https://platform.openai.com/account/api-keys"
+                    target="_blank"
+                    rel="nofollow noopener noreferrer"
+                  >
+                    <button style="white-space: nowrap;" type="button">
+                      {t('Get')}
+                    </button>
+                  </a>
+                ) : balance ? (
+                  <button type="button" onClick={getBalance}>
+                    {balance}
                   </button>
-                </a>
-              ) : balance ? (
-                <button type="button" onClick={getBalance}>
-                  {balance}
-                </button>
-              ) : (
-                <button type="button" onClick={getBalance}>
-                  {t('Balance')}
-                </button>
-              )}
+                ) : (
+                  <button type="button" onClick={getBalance}>
+                    {t('Balance')}
+                  </button>
+                ))}
             </span>
           )}
           {isUsingSpecialCustomModel(config) && (
@@ -298,41 +310,6 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
               }}
             />
           )}
-          {isUsingChatGLMApiModel(config) && (
-            <input
-              type="password"
-              value={config.chatglmApiKey}
-              placeholder={t('ChatGLM API Key')}
-              onChange={(e) => {
-                const apiKey = e.target.value
-                updateConfig({ chatglmApiKey: apiKey })
-              }}
-            />
-          )}
-          {isUsingMoonshotApiModel(config) && (
-            <span style="width: 50%; display: flex; gap: 5px;">
-              <input
-                type="password"
-                value={config.moonshotApiKey}
-                placeholder={t('Moonshot API Key')}
-                onChange={(e) => {
-                  const apiKey = e.target.value
-                  updateConfig({ moonshotApiKey: apiKey })
-                }}
-              />
-              {config.moonshotApiKey.length === 0 && (
-                <a
-                  href="https://platform.moonshot.cn/console/api-keys"
-                  target="_blank"
-                  rel="nofollow noopener noreferrer"
-                >
-                  <button style="white-space: nowrap;" type="button">
-                    {t('Get')}
-                  </button>
-                </a>
-              )}
-            </span>
-          )}
         </span>
         {isUsingSpecialCustomModel(config) && (
           <input
@@ -342,17 +319,6 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
             onChange={(e) => {
               const value = e.target.value
               updateConfig({ customModelApiUrl: value })
-            }}
-          />
-        )}
-        {isUsingSpecialCustomModel(config) && (
-          <input
-            type="password"
-            value={config.customApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ customApiKey: apiKey })
             }}
           />
         )}
@@ -405,50 +371,6 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
             onChange={(e) => {
               const value = e.target.value
               updateConfig({ ollamaEndpoint: value })
-            }}
-          />
-        )}
-        {isUsingDeepSeekApiModel(config) && (
-          <input
-            type="password"
-            value={config.deepSeekApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ deepSeekApiKey: apiKey })
-            }}
-          />
-        )}
-        {isUsingOllamaApiModel(config) && (
-          <input
-            type="password"
-            value={config.ollamaApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ ollamaApiKey: apiKey })
-            }}
-          />
-        )}
-        {isUsingOpenRouterApiModel(config) && (
-          <input
-            type="password"
-            value={config.openRouterApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ openRouterApiKey: apiKey })
-            }}
-          />
-        )}
-        {isUsingAimlApiModel(config) && (
-          <input
-            type="password"
-            value={config.aimlApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ aimlApiKey: apiKey })
             }}
           />
         )}
