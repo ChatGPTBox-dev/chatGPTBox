@@ -72,7 +72,7 @@ test('aggregates delta.content SSE chunks and finishes on finish_reason', async 
     port.postedMessages.some((m) => m.done === true && m.session === session),
     true,
   )
-  assert.deepEqual(port.postedMessages.at(-1), { done: true })
+  assert.deepEqual(port.postedMessages.at(-1), { answer: null, done: true, session })
   assert.deepEqual(session.conversationRecords.at(-1), {
     question: 'CurrentQ',
     answer: 'Hello',
