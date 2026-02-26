@@ -36,6 +36,10 @@ import { initSession } from '../../services/init-session.mjs'
 import { findLastIndex } from 'lodash-es'
 import { generateAnswersWithBingWebApi } from '../../services/apis/bing-web.mjs'
 import { handlePortError } from '../../services/wrappers.mjs'
+import {
+  getApiModeDisplayLabel,
+  getConversationAiName,
+} from '../../popup/sections/api-modes-provider-utils.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 const UNMATCHED_API_MODE_VALUE = '__current-session-api-mode__'
@@ -71,29 +75,19 @@ function ConversationCard(props) {
   */
   const [conversationItemData, setConversationItemData] = useState([])
   const config = useConfig()
-  const currentAiName =
-    session.aiName ||
-    modelNameToDesc(
-      session.apiMode && typeof session.apiMode === 'object'
-        ? apiModeToModelName(session.apiMode)
-        : session.modelName,
-      t,
-      config.customModelName,
-    ) ||
-    t(Models.customModel.desc)
+  const customOpenAIProviders = Array.isArray(config.customOpenAIProviders)
+    ? config.customOpenAIProviders
+    : []
+  const currentAiName = getConversationAiName(session, t, customOpenAIProviders)
   const selectedApiModeIndex = useMemo(
     () => getUniquelySelectedApiModeIndex(apiModes, session, { sessionCompat: true }),
     [apiModes, session],
   )
-  const selectedApiModeDesc =
+  const selectedApiModeLabel =
     selectedApiModeIndex !== -1
-      ? modelNameToDesc(
-          apiModeToModelName(apiModes[selectedApiModeIndex]),
-          t,
-          config.customModelName,
-        )
+      ? getApiModeDisplayLabel(apiModes[selectedApiModeIndex], t, customOpenAIProviders)
       : ''
-  const selectedApiModeValue = selectedApiModeDesc
+  const selectedApiModeValue = selectedApiModeLabel
     ? String(selectedApiModeIndex)
     : !session.apiMode && session.modelName === 'customModel'
     ? '-1'
@@ -423,11 +417,9 @@ function ConversationCard(props) {
                 ...session,
                 modelName,
                 apiMode,
-                aiName: modelNameToDesc(
-                  apiMode ? apiModeToModelName(apiMode) : modelName,
-                  t,
-                  config.customModelName,
-                ),
+                aiName: apiMode
+                  ? getApiModeDisplayLabel(apiMode, t, customOpenAIProviders)
+                  : modelNameToDesc(modelName, t, config.customModelName),
               }
               if (config.autoRegenAfterSwitchModel && conversationItemData.length > 0)
                 getRetryFn(newSession)()
@@ -440,8 +432,7 @@ function ConversationCard(props) {
               </option>
             )}
             {apiModes.map((apiMode, index) => {
-              const modelName = apiModeToModelName(apiMode)
-              const desc = modelNameToDesc(modelName, t, config.customModelName)
+              const desc = getApiModeDisplayLabel(apiMode, t, customOpenAIProviders)
               if (desc) {
                 return (
                   <option value={index} key={index}>
@@ -590,7 +581,7 @@ function ConversationCard(props) {
             content={data.content}
             key={idx}
             type={data.type}
-            descName={data.type === 'answer' && session.aiName}
+            descName={data.type === 'answer' && currentAiName}
             onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
           />
         ))}

@@ -147,7 +147,8 @@ function Others({ config, updateConfig }) {
           checked={config.hideContextMenu}
           onChange={async (e) => {
             const checked = e.target.checked
-            await updateConfig({ hideContextMenu: checked })
+            const result = await updateConfig({ hideContextMenu: checked })
+            if (!result?.ok) return
             Browser.runtime.sendMessage({
               type: 'REFRESH_MENU',
             })

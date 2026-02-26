@@ -1,16 +1,9 @@
 import { useTranslation } from 'react-i18next'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import FileSaver from 'file-saver'
+import { isApiModeSelected, getApiModesFromConfig } from '../../utils/index.mjs'
 import {
-  modelNameToDesc,
-  isApiModeSelected,
-  getApiModesFromConfig,
-  apiModeToModelName,
-} from '../../utils/index.mjs'
-import {
-  isUsingOpenAiApiModel,
   isUsingAzureOpenAiApiModel,
-  isUsingChatGLMApiModel,
   isUsingClaudeApiModel,
   isUsingCustomModel,
   isUsingOllamaApiModel,
@@ -19,11 +12,7 @@ import {
   ModelMode,
   ThemeMode,
   TriggerMode,
-  isUsingMoonshotApiModel,
   Models,
-  isUsingOpenRouterApiModel,
-  isUsingAimlApiModel,
-  isUsingDeepSeekApiModel,
 } from '../../config/index.mjs'
 import Browser from 'webextension-polyfill'
 import { languageList } from '../../config/language.mjs'
@@ -31,10 +20,31 @@ import PropTypes from 'prop-types'
 import { config as menuConfig } from '../../content-script/menu-tools'
 import { PencilIcon } from '@primer/octicons-react'
 import { importDataIntoStorage } from './import-data-cleanup.mjs'
+import { resolveOpenAICompatibleRequest } from '../../services/apis/provider-registry.mjs'
+import { getApiModeDisplayLabel } from './api-modes-provider-utils.mjs'
+import {
+  buildProviderOverrideFinalConfigUpdate,
+  createProviderApiKeyDraftSelectionSignature,
+  resolveOverrideCommitContext,
+  resolveCommittedMigratedSessions,
+  resolveCommittedOverrideSourceProvider,
+  resolvePersistedProviderApiKeyForSelection,
+  shouldResetProviderApiKeyDraftAfterPersistFailure,
+} from './general-provider-override-utils.mjs'
+import {
+  buildSelectedModeProviderSecretOverrideUpdate,
+  buildProviderSecretUpdate,
+  createProviderSecretOverrideCommitSelectionSignature,
+  hasSelectedModeOwnProviderSecretOverride,
+  resolveProviderSecretTargetId,
+  rollbackProviderSecretOverrideSessionMigration,
+} from './provider-secret-utils.mjs'
 
 GeneralPart.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
+  getPersistedConfig: PropTypes.func.isRequired,
+  getCommittedConfig: PropTypes.func.isRequired,
   setTabIndex: PropTypes.func.isRequired,
 }
 
@@ -42,9 +52,47 @@ function isUsingSpecialCustomModel(configOrSession) {
   return isUsingCustomModel(configOrSession) && !configOrSession.apiMode
 }
 
-export function GeneralPart({ config, updateConfig, setTabIndex }) {
+function getProviderApiKeySetupUrl(providerId) {
+  switch (String(providerId || '').trim()) {
+    case 'openai':
+      return 'https://platform.openai.com/account/api-keys'
+    case 'moonshot':
+      return 'https://platform.moonshot.cn/console/api-keys'
+    default:
+      return ''
+  }
+}
+
+function normalizeLoadedSessionsResult(stored) {
+  return {
+    ok: true,
+    sessions: Array.isArray(stored?.sessions) ? stored.sessions : [],
+  }
+}
+
+function isOverrideCommitCurrent(
+  commitGeneration,
+  currentGeneration,
+  commitSelectionSignature,
+  currentSelectionSignature,
+) {
+  return (
+    commitGeneration === currentGeneration && commitSelectionSignature === currentSelectionSignature
+  )
+}
+
+export function GeneralPart({
+  config,
+  updateConfig,
+  getPersistedConfig,
+  getCommittedConfig,
+  setTabIndex,
+}) {
   const { t, i18n } = useTranslation()
   const [apiModes, setApiModes] = useState([])
+  const [providerApiKeyDraft, setProviderApiKeyDraft] = useState('')
+  const [isOverrideProviderKeyActionPending, setIsOverrideProviderKeyActionPending] =
+    useState(false)
 
   useLayoutEffect(() => {
     setApiModes(getApiModesFromConfig(config, true))
@@ -54,6 +102,320 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
     config.azureDeploymentName,
     config.ollamaModelName,
   ])
+
+  const selectedProviderSession =
+    config.apiMode && typeof config.apiMode === 'object'
+      ? { apiMode: config.apiMode }
+      : { modelName: config.modelName }
+  const selectedProviderRequest = resolveOpenAICompatibleRequest(config, selectedProviderSession)
+  const selectedProviderId = selectedProviderRequest?.providerId || ''
+  const selectedProviderSecretTargetId = resolveProviderSecretTargetId(selectedProviderRequest)
+  const selectedProviderApiKey = selectedProviderRequest?.apiKey || ''
+  const normalizedProviderApiKeyDraft = String(providerApiKeyDraft || '').trim()
+  const normalizedSelectedProviderApiKey = String(selectedProviderApiKey || '').trim()
+  const isUsingOpenAICompatibleProvider = Boolean(selectedProviderRequest)
+  const isSelectedProviderKeyManagedByModeOverride = hasSelectedModeOwnProviderSecretOverride(
+    config,
+    selectedProviderSecretTargetId,
+  )
+  const selectedProviderApiKeySetupUrl = getProviderApiKeySetupUrl(selectedProviderId)
+  const selectedOverrideCommitSelectionSignature =
+    createProviderSecretOverrideCommitSelectionSignature(
+      selectedProviderSecretTargetId,
+      config.apiMode,
+    )
+  const providerApiKeySelectionSignature = createProviderApiKeyDraftSelectionSignature(
+    selectedProviderId,
+    selectedProviderSecretTargetId,
+  )
+  const overrideCommitGenerationRef = useRef(0)
+  const overrideCommitPendingCountRef = useRef(0)
+  const overrideCommitQueueRef = useRef(Promise.resolve())
+  const overrideCommitSelectionSignatureRef = useRef(selectedOverrideCommitSelectionSignature)
+  const providerApiKeySelectionSignatureRef = useRef(providerApiKeySelectionSignature)
+  const providerApiKeyDraftRef = useRef(providerApiKeyDraft)
+  const isMountedRef = useRef(false)
+
+  useLayoutEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    overrideCommitSelectionSignatureRef.current = selectedOverrideCommitSelectionSignature
+    overrideCommitGenerationRef.current += 1
+  }, [selectedOverrideCommitSelectionSignature])
+
+  useLayoutEffect(() => {
+    providerApiKeySelectionSignatureRef.current = providerApiKeySelectionSignature
+  }, [providerApiKeySelectionSignature])
+
+  useLayoutEffect(() => {
+    providerApiKeyDraftRef.current = providerApiKeyDraft
+  }, [providerApiKeyDraft])
+
+  useLayoutEffect(() => {
+    setProviderApiKeyDraft(selectedProviderApiKey)
+  }, [selectedProviderApiKey, selectedProviderId, selectedProviderSecretTargetId])
+
+  const loadLatestSessions = async () => {
+    try {
+      const stored = await Browser.storage.local.get('sessions')
+      return normalizeLoadedSessionsResult(stored)
+    } catch {
+      return { ok: false, sessions: [] }
+    }
+  }
+
+  const commitSelectedModeProviderKeyOverride = async (nextApiKey) => {
+    const normalizedNextApiKey = String(nextApiKey || '').trim()
+    overrideCommitPendingCountRef.current += 1
+    if (isMountedRef.current) {
+      setIsOverrideProviderKeyActionPending(true)
+    }
+    const commitGeneration = ++overrideCommitGenerationRef.current
+    const commitSelectionSignature = selectedOverrideCommitSelectionSignature
+    const runCommit = async () => {
+      try {
+        const { committedConfig, existingProviders } = await resolveOverrideCommitContext(
+          getCommittedConfig,
+          selectedProviderId,
+        )
+        if (
+          !isOverrideCommitCurrent(
+            commitGeneration,
+            overrideCommitGenerationRef.current,
+            commitSelectionSignature,
+            overrideCommitSelectionSignatureRef.current,
+          )
+        ) {
+          return
+        }
+        const { overrideSourceProvider } = resolveCommittedOverrideSourceProvider(
+          committedConfig,
+          selectedProviderSecretTargetId,
+        )
+
+        if (!overrideSourceProvider) {
+          console.warn('[popup] Selected provider disappeared before provider override commit')
+          return
+        }
+
+        const { configUpdate, sessionMigration, cleanupCandidateProviderId } =
+          buildSelectedModeProviderSecretOverrideUpdate(
+            committedConfig,
+            selectedProviderSecretTargetId,
+            normalizedNextApiKey,
+            overrideSourceProvider,
+            existingProviders,
+          )
+
+        const committedSessionsResult = await resolveCommittedMigratedSessions(
+          loadLatestSessions,
+          sessionMigration,
+        )
+        if (!committedSessionsResult.ok) {
+          return
+        }
+        const latestSessions = committedSessionsResult.sessions
+        const updatedSessions = committedSessionsResult.migratedSessions
+        if (
+          !isOverrideCommitCurrent(
+            commitGeneration,
+            overrideCommitGenerationRef.current,
+            commitSelectionSignature,
+            overrideCommitSelectionSignatureRef.current,
+          )
+        ) {
+          return
+        }
+
+        if (updatedSessions !== latestSessions) {
+          try {
+            await Browser.storage.local.set({ sessions: updatedSessions })
+          } catch (error) {
+            console.error(
+              '[popup] Failed to persist migrated sessions for provider override',
+              error,
+            )
+            return
+          }
+        }
+
+        const rollbackMigratedSessions = async (message, error) => {
+          if (updatedSessions === latestSessions || !sessionMigration) return
+          if (error) {
+            console.error(message, error)
+          } else {
+            console.error(message)
+          }
+
+          const currentSessionsResult = await loadLatestSessions()
+          if (!currentSessionsResult.ok) {
+            console.error(
+              '[popup] Failed to reload sessions for provider override selective rollback',
+            )
+            return
+          }
+          const rolledBackSessions = rollbackProviderSecretOverrideSessionMigration(
+            currentSessionsResult.sessions,
+            latestSessions,
+            sessionMigration,
+          )
+          if (rolledBackSessions === currentSessionsResult.sessions) return
+          try {
+            await Browser.storage.local.set({ sessions: rolledBackSessions })
+          } catch (rollbackError) {
+            console.error(
+              '[popup] Failed to persist selective rollback for provider override sessions',
+              rollbackError,
+            )
+          }
+        }
+
+        const shouldPreserveCurrentSelection = !isOverrideCommitCurrent(
+          commitGeneration,
+          overrideCommitGenerationRef.current,
+          commitSelectionSignature,
+          overrideCommitSelectionSignatureRef.current,
+        )
+        const finalConfigUpdate = buildProviderOverrideFinalConfigUpdate(
+          cleanupCandidateProviderId,
+          committedConfig,
+          configUpdate,
+          updatedSessions,
+          shouldPreserveCurrentSelection,
+        )
+        if (Object.keys(finalConfigUpdate).length === 0) {
+          await rollbackMigratedSessions(
+            '[popup] Provider override produced no config update; attempting selective session rollback',
+          )
+          return
+        }
+        try {
+          await updateConfig(finalConfigUpdate, { propagateError: true })
+        } catch (error) {
+          await rollbackMigratedSessions(
+            '[popup] Failed to persist provider override config update; attempting selective session rollback',
+            error,
+          )
+          return
+        }
+      } finally {
+        overrideCommitPendingCountRef.current = Math.max(
+          0,
+          overrideCommitPendingCountRef.current - 1,
+        )
+        if (isMountedRef.current && overrideCommitPendingCountRef.current === 0) {
+          setIsOverrideProviderKeyActionPending(false)
+        }
+      }
+    }
+    const commitPromise = overrideCommitQueueRef.current.then(runCommit)
+    overrideCommitQueueRef.current = commitPromise.catch(() => {})
+    await commitPromise
+  }
+
+  const commitProviderApiKeyDraft = async (nextApiKey) => {
+    if (!selectedProviderId) return
+    const commitSelectionSignature = providerApiKeySelectionSignature
+    const commitDraft = String(nextApiKey || '')
+    const commitSelectedProviderSession =
+      selectedProviderSession?.apiMode && typeof selectedProviderSession.apiMode === 'object'
+        ? { apiMode: { ...selectedProviderSession.apiMode } }
+        : { modelName: selectedProviderSession?.modelName }
+    const normalizedNextApiKey = String(nextApiKey || '').trim()
+    if (normalizedNextApiKey === normalizedSelectedProviderApiKey) {
+      if (nextApiKey !== selectedProviderApiKey) {
+        setProviderApiKeyDraft(selectedProviderApiKey)
+      }
+      return
+    }
+
+    if (isSelectedProviderKeyManagedByModeOverride) {
+      if (!normalizedNextApiKey) {
+        overrideCommitGenerationRef.current += 1
+        return
+      }
+      return
+    }
+
+    const result = await updateConfig(
+      buildProviderSecretUpdate(config, selectedProviderSecretTargetId, normalizedNextApiKey),
+    )
+    if (
+      !result?.ok &&
+      shouldResetProviderApiKeyDraftAfterPersistFailure(
+        providerApiKeySelectionSignatureRef.current,
+        commitSelectionSignature,
+        providerApiKeyDraftRef.current,
+        commitDraft,
+      )
+    ) {
+      const persistedProviderApiKey = resolvePersistedProviderApiKeyForSelection(
+        getPersistedConfig(),
+        commitSelectedProviderSession,
+      )
+      if (isMountedRef.current) {
+        setProviderApiKeyDraft(persistedProviderApiKey)
+      }
+    }
+  }
+
+  const handleProviderApiKeyDraftChange = (nextApiKey) => {
+    setProviderApiKeyDraft(nextApiKey)
+  }
+
+  const handleProviderOverrideActionMouseDown = (e) => {
+    e.preventDefault()
+  }
+
+  const handleProviderApiKeyBlur = (e) => {
+    if (isSelectedProviderKeyManagedByModeOverride) {
+      if (e.relatedTarget?.closest?.('[data-provider-key-action]')) return
+      if (providerApiKeyDraft !== selectedProviderApiKey) {
+        setProviderApiKeyDraft(selectedProviderApiKey)
+      }
+      return
+    }
+    void commitProviderApiKeyDraft(providerApiKeyDraft)
+  }
+
+  const handleSaveProviderKeyOverride = () => {
+    if (
+      !selectedProviderSecretTargetId ||
+      !isSelectedProviderKeyManagedByModeOverride ||
+      isOverrideProviderKeyActionPending ||
+      normalizedProviderApiKeyDraft.length === 0 ||
+      normalizedProviderApiKeyDraft === normalizedSelectedProviderApiKey
+    ) {
+      return
+    }
+    void commitSelectedModeProviderKeyOverride(providerApiKeyDraft)
+  }
+
+  const handleUseSharedProviderKey = () => {
+    if (
+      !selectedProviderSecretTargetId ||
+      !isSelectedProviderKeyManagedByModeOverride ||
+      isOverrideProviderKeyActionPending
+    )
+      return
+    setProviderApiKeyDraft('')
+    void commitSelectedModeProviderKeyOverride('')
+  }
+
+  const handleProviderApiKeyInputKeyDown = (e) => {
+    if (e.key !== 'Enter') return
+    if (isSelectedProviderKeyManagedByModeOverride) {
+      e.preventDefault()
+      handleSaveProviderKeyOverride()
+      return
+    }
+    e.currentTarget.blur()
+  }
 
   return (
     <>
@@ -109,12 +471,11 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
         <span style="display: flex; gap: 15px;">
           <select
             style={
-              isUsingOpenAiApiModel(config) ||
+              isUsingOpenAICompatibleProvider ||
               isUsingMultiModeModel(config) ||
               isUsingSpecialCustomModel(config) ||
               isUsingAzureOpenAiApiModel(config) ||
-              isUsingClaudeApiModel(config) ||
-              isUsingMoonshotApiModel(config)
+              isUsingClaudeApiModel(config)
                 ? 'width: 50%;'
                 : undefined
             }
@@ -129,8 +490,11 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
             }}
           >
             {apiModes.map((apiMode, index) => {
-              const modelName = apiModeToModelName(apiMode)
-              const desc = modelNameToDesc(modelName, t)
+              const desc = getApiModeDisplayLabel(
+                apiMode,
+                t,
+                Array.isArray(config.customOpenAIProviders) ? config.customOpenAIProviders : [],
+              )
               if (desc) {
                 return (
                   <option value={index} key={index} selected={isApiModeSelected(apiMode, config)}>
@@ -161,20 +525,24 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
               })}
             </select>
           )}
-          {isUsingOpenAiApiModel(config) && (
+          {isUsingOpenAICompatibleProvider && !isUsingSpecialCustomModel(config) && (
             <span style="width: 50%; display: flex; gap: 5px;">
               <input
                 type="password"
-                value={config.apiKey}
+                value={providerApiKeyDraft}
+                disabled={
+                  isSelectedProviderKeyManagedByModeOverride && isOverrideProviderKeyActionPending
+                }
                 placeholder={t('API Key')}
                 onChange={(e) => {
-                  const apiKey = e.target.value
-                  updateConfig({ apiKey: apiKey })
+                  handleProviderApiKeyDraftChange(e.target.value)
                 }}
+                onBlur={handleProviderApiKeyBlur}
+                onKeyDown={handleProviderApiKeyInputKeyDown}
               />
-              {config.apiKey.length === 0 ? (
+              {selectedProviderApiKeySetupUrl && normalizedProviderApiKeyDraft.length === 0 && (
                 <a
-                  href="https://platform.openai.com/account/api-keys"
+                  href={selectedProviderApiKeySetupUrl}
                   target="_blank"
                   rel="nofollow noopener noreferrer"
                 >
@@ -182,7 +550,7 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
                     {t('Get')}
                   </button>
                 </a>
-              ) : null}
+              )}
             </span>
           )}
           {isUsingSpecialCustomModel(config) && (
@@ -221,42 +589,90 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
               }}
             />
           )}
-          {isUsingChatGLMApiModel(config) && (
-            <input
-              type="password"
-              value={config.chatglmApiKey}
-              placeholder={t('ChatGLM API Key')}
-              onChange={(e) => {
-                const apiKey = e.target.value
-                updateConfig({ chatglmApiKey: apiKey })
-              }}
-            />
-          )}
-          {isUsingMoonshotApiModel(config) && (
-            <span style="width: 50%; display: flex; gap: 5px;">
-              <input
-                type="password"
-                value={config.moonshotApiKey}
-                placeholder={t('Moonshot API Key')}
-                onChange={(e) => {
-                  const apiKey = e.target.value
-                  updateConfig({ moonshotApiKey: apiKey })
-                }}
-              />
-              {config.moonshotApiKey.length === 0 && (
-                <a
-                  href="https://platform.moonshot.cn/console/api-keys"
-                  target="_blank"
-                  rel="nofollow noopener noreferrer"
-                >
-                  <button style="white-space: nowrap;" type="button">
-                    {t('Get')}
-                  </button>
-                </a>
-              )}
+        </span>
+        {isUsingOpenAICompatibleProvider &&
+          isSelectedProviderKeyManagedByModeOverride &&
+          !isUsingSpecialCustomModel(config) && (
+            <span style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">
+              <small style="display: inline;">
+                {t(
+                  'This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.',
+                )}
+              </small>
+              <button
+                type="button"
+                data-provider-key-action=""
+                disabled={
+                  isOverrideProviderKeyActionPending ||
+                  normalizedProviderApiKeyDraft.length === 0 ||
+                  normalizedProviderApiKeyDraft === normalizedSelectedProviderApiKey
+                }
+                onMouseDown={handleProviderOverrideActionMouseDown}
+                onClick={handleSaveProviderKeyOverride}
+              >
+                {t('Save')}
+              </button>
+              <button
+                type="button"
+                data-provider-key-action=""
+                disabled={isOverrideProviderKeyActionPending}
+                onMouseDown={handleProviderOverrideActionMouseDown}
+                onClick={handleUseSharedProviderKey}
+              >
+                {t('Use shared key')}
+              </button>
             </span>
           )}
-        </span>
+        {isUsingSpecialCustomModel(config) && isUsingOpenAICompatibleProvider && (
+          <span style="display: flex; gap: 5px; margin-top: 15px;">
+            <input
+              type="password"
+              value={providerApiKeyDraft}
+              disabled={
+                isSelectedProviderKeyManagedByModeOverride && isOverrideProviderKeyActionPending
+              }
+              placeholder={t('API Key')}
+              onChange={(e) => {
+                handleProviderApiKeyDraftChange(e.target.value)
+              }}
+              onBlur={handleProviderApiKeyBlur}
+              onKeyDown={handleProviderApiKeyInputKeyDown}
+            />
+          </span>
+        )}
+        {isUsingSpecialCustomModel(config) &&
+          isUsingOpenAICompatibleProvider &&
+          isSelectedProviderKeyManagedByModeOverride && (
+            <span style="display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;">
+              <small style="display: inline;">
+                {t(
+                  'This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.',
+                )}
+              </small>
+              <button
+                type="button"
+                data-provider-key-action=""
+                disabled={
+                  isOverrideProviderKeyActionPending ||
+                  normalizedProviderApiKeyDraft.length === 0 ||
+                  normalizedProviderApiKeyDraft === normalizedSelectedProviderApiKey
+                }
+                onMouseDown={handleProviderOverrideActionMouseDown}
+                onClick={handleSaveProviderKeyOverride}
+              >
+                {t('Save')}
+              </button>
+              <button
+                type="button"
+                data-provider-key-action=""
+                disabled={isOverrideProviderKeyActionPending}
+                onMouseDown={handleProviderOverrideActionMouseDown}
+                onClick={handleUseSharedProviderKey}
+              >
+                {t('Use shared key')}
+              </button>
+            </span>
+          )}
         {isUsingSpecialCustomModel(config) && (
           <input
             type="text"
@@ -265,17 +681,6 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
             onChange={(e) => {
               const value = e.target.value
               updateConfig({ customModelApiUrl: value })
-            }}
-          />
-        )}
-        {isUsingSpecialCustomModel(config) && (
-          <input
-            type="password"
-            value={config.customApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ customApiKey: apiKey })
             }}
           />
         )}
@@ -328,50 +733,6 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
             onChange={(e) => {
               const value = e.target.value
               updateConfig({ ollamaEndpoint: value })
-            }}
-          />
-        )}
-        {isUsingDeepSeekApiModel(config) && (
-          <input
-            type="password"
-            value={config.deepSeekApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ deepSeekApiKey: apiKey })
-            }}
-          />
-        )}
-        {isUsingOllamaApiModel(config) && (
-          <input
-            type="password"
-            value={config.ollamaApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ ollamaApiKey: apiKey })
-            }}
-          />
-        )}
-        {isUsingOpenRouterApiModel(config) && (
-          <input
-            type="password"
-            value={config.openRouterApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ openRouterApiKey: apiKey })
-            }}
-          />
-        )}
-        {isUsingAimlApiModel(config) && (
-          <input
-            type="password"
-            value={config.aimlApiKey}
-            placeholder={t('API Key')}
-            onChange={(e) => {
-              const apiKey = e.target.value
-              updateConfig({ aimlApiKey: apiKey })
             }}
           />
         )}
