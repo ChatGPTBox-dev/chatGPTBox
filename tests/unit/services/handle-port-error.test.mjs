@@ -87,7 +87,7 @@ test('handlePortError maps expired authentication token to UNAUTHORIZED', (t) =>
 })
 
 test('handlePortError ignores aborted errors', (t) => {
-  t.mock.method(console, 'error', () => {})
+  const consoleError = t.mock.method(console, 'error', () => {})
   const port = createFakePort()
 
   handlePortError({ modelName: 'chatgptApi4oMini' }, port, {
@@ -95,6 +95,21 @@ test('handlePortError ignores aborted errors', (t) => {
   })
 
   assert.deepEqual(port.postedMessages, [])
+  assert.equal(consoleError.mock.callCount(), 0)
+})
+
+test('handlePortError ignores AbortError by name even when message text differs', (t) => {
+  const consoleError = t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new Error('The operation was canceled.'), { name: 'AbortError' }),
+  )
+
+  assert.deepEqual(port.postedMessages, [])
+  assert.equal(consoleError.mock.callCount(), 0)
 })
 
 test('handlePortError reports Claude web authorization hint', (t) => {
@@ -157,4 +172,28 @@ test('handlePortError stringifies non-message errors for non-Bing models', (t) =
 
   assert.equal(port.postedMessages.length, 1)
   assert.equal(port.postedMessages[0].error, JSON.stringify(err))
+})
+
+test('handlePortError handles null thrown values without throwing again', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+
+  assert.doesNotThrow(() => {
+    handlePortError({ modelName: 'chatgptApi4oMini' }, port, null)
+  })
+
+  assert.equal(port.postedMessages.length, 1)
+  assert.equal(port.postedMessages[0].error, 'null')
+})
+
+test('handlePortError handles undefined thrown values without throwing again', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+
+  assert.doesNotThrow(() => {
+    handlePortError({ modelName: 'chatgptApi4oMini' }, port, undefined)
+  })
+
+  assert.equal(port.postedMessages.length, 1)
+  assert.equal(port.postedMessages[0].error, 'unknown error')
 })

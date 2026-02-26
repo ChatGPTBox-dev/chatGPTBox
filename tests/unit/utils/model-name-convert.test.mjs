@@ -4,6 +4,7 @@ import {
   apiModeToModelName,
   getApiModesFromConfig,
   getApiModesStringArrayFromConfig,
+  getUniquelySelectedApiModeIndex,
   isApiModeSelected,
   isInApiModeGroup,
   isUsingModelName,
@@ -13,6 +14,7 @@ import {
   modelNameToPresetPart,
   modelNameToValue,
   getModelValue,
+  normalizeApiMode,
 } from '../../../src/utils/model-name-convert.mjs'
 import { ModelGroups } from '../../../src/config/index.mjs'
 
@@ -93,6 +95,394 @@ test('getApiModesFromConfig merges active and custom API modes correctly', () =>
 
   assert.equal(
     allModes.some((mode) => mode.itemName === 'bingFreeSydney' && mode.customName === 'slow'),
+    true,
+  )
+})
+
+test('getApiModesFromConfig keeps AlwaysCustomGroups modes when itemName is empty', () => {
+  const config = {
+    activeApiModes: ['customModel'],
+    customApiModes: [
+      {
+        groupName: 'ollamaApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: 'llama3.2',
+        customUrl: '',
+        apiKey: '',
+        providerId: '',
+        active: true,
+      },
+    ],
+    azureDeploymentName: 'deploy-a',
+    ollamaModelName: 'llama4',
+  }
+
+  const onlyActive = getApiModesFromConfig(config, true)
+
+  assert.equal(
+    onlyActive.some(
+      (mode) => mode.groupName === 'ollamaApiModelKeys' && mode.customName === 'llama3.2',
+    ),
+    true,
+  )
+  assert.equal(apiModeToModelName(onlyActive[0]), 'ollamaApiModelKeys-llama3.2')
+})
+
+test('getApiModesFromConfig drops nameless Azure row instead of hiding the legacy active mode', () => {
+  const config = {
+    activeApiModes: ['azureOpenAi'],
+    customApiModes: [
+      {
+        groupName: 'azureOpenAiApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: '',
+        customUrl: '',
+        apiKey: '',
+        providerId: 'blank-azure-provider',
+        active: true,
+      },
+    ],
+    azureDeploymentName: '',
+    ollamaModelName: 'llama4',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+  const onlyActive = getApiModesFromConfig(config, true)
+
+  assert.equal(
+    allModes.some((mode) => mode.providerId === 'blank-azure-provider'),
+    false,
+  )
+  assert.equal(
+    allModes.some((mode) => mode.itemName === 'azureOpenAi'),
+    true,
+  )
+  assert.equal(
+    onlyActive.some((mode) => mode.itemName === 'azureOpenAi'),
+    true,
+  )
+})
+
+test('getApiModesFromConfig drops nameless Ollama row instead of hiding the legacy active mode', () => {
+  const config = {
+    activeApiModes: ['ollamaModel'],
+    customApiModes: [
+      {
+        groupName: 'ollamaApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: '',
+        customUrl: '',
+        apiKey: '',
+        providerId: 'blank-ollama-provider',
+        active: true,
+      },
+    ],
+    azureDeploymentName: 'deploy-a',
+    ollamaModelName: '',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+  const onlyActive = getApiModesFromConfig(config, true)
+
+  assert.equal(
+    allModes.some((mode) => mode.providerId === 'blank-ollama-provider'),
+    false,
+  )
+  assert.equal(
+    allModes.some((mode) => mode.itemName === 'ollamaModel'),
+    true,
+  )
+  assert.equal(
+    onlyActive.some((mode) => mode.itemName === 'ollamaModel'),
+    true,
+  )
+})
+
+test('getApiModesFromConfig deduplicates migrated Ollama legacy row against kept AlwaysCustomGroups mode', () => {
+  const config = {
+    activeApiModes: ['ollamaModel-llama3.2'],
+    customApiModes: [
+      {
+        groupName: 'ollamaApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: 'llama3.2',
+        customUrl: '',
+        apiKey: '',
+        providerId: '',
+        active: true,
+      },
+    ],
+    azureDeploymentName: 'deploy-a',
+    ollamaModelName: 'llama3.2',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+  assert.equal(
+    allModes.filter((mode) => apiModeToModelName(mode) === 'ollamaApiModelKeys-llama3.2').length,
+    1,
+  )
+})
+
+test('getApiModesFromConfig preserves active state when inactive Ollama custom row matches active legacy mode', () => {
+  const config = {
+    activeApiModes: ['ollamaModel-llama3.2'],
+    customApiModes: [
+      {
+        groupName: 'ollamaApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: 'llama3.2',
+        customUrl: 'http://localhost:11434/api/chat',
+        apiKey: '',
+        providerId: 'preserved-ollama-provider',
+        sourceProviderId: 'ollama',
+        active: false,
+      },
+    ],
+    azureDeploymentName: 'deploy-a',
+    ollamaModelName: 'llama3.2',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+  const onlyActive = getApiModesFromConfig(config, true)
+  const preservedMode = allModes.find(
+    (mode) => apiModeToModelName(mode) === 'ollamaApiModelKeys-llama3.2',
+  )
+
+  assert.equal(
+    allModes.filter((mode) => apiModeToModelName(mode) === 'ollamaApiModelKeys-llama3.2').length,
+    1,
+  )
+  assert.equal(preservedMode.active, true)
+  assert.equal(preservedMode.itemName, 'ollamaModel')
+  assert.equal(preservedMode.providerId, 'preserved-ollama-provider')
+  assert.equal(preservedMode.customUrl, 'http://localhost:11434/api/chat')
+  assert.equal(isApiModeSelected(preservedMode, { modelName: 'ollamaModel-llama3.2' }), true)
+  assert.equal(
+    onlyActive.some((mode) => apiModeToModelName(mode) === 'ollamaApiModelKeys-llama3.2'),
+    true,
+  )
+})
+
+test('getApiModesFromConfig keeps legacy Ollama row when multiple inactive custom providers share the same mode name', () => {
+  const config = {
+    activeApiModes: ['ollamaModel-llama3.2'],
+    customApiModes: [
+      {
+        groupName: 'ollamaApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: 'llama3.2',
+        customUrl: 'http://ollama-a:11434/api/chat',
+        apiKey: '',
+        providerId: 'ollama-provider-a',
+        sourceProviderId: 'ollama',
+        active: false,
+      },
+      {
+        groupName: 'ollamaApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: 'llama3.2',
+        customUrl: 'http://ollama-b:11434/api/chat',
+        apiKey: '',
+        providerId: 'ollama-provider-b',
+        sourceProviderId: 'ollama',
+        active: false,
+      },
+    ],
+    azureDeploymentName: 'deploy-a',
+    ollamaModelName: 'llama3.2',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+  const onlyActive = getApiModesFromConfig(config, true)
+  const legacyMode = allModes.find(
+    (mode) =>
+      apiModeToModelName(mode) === 'ollamaApiModelKeys-llama3.2' &&
+      mode.providerId === '' &&
+      mode.itemName === 'ollamaModel',
+  )
+
+  assert.equal(
+    allModes.filter((mode) => apiModeToModelName(mode) === 'ollamaApiModelKeys-llama3.2').length,
+    3,
+  )
+  assert.equal(legacyMode.active, true)
+  assert.equal(
+    allModes.some((mode) => mode.providerId === 'ollama-provider-a' && mode.active),
+    false,
+  )
+  assert.equal(
+    allModes.some((mode) => mode.providerId === 'ollama-provider-b' && mode.active),
+    false,
+  )
+  assert.equal(onlyActive.length, 1)
+  assert.equal(onlyActive[0].providerId, '')
+  assert.equal(onlyActive[0].itemName, 'ollamaModel')
+})
+
+test('getApiModesFromConfig does not add a legacy Ollama row when one matching custom provider is already active', () => {
+  const config = {
+    activeApiModes: ['ollamaModel-llama3.2'],
+    customApiModes: [
+      {
+        groupName: 'ollamaApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: 'llama3.2',
+        customUrl: 'http://ollama-a:11434/api/chat',
+        apiKey: '',
+        providerId: 'ollama-provider-a',
+        sourceProviderId: 'ollama',
+        active: true,
+      },
+      {
+        groupName: 'ollamaApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: 'llama3.2',
+        customUrl: 'http://ollama-b:11434/api/chat',
+        apiKey: '',
+        providerId: 'ollama-provider-b',
+        sourceProviderId: 'ollama',
+        active: false,
+      },
+    ],
+    azureDeploymentName: 'deploy-a',
+    ollamaModelName: 'llama3.2',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+  const onlyActive = getApiModesFromConfig(config, true)
+  const activeMode = allModes.find((mode) => mode.providerId === 'ollama-provider-a')
+  const inactiveMode = allModes.find((mode) => mode.providerId === 'ollama-provider-b')
+
+  assert.equal(
+    allModes.filter((mode) => apiModeToModelName(mode) === 'ollamaApiModelKeys-llama3.2').length,
+    2,
+  )
+  assert.equal(
+    allModes.some((mode) => mode.providerId === '' && mode.itemName === 'ollamaModel'),
+    false,
+  )
+  assert.equal(
+    allModes.some((mode) => mode.providerId === 'ollama-provider-a' && mode.active),
+    true,
+  )
+  assert.equal(
+    allModes.some((mode) => mode.providerId === 'ollama-provider-b' && mode.active),
+    false,
+  )
+  assert.equal(activeMode.itemName, 'ollamaModel')
+  assert.equal(inactiveMode.itemName, '')
+  assert.equal(isApiModeSelected(activeMode, { modelName: 'ollamaModel-llama3.2' }), true)
+  assert.equal(isApiModeSelected(inactiveMode, { modelName: 'ollamaModel-llama3.2' }), false)
+  assert.equal(onlyActive.length, 1)
+  assert.equal(onlyActive[0].providerId, 'ollama-provider-a')
+})
+
+test('getApiModesFromConfig deduplicates migrated Azure legacy row against kept AlwaysCustomGroups mode', () => {
+  const config = {
+    activeApiModes: ['azureOpenAi-deploy-a'],
+    customApiModes: [
+      {
+        groupName: 'azureOpenAiApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: 'deploy-a',
+        customUrl: '',
+        apiKey: '',
+        providerId: '',
+        active: true,
+      },
+    ],
+    azureDeploymentName: 'deploy-a',
+    ollamaModelName: 'llama4',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+  assert.equal(
+    allModes.filter((mode) => apiModeToModelName(mode) === 'azureOpenAiApiModelKeys-deploy-a')
+      .length,
+    1,
+  )
+})
+
+test('getApiModesFromConfig preserves active state when inactive Azure custom row matches active legacy mode', () => {
+  const config = {
+    activeApiModes: ['azureOpenAi-deploy-a'],
+    customApiModes: [
+      {
+        groupName: 'azureOpenAiApiModelKeys',
+        itemName: '',
+        isCustom: true,
+        customName: 'deploy-a',
+        customUrl: 'https://azure.example.com/openai/deployments/deploy-a/chat/completions',
+        apiKey: '',
+        providerId: 'preserved-azure-provider',
+        sourceProviderId: 'openai',
+        active: false,
+      },
+    ],
+    azureDeploymentName: 'deploy-a',
+    ollamaModelName: 'llama4',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+  const onlyActive = getApiModesFromConfig(config, true)
+  const preservedMode = allModes.find(
+    (mode) => apiModeToModelName(mode) === 'azureOpenAiApiModelKeys-deploy-a',
+  )
+
+  assert.equal(
+    allModes.filter((mode) => apiModeToModelName(mode) === 'azureOpenAiApiModelKeys-deploy-a')
+      .length,
+    1,
+  )
+  assert.equal(preservedMode.active, true)
+  assert.equal(preservedMode.itemName, 'azureOpenAi')
+  assert.equal(preservedMode.providerId, 'preserved-azure-provider')
+  assert.equal(
+    preservedMode.customUrl,
+    'https://azure.example.com/openai/deployments/deploy-a/chat/completions',
+  )
+  assert.equal(isApiModeSelected(preservedMode, { modelName: 'azureOpenAi-deploy-a' }), true)
+  assert.equal(
+    onlyActive.some((mode) => apiModeToModelName(mode) === 'azureOpenAiApiModelKeys-deploy-a'),
+    true,
+  )
+})
+
+test('getApiModesFromConfig does not synthesize undefined legacy Azure or Ollama names', () => {
+  const config = {
+    activeApiModes: ['azureOpenAi', 'ollamaModel'],
+    customApiModes: [],
+    azureDeploymentName: '',
+    ollamaModelName: '',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+  const onlyActive = getApiModesFromConfig(config, true)
+
+  assert.equal(
+    allModes.some((mode) => apiModeToModelName(mode).includes('undefined')),
+    false,
+  )
+  assert.equal(
+    onlyActive.some((mode) => apiModeToModelName(mode).includes('undefined')),
+    false,
+  )
+  assert.equal(
+    allModes.some((mode) => mode.itemName === 'azureOpenAi'),
+    true,
+  )
+  assert.equal(
+    allModes.some((mode) => mode.itemName === 'ollamaModel'),
     true,
   )
 })
@@ -317,4 +707,372 @@ test('isUsingModelName returns true for exact apiMode match', () => {
 
 test('isUsingModelName resolves ModelGroups presetPart to first value', () => {
   assert.equal(isUsingModelName('bingFree4', { modelName: 'bingWebModelKeys-custom' }), true)
+})
+
+test('normalizeApiMode trims providerId', () => {
+  const normalized = normalizeApiMode({
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: ' myproxy ',
+  })
+
+  assert.equal(normalized.providerId, 'myproxy')
+})
+
+test('isApiModeSelected matches apiMode when providerId differs only by whitespace', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+      providerId: ' myproxy ',
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), true)
+})
+
+test('isApiModeSelected returns false when either side apiMode is invalid', () => {
+  const validApiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+  }
+
+  assert.equal(
+    isApiModeSelected(validApiMode, {
+      apiMode: 'customApiModelKeys-customModel',
+    }),
+    false,
+  )
+  assert.equal(
+    isApiModeSelected('customApiModelKeys-customModel', {
+      apiMode: validApiMode,
+    }),
+    false,
+  )
+  assert.equal(
+    isApiModeSelected('customApiModelKeys-customModel', {
+      apiMode: 'customApiModelKeys-customModel',
+    }),
+    false,
+  )
+})
+
+test('isApiModeSelected returns false when apiMode differs only by active state', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+    active: false,
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+      active: true,
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), false)
+})
+
+test('isApiModeSelected matches legacy session missing providerId when sessionCompat is enabled', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'mode-a',
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), false)
+  assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), true)
+})
+
+test('isApiModeSelected ignores active state difference for sessionCompat fallback', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+    active: false,
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+      active: true,
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), true)
+})
+
+test('isApiModeSelected keeps provider mismatch fail-closed for non-legacy sessionCompat fallback', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'provider-a',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+      providerId: 'provider-b',
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), false)
+})
+
+test('isApiModeSelected keeps modern custom session provider mismatch fail-closed with customUrl and apiKey', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'shared-name',
+    providerId: 'provider-a',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'shared-name',
+      providerId: 'provider-b',
+      customUrl: 'https://proxy.example.com/v1/chat/completions',
+      apiKey: 'modern-session-key',
+      active: true,
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), false)
+})
+
+test('isApiModeSelected matches legacy custom session missing itemName and isCustom', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'proxy-model',
+    providerId: 'openai-2',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      providerId: 'openai',
+      customName: 'proxy-model',
+      customUrl: 'https://proxy.example.com/v1/chat/completions',
+      apiKey: 'stale-session-key',
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), true)
+})
+
+test('isApiModeSelected falls back to modelName when sessionCompat apiMode compare misses', () => {
+  const apiMode = {
+    groupName: 'bingWebModelKeys',
+    itemName: 'bingFree4',
+    isCustom: false,
+    customName: '',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'different-mode',
+      providerId: 'provider-b',
+    },
+    modelName: 'bingFree4',
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), false)
+})
+
+test('isApiModeSelected falls back to modelName when session apiMode is a non-object string', () => {
+  const apiMode = {
+    groupName: 'bingWebModelKeys',
+    itemName: 'bingFree4',
+    isCustom: false,
+    customName: '',
+    active: true,
+  }
+  const session = {
+    apiMode: 'bingFree4',
+    modelName: 'bingFree4',
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), false)
+  assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), true)
+})
+
+test('isApiModeSelected does not double-match via legacy compat and modelName fallback', () => {
+  const legacyCustomMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'proxy-model',
+    providerId: 'openai-2',
+    active: true,
+  }
+  const bingMode = {
+    groupName: 'bingWebModelKeys',
+    itemName: 'bingFree4',
+    isCustom: false,
+    customName: '',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      customName: 'proxy-model',
+      customUrl: 'https://proxy.example.com/v1/chat/completions',
+      apiKey: 'stale-session-key',
+    },
+    modelName: 'bingFree4',
+  }
+
+  assert.equal(isApiModeSelected(legacyCustomMode, session, { sessionCompat: true }), true)
+  assert.equal(isApiModeSelected(bingMode, session, { sessionCompat: true }), false)
+})
+
+test('getUniquelySelectedApiModeIndex returns -1 when legacy session matches multiple custom modes', () => {
+  const apiModes = [
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'proxy-model',
+      providerId: 'provider-a',
+      active: true,
+    },
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'proxy-model',
+      providerId: 'provider-b',
+      active: true,
+    },
+  ]
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      customName: 'proxy-model',
+      customUrl: 'https://proxy.example.com/v1/chat/completions',
+      apiKey: 'stale-session-key',
+    },
+  }
+
+  assert.equal(getUniquelySelectedApiModeIndex(apiModes, session, { sessionCompat: true }), -1)
+})
+
+test('getUniquelySelectedApiModeIndex returns matching index for a unique legacy session match', () => {
+  const apiModes = [
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'proxy-model',
+      providerId: 'provider-a',
+      active: true,
+    },
+    {
+      groupName: 'bingWebModelKeys',
+      itemName: 'bingFree4',
+      isCustom: false,
+      customName: '',
+      active: true,
+    },
+  ]
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      customName: 'proxy-model',
+      customUrl: 'https://proxy.example.com/v1/chat/completions',
+      apiKey: 'stale-session-key',
+    },
+  }
+
+  assert.equal(getUniquelySelectedApiModeIndex(apiModes, session, { sessionCompat: true }), 0)
+})
+
+test('getUniquelySelectedApiModeIndex keeps modern custom session pinned to matching provider', () => {
+  const apiModes = [
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'shared-name',
+      providerId: 'provider-a',
+      active: true,
+    },
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'shared-name',
+      providerId: 'provider-b',
+      active: true,
+    },
+  ]
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'shared-name',
+      providerId: 'provider-b',
+      customUrl: 'https://proxy.example.com/v1/chat/completions',
+      apiKey: 'modern-session-key',
+      active: true,
+    },
+  }
+
+  assert.equal(getUniquelySelectedApiModeIndex(apiModes, session, { sessionCompat: true }), 1)
+})
+
+test('isApiModeSelected returns true when apiMode active state is equal', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), true)
 })

@@ -7,7 +7,11 @@ import {
 } from '../config/index.mjs'
 import Browser from 'webextension-polyfill'
 import { t } from 'i18next'
-import { apiModeToModelName, modelNameToDesc } from '../utils/model-name-convert.mjs'
+import {
+  apiModeToModelName,
+  modelNameToDesc,
+  normalizeApiMode,
+} from '../utils/model-name-convert.mjs'
 
 export async function getChatGptAccessToken() {
   await clearOldAccessToken()
@@ -55,45 +59,52 @@ export async function getClaudeSessionKey() {
   return (await Browser.cookies.get({ url: 'https://claude.ai/', name: 'sessionKey' }))?.value
 }
 
+function isAbortError(err) {
+  if (!err || typeof err !== 'object') return false
+  const name = typeof err.name === 'string' ? err.name : ''
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return name === 'AbortError' || message.includes('aborted') || message.includes('aborterror')
+}
+
 export function handlePortError(session, port, err) {
+  if (isAbortError(err)) return
   console.error(err)
-  if (err.message) {
-    if (!err.message.includes('aborted')) {
-      if (
-        ['message you submitted was too long', 'maximum context length'].some((m) =>
-          err.message.includes(m),
-        )
+  const message = typeof err?.message === 'string' ? err.message : ''
+  if (message) {
+    if (
+      ['message you submitted was too long', 'maximum context length'].some((m) =>
+        message.includes(m),
       )
-        port.postMessage({ error: t('Exceeded maximum context length') + '\n\n' + err.message })
-      else if (['CaptchaChallenge', 'CAPTCHA'].some((m) => err.message.includes(m)))
-        port.postMessage({ error: t('Bing CaptchaChallenge') + '\n\n' + err.message })
-      else if (['exceeded your current quota'].some((m) => err.message.includes(m)))
-        port.postMessage({ error: t('Exceeded quota') + '\n\n' + err.message })
-      else if (['Rate limit reached'].some((m) => err.message.includes(m)))
-        port.postMessage({ error: t('Rate limit') + '\n\n' + err.message })
-      else if (['authentication token has expired'].some((m) => err.message.includes(m)))
-        port.postMessage({ error: 'UNAUTHORIZED' })
-      else if (
-        isUsingClaudeWebModel(session) &&
-        ['Invalid authorization', 'Session key required'].some((m) => err.message.includes(m))
+    )
+      port.postMessage({ error: t('Exceeded maximum context length') + '\n\n' + message })
+    else if (['CaptchaChallenge', 'CAPTCHA'].some((m) => message.includes(m)))
+      port.postMessage({ error: t('Bing CaptchaChallenge') + '\n\n' + message })
+    else if (['exceeded your current quota'].some((m) => message.includes(m)))
+      port.postMessage({ error: t('Exceeded quota') + '\n\n' + message })
+    else if (['Rate limit reached'].some((m) => message.includes(m)))
+      port.postMessage({ error: t('Rate limit') + '\n\n' + message })
+    else if (['authentication token has expired'].some((m) => message.includes(m)))
+      port.postMessage({ error: 'UNAUTHORIZED' })
+    else if (
+      isUsingClaudeWebModel(session) &&
+      ['Invalid authorization', 'Session key required'].some((m) => message.includes(m))
+    )
+      port.postMessage({
+        error: t('Please login at https://claude.ai first, and then click the retry button'),
+      })
+    else if (
+      isUsingBingWebModel(session) &&
+      ['/turing/conversation/create: failed to parse response body.'].some((m) =>
+        message.includes(m),
       )
-        port.postMessage({
-          error: t('Please login at https://claude.ai first, and then click the retry button'),
-        })
-      else if (
-        isUsingBingWebModel(session) &&
-        ['/turing/conversation/create: failed to parse response body.'].some((m) =>
-          err.message.includes(m),
-        )
-      )
-        port.postMessage({ error: t('Please login at https://bing.com first') })
-      else port.postMessage({ error: err.message })
-    }
+    )
+      port.postMessage({ error: t('Please login at https://bing.com first') })
+    else port.postMessage({ error: message })
   } else {
-    const errMsg = JSON.stringify(err)
+    const errMsg = JSON.stringify(err) ?? 'unknown error'
     if (isUsingBingWebModel(session) && errMsg.includes('isTrusted'))
       port.postMessage({ error: t('Please login at https://bing.com first') })
-    else port.postMessage({ error: errMsg ?? 'unknown error' })
+    else port.postMessage({ error: errMsg })
   }
 }
 
@@ -107,6 +118,7 @@ export function registerPortListener(executor) {
       const config = await getUserConfig()
       if (!session.modelName) session.modelName = config.modelName
       if (!session.apiMode && session.modelName !== 'customModel') session.apiMode = config.apiMode
+      if (session.apiMode) session.apiMode = normalizeApiMode(session.apiMode)
       if (!session.aiName)
         session.aiName = modelNameToDesc(
           session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName,

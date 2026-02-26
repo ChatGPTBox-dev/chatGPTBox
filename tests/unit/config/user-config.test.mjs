@@ -15,8 +15,10 @@ test('getUserConfig migrates legacy chat.openai.com URL to chatgpt.com', async (
   })
 
   const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
 
   assert.equal(config.customChatGptWebApiUrl, 'https://chatgpt.com')
+  assert.equal(storage.customChatGptWebApiUrl, 'https://chatgpt.com')
 })
 
 test('getUserConfig keeps modern chatgpt.com URL unchanged', async () => {
@@ -139,6 +141,66 @@ test('getUserConfig returns migrated Anthropic values when storage.remove fails'
   assert.equal(nextConfig.customAnthropicApiUrl, 'https://legacy.anthropic.example')
   assert.equal(Object.hasOwn(storage, 'claudeApiKey'), false)
   assert.equal(Object.hasOwn(storage, 'customClaudeApiUrl'), false)
+})
+
+test('getUserConfig preserves empty provider secret when provider id is normalized', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    customOpenAIProviders: [
+      {
+        id: ' My Proxy ',
+        name: 'My Proxy',
+        baseUrl: 'https://proxy.example.com',
+        chatCompletionsPath: '/v1/chat/completions',
+        completionsPath: '/v1/completions',
+        enabled: true,
+      },
+    ],
+    providerSecrets: {
+      'My Proxy': '',
+    },
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(config.providerSecrets['my-proxy'], '')
+  assert.equal(Object.hasOwn(config.providerSecrets, 'My Proxy'), false)
+  assert.equal(storage.providerSecrets['my-proxy'], '')
+  assert.equal(Object.hasOwn(storage.providerSecrets, 'My Proxy'), false)
+})
+
+test('getUserConfig preserves empty provider secret when duplicate provider ids are renamed', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    customOpenAIProviders: [
+      {
+        id: 'my-proxy',
+        name: 'Existing Proxy',
+        baseUrl: 'https://proxy-a.example.com',
+        chatCompletionsPath: '/v1/chat/completions',
+        completionsPath: '/v1/completions',
+        enabled: true,
+      },
+      {
+        id: ' My Proxy ',
+        name: 'Renamed Proxy',
+        baseUrl: 'https://proxy-b.example.com',
+        chatCompletionsPath: '/v1/chat/completions',
+        completionsPath: '/v1/completions',
+        enabled: true,
+      },
+    ],
+    providerSecrets: {
+      'My Proxy': '',
+    },
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(config.providerSecrets['my-proxy-2'], '')
+  assert.equal(Object.hasOwn(config.providerSecrets, 'My Proxy'), false)
+  assert.equal(storage.providerSecrets['my-proxy-2'], '')
+  assert.equal(Object.hasOwn(storage.providerSecrets, 'My Proxy'), false)
 })
 
 test('clearOldAccessToken clears expired token older than 30 days', async (t) => {
