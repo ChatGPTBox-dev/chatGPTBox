@@ -13,6 +13,7 @@ import {
   modelNameToPresetPart,
   modelNameToValue,
   getModelValue,
+  normalizeApiMode,
 } from '../../../src/utils/model-name-convert.mjs'
 import { ModelGroups } from '../../../src/config/index.mjs'
 
@@ -304,4 +305,100 @@ test('isUsingModelName returns true for exact apiMode match', () => {
 
 test('isUsingModelName resolves ModelGroups presetPart to first value', () => {
   assert.equal(isUsingModelName('bingFree4', { modelName: 'bingWebModelKeys-custom' }), true)
+})
+
+test('normalizeApiMode trims providerId', () => {
+  const normalized = normalizeApiMode({
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: ' myproxy ',
+  })
+
+  assert.equal(normalized.providerId, 'myproxy')
+})
+
+test('isApiModeSelected matches apiMode when providerId differs only by whitespace', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+      providerId: ' myproxy ',
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), true)
+})
+
+test('isApiModeSelected returns false when either side apiMode is invalid', () => {
+  const validApiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+  }
+
+  assert.equal(
+    isApiModeSelected(validApiMode, {
+      apiMode: 'customApiModelKeys-customModel',
+    }),
+    false,
+  )
+  assert.equal(
+    isApiModeSelected('customApiModelKeys-customModel', {
+      apiMode: validApiMode,
+    }),
+    false,
+  )
+  assert.equal(
+    isApiModeSelected('customApiModelKeys-customModel', {
+      apiMode: 'customApiModelKeys-customModel',
+    }),
+    false,
+  )
+})
+
+test('isApiModeSelected returns false when apiMode differs only by active state', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+    active: false,
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+      active: true,
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), false)
+})
+
+test('isApiModeSelected returns true when apiMode active state is equal', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'mode-a',
+    providerId: 'myproxy',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), true)
 })

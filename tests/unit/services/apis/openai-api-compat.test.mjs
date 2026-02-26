@@ -4,6 +4,7 @@ import {
   generateAnswersWithChatgptApi,
   generateAnswersWithChatgptApiCompat,
   generateAnswersWithGptCompletionApi,
+  generateAnswersWithOpenAICompatibleApi,
 } from '../../../../src/services/apis/openai-api.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
@@ -89,11 +90,49 @@ test('generateAnswersWithChatgptApiCompat sends expected request and aggregates 
     port.postedMessages.some((message) => message.done === true && message.session === session),
     true,
   )
-  assert.deepEqual(port.postedMessages.at(-1), { done: true })
+  assert.deepEqual(port.postedMessages.at(-1), { answer: null, done: true, session })
   assert.deepEqual(session.conversationRecords.at(-1), { question: 'CurrentQ', answer: 'Hello' })
 })
 
-test('generateAnswersWithChatgptApiCompat uses max_completion_tokens for OpenAI latest gpt-5 compat models', async (t) => {
+test('generateAnswersWithChatgptApiCompat emits fallback done message when stream ends without finish reason', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    temperature: 0.25,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse(['data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n']),
+  )
+
+  await generateAnswersWithChatgptApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'Partial'),
+    true,
+  )
+  assert.equal(
+    port.postedMessages.some((message) => message.done === true && message.session === session),
+    true,
+  )
+  assert.deepEqual(port.postedMessages.at(-1), { answer: null, done: true, session })
+})
+
+test('generateAnswersWithChatgptApiCompat uses max_completion_tokens for OpenAI gpt-5 models', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -618,4 +657,173 @@ test('generateAnswersWithGptCompletionApi builds completion prompt and appends a
     true,
   )
   assert.deepEqual(session.conversationRecords.at(-1), { question: 'NowQ', answer: 'AB' })
+})
+
+test('generateAnswersWithGptCompletionApi avoids duplicate /v1 when customOpenAiApiUrl already has /v1', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customOpenAiApiUrl: 'https://api.example.com/v1/',
+    maxConversationContextLength: 5,
+    maxResponseTokenLength: 300,
+    temperature: 0.5,
+  })
+
+  const session = {
+    modelName: 'gptApiInstruct',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    capturedInput = input
+    return createMockSseResponse(['data: {"choices":[{"text":"Done","finish_reason":"stop"}]}\n\n'])
+  })
+
+  await generateAnswersWithGptCompletionApi(port, 'NowQ', session, 'sk-completion')
+
+  assert.equal(capturedInput, 'https://api.example.com/v1/completions')
+})
+
+test('generateAnswersWithChatgptApi avoids duplicate /v1 when customOpenAiApiUrl already has /v1', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customOpenAiApiUrl: 'https://api.example.com/v1/',
+    maxConversationContextLength: 2,
+    maxResponseTokenLength: 128,
+    temperature: 0.2,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    capturedInput = input
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithChatgptApi(port, 'NowQ', session, 'sk-chat')
+
+  assert.equal(capturedInput, 'https://api.example.com/v1/chat/completions')
+})
+
+test('generateAnswersWithOpenAICompatibleApi uses default Ollama endpoint for keepAlive when empty', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  t.mock.method(console, 'warn', () => {})
+  setStorage({
+    maxConversationContextLength: 2,
+    maxResponseTokenLength: 64,
+    temperature: 0.2,
+  })
+
+  const config = {
+    ollamaEndpoint: '',
+    providerSecrets: {},
+    customOpenAIProviders: [],
+  }
+  const session = {
+    modelName: 'ollama',
+    apiMode: {
+      groupName: 'ollamaApiModelKeys',
+      itemName: 'ollama',
+      isCustom: false,
+      customName: '',
+      customUrl: '',
+      apiKey: '',
+      providerId: '',
+      active: true,
+    },
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  const requestedUrls = []
+
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    requestedUrls.push(String(input))
+    if (String(input).endsWith('/chat/completions')) {
+      return createMockSseResponse([
+        'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+      ])
+    }
+    return { ok: true }
+  })
+
+  await generateAnswersWithOpenAICompatibleApi(port, 'NowQ', session, config)
+
+  assert.equal(requestedUrls.includes('http://127.0.0.1:11434/v1/chat/completions'), true)
+  assert.equal(requestedUrls.includes('http://127.0.0.1:11434/api/generate'), true)
+})
+
+test('generateAnswersWithOpenAICompatibleApi ignores non-string legacy response chunks', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 2,
+    maxResponseTokenLength: 64,
+    temperature: 0.2,
+  })
+
+  const config = {
+    providerSecrets: {
+      'my-provider': 'sk-custom',
+    },
+    customOpenAIProviders: [
+      {
+        id: 'my-provider',
+        name: 'My Provider',
+        baseUrl: 'https://api.example.com',
+        chatCompletionsPath: '/v1/chat/completions',
+        completionsPath: '/v1/completions',
+        enabled: true,
+        allowLegacyResponseField: true,
+      },
+    ],
+  }
+  const session = {
+    modelName: 'customModel',
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'my-model',
+      customUrl: '',
+      apiKey: '',
+      providerId: 'my-provider',
+      active: true,
+    },
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: {"response":false}\n\n',
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithOpenAICompatibleApi(port, 'NowQ', session, config)
+
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'false'),
+    false,
+  )
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'falseOK'),
+    false,
+  )
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'OK'),
+    true,
+  )
+  assert.deepEqual(session.conversationRecords.at(-1), { question: 'NowQ', answer: 'OK' })
 })

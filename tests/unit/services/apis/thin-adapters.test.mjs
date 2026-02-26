@@ -3,11 +3,7 @@ import { beforeEach, test } from 'node:test'
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
 
-import { generateAnswersWithAimlApi } from '../../../../src/services/apis/aiml-api.mjs'
-import { generateAnswersWithDeepSeekApi } from '../../../../src/services/apis/deepseek-api.mjs'
-import { generateAnswersWithMoonshotCompletionApi } from '../../../../src/services/apis/moonshot-api.mjs'
-import { generateAnswersWithOpenRouterApi } from '../../../../src/services/apis/openrouter-api.mjs'
-import { generateAnswersWithChatGLMApi } from '../../../../src/services/apis/chatglm-api.mjs'
+import { generateAnswersWithOpenAICompatibleApi } from '../../../../src/services/apis/openai-api.mjs'
 
 const setStorage = (values) => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage(values)
@@ -23,8 +19,8 @@ const commonStorage = {
   temperature: 0.5,
 }
 
-const makeSession = () => ({
-  modelName: 'chatgptApi4oMini',
+const makeSession = (apiMode) => ({
+  apiMode,
   conversationRecords: [],
   isRetry: false,
 })
@@ -34,47 +30,54 @@ const sseChunks = ['data: {"choices":[{"delta":{"content":"OK"},"finish_reason":
 const adapters = [
   {
     name: 'aiml-api',
-    fn: (port, q, session) => generateAnswersWithAimlApi(port, q, session, 'aiml-key'),
+    apiMode: { groupName: 'aimlModelKeys', itemName: 'aiml_openai_o3_2025_04_16' },
+    providerId: 'aiml',
     expectedBaseUrl: 'https://api.aimlapi.com/v1',
     expectedApiKey: 'aiml-key',
-    storage: commonStorage,
   },
   {
     name: 'deepseek-api',
-    fn: (port, q, session) => generateAnswersWithDeepSeekApi(port, q, session, 'ds-key'),
+    apiMode: { groupName: 'deepSeekApiModelKeys', itemName: 'deepseek_chat' },
+    providerId: 'deepseek',
     expectedBaseUrl: 'https://api.deepseek.com',
     expectedApiKey: 'ds-key',
-    storage: commonStorage,
   },
   {
     name: 'moonshot-api',
-    fn: (port, q, session) => generateAnswersWithMoonshotCompletionApi(port, q, session, 'ms-key'),
+    apiMode: { groupName: 'moonshotApiModelKeys', itemName: 'moonshot_kimi_latest' },
+    providerId: 'moonshot',
     expectedBaseUrl: 'https://api.moonshot.cn/v1',
     expectedApiKey: 'ms-key',
-    storage: commonStorage,
   },
   {
     name: 'openrouter-api',
-    fn: (port, q, session) => generateAnswersWithOpenRouterApi(port, q, session, 'or-key'),
+    apiMode: { groupName: 'openRouterApiModelKeys', itemName: 'openRouter_openai_o3' },
+    providerId: 'openrouter',
     expectedBaseUrl: 'https://openrouter.ai/api/v1',
     expectedApiKey: 'or-key',
-    storage: commonStorage,
   },
   {
     name: 'chatglm-api',
-    fn: (port, q, session) => generateAnswersWithChatGLMApi(port, q, session),
+    apiMode: { groupName: 'chatglmApiModelKeys', itemName: 'chatglmTurbo' },
+    providerId: 'chatglm',
     expectedBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     expectedApiKey: 'glm-key',
-    storage: { ...commonStorage, chatglmApiKey: 'glm-key' },
   },
 ]
 
 for (const adapter of adapters) {
   test(`${adapter.name}: passes correct base URL and API key`, async (t) => {
     t.mock.method(console, 'debug', () => {})
-    setStorage(adapter.storage)
 
-    const session = makeSession()
+    const config = {
+      ...commonStorage,
+      providerSecrets: {
+        [adapter.providerId]: adapter.expectedApiKey,
+      },
+    }
+    setStorage(config)
+
+    const session = makeSession(adapter.apiMode)
     const port = createFakePort()
 
     let capturedInput, capturedInit
@@ -84,7 +87,7 @@ for (const adapter of adapters) {
       return createMockSseResponse(sseChunks)
     })
 
-    await adapter.fn(port, 'Q', session)
+    await generateAnswersWithOpenAICompatibleApi(port, 'Q', session, config)
 
     assert.equal(capturedInput, `${adapter.expectedBaseUrl}/chat/completions`)
     // Verify API key reaches the Authorization header
@@ -93,14 +96,21 @@ for (const adapter of adapters) {
 
   test(`${adapter.name}: delegates to compat layer and produces output`, async (t) => {
     t.mock.method(console, 'debug', () => {})
-    setStorage(adapter.storage)
 
-    const session = makeSession()
+    const config = {
+      ...commonStorage,
+      providerSecrets: {
+        [adapter.providerId]: adapter.expectedApiKey,
+      },
+    }
+    setStorage(config)
+
+    const session = makeSession(adapter.apiMode)
     const port = createFakePort()
 
     t.mock.method(globalThis, 'fetch', async () => createMockSseResponse(sseChunks))
 
-    await adapter.fn(port, 'Q', session)
+    await generateAnswersWithOpenAICompatibleApi(port, 'Q', session, config)
 
     assert.equal(
       port.postedMessages.some((m) => m.done === true && m.session === session),
@@ -115,9 +125,13 @@ for (const adapter of adapters) {
 
 test('chatglm-api: reads chatglmApiKey from config', async (t) => {
   t.mock.method(console, 'debug', () => {})
-  setStorage({ ...commonStorage, chatglmApiKey: 'glm-secret' })
+  const config = { ...commonStorage, chatglmApiKey: 'glm-secret' }
+  setStorage(config)
 
-  const session = makeSession()
+  const session = makeSession({
+    groupName: 'chatglmApiModelKeys',
+    itemName: 'chatglmTurbo',
+  })
   const port = createFakePort()
 
   let capturedInit
@@ -126,7 +140,7 @@ test('chatglm-api: reads chatglmApiKey from config', async (t) => {
     return createMockSseResponse(sseChunks)
   })
 
-  await generateAnswersWithChatGLMApi(port, 'Q', session)
+  await generateAnswersWithOpenAICompatibleApi(port, 'Q', session, config)
 
   assert.equal(capturedInit.headers.Authorization, 'Bearer glm-secret')
 })
