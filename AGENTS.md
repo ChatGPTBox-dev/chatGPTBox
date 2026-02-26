@@ -74,7 +74,7 @@ The project uses Preact (for React-like components), SCSS (for styling), and Web
 
 ### Manual Browser Extension Testing (CRITICAL)
 
-This browser extension has no automated tests, so manual testing is essential:
+This browser extension includes automated unit tests, but manual browser extension testing is still essential:
 
 1. **Load Extension in Browser:**
    - Chrome: Go to `chrome://extensions/`, enable Developer Mode, click "Load unpacked", then select the folder `build/chromium/` (the folder must contain `manifest.json`).
@@ -141,7 +141,10 @@ Usage notes:
 - ALWAYS run `npm run lint` before committing - CI will fail otherwise
 - ALWAYS run `npm run pretty` to format code consistently
 - ESLint configuration in `.eslintrc.json` enforces React/JSX standards
-- Prettier configuration in `.prettierrc` handles formatting
+- Prettier configuration in `.prettierrc` handles formatting (100 char width, no semicolons, single quotes, trailing commas)
+
+✅ Good: `import Browser from 'webextension-polyfill'` (single quotes, no semicolon)
+❌ Bad: `import Browser from "webextension-polyfill";` (double quotes, semicolon)
 
 - Naming conventions: component directories use PascalCase; feature folders use kebab-case; entry files are typically `index.jsx` or `index.mjs`
 - Avoid heavy dependencies; if necessary, justify and keep bundle size under control
@@ -166,6 +169,7 @@ Usage notes:
 - Commit subject: imperative, capitalize first word; separate subject/body with a blank line; wrap at ~72 characters; explain what and why.
 - PRs: link related issues, summarize scope/behavior changes; include screenshots for UI changes.
 - Note i18n updates in PR description when `src/_locales/` changes.
+- If any validation step is skipped, document the reason and the skipped check(s) in the PR description (see `Critical Validation Steps` below).
 
 ### Directory Structure
 
@@ -204,7 +208,7 @@ src/
 
 ## Localization
 
-- Source of truth: `src/_locales/en/main.json`; do not change keys
+- Source of truth: `src/_locales/en/main.json`; do not change existing keys (only add new ones)
 - Add new strings to `en/main.json` first, then propagate to other locales
 - Register new locales in `src/_locales/resources.mjs`
 - Preserve placeholders and product names; keep punctuation/quotes intact
@@ -240,6 +244,8 @@ The extension supports multiple AI providers:
 - Updating API integration: Modify files in `src/services/apis/`
 - Adding new UI component: Create in `src/components/`
 
+**Note:** Ask before deleting/renaming files, modifying build config/manifests, or making changes that affect multiple site adapters. If the user explicitly requests one of these changes, proceed and document scope and risk in the current workflow handoff output, and in the PR summary when applicable.
+
 ## Time Expectations
 
 - Do not interrupt builds or long-running commands unless they appear hung or unresponsive.
@@ -252,12 +258,10 @@ The extension supports multiple AI providers:
 
 ## Critical Validation Steps
 
-1. ALWAYS run `npm run build` after any code changes
-2. ALWAYS manually load and test the built extension in a browser (no automated testing available)
-3. ALWAYS verify the build creates expected file structure (non-empty bundles, no missing files)
-4. ALWAYS test core extension functionality (popup, content script injection, keyboard shortcuts)
-
-Always build and manually test the extension in a browser before considering any change complete. Simply running the build is NOT sufficient - you must load the extension and test actual functionality.
+1. General changes (any change not covered by Step 2 or Step 3): run `npm test` and `npm run build`, verify expected build artifacts, and run manual browser smoke tests. If changes include `safari/**`, also run `npm run build:safari` on macOS. If macOS is unavailable for those changes, document the skip reason in PR validation notes.
+2. Behavior-adjacent localization changes (`src/_locales/**` only): run `npm run build` and manual browser smoke tests. Use this step only when all changed files are under `src/_locales/**`.
+3. Docs-only changes (`*.md`, `screenshots/**`): build/manual browser tests may be skipped, but the PR description must include `Validation skipped: docs/screenshots-only change; no runtime files touched.`
+4. If changes span multiple categories, apply the strictest applicable step (runtime > localization > docs/screenshots); when in doubt, treat the change as runtime-impacting and execute the full validation flow.
 
 ---
 
