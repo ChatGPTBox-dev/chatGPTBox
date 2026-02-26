@@ -284,14 +284,28 @@ function buildBuiltinProviders(config) {
 function normalizeCustomProvider(provider, index) {
   if (!provider || typeof provider !== 'object') return null
   const id = toStringOrEmpty(provider.id).trim() || `custom-provider-${index + 1}`
+  const chatCompletionsPath = ensureLeadingSlash(provider.chatCompletionsPath, DEFAULT_CHAT_PATH)
+  const completionsPath = ensureLeadingSlash(provider.completionsPath, DEFAULT_COMPLETION_PATH)
+  const chatCompletionsUrl = toStringOrEmpty(provider.chatCompletionsUrl).trim()
+  const completionsUrl = toStringOrEmpty(provider.completionsUrl).trim()
+  let baseUrl = trimSlashes(provider.baseUrl)
+
+  if (!chatCompletionsUrl && !completionsUrl) {
+    const usesDefaultV1Paths =
+      chatCompletionsPath === DEFAULT_CHAT_PATH && completionsPath === DEFAULT_COMPLETION_PATH
+    if (usesDefaultV1Paths) {
+      baseUrl = normalizeBaseUrlWithoutVersionSuffix(baseUrl, '')
+    }
+  }
+
   return {
     id,
     name: toStringOrEmpty(provider.name).trim() || `Custom Provider ${index + 1}`,
-    baseUrl: trimSlashes(provider.baseUrl),
-    chatCompletionsPath: ensureLeadingSlash(provider.chatCompletionsPath, DEFAULT_CHAT_PATH),
-    completionsPath: ensureLeadingSlash(provider.completionsPath, DEFAULT_COMPLETION_PATH),
-    chatCompletionsUrl: toStringOrEmpty(provider.chatCompletionsUrl).trim(),
-    completionsUrl: toStringOrEmpty(provider.completionsUrl).trim(),
+    baseUrl,
+    chatCompletionsPath,
+    completionsPath,
+    chatCompletionsUrl,
+    completionsUrl,
     builtin: false,
     enabled: provider.enabled !== false,
     allowLegacyResponseField: Boolean(provider.allowLegacyResponseField),
@@ -510,17 +524,14 @@ export function resolveOpenAICompatibleRequest(config, session) {
       }
     }
     if (!provider) {
-      const customUrl = normalizeEndpointUrlForCompare(session?.apiMode?.customUrl)
-      if (customUrl) {
-        const matchedByCustomUrl = customProviders.find(
-          (item) =>
-            item.enabled !== false &&
-            normalizeEndpointUrlForCompare(item.chatCompletionsUrl) === customUrl,
-        )
-        if (matchedByCustomUrl) {
-          provider = matchedByCustomUrl
-          resolvedProviderId = matchedByCustomUrl.id
-        }
+      const matchedByCustomUrl = resolveCustomProviderByLegacySessionUrl(
+        customProviders,
+        config,
+        session,
+      )
+      if (matchedByCustomUrl) {
+        provider = matchedByCustomUrl
+        resolvedProviderId = matchedByCustomUrl.id
       }
     }
     if (!provider) {
