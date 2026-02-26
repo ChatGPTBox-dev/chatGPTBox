@@ -2423,3 +2423,63 @@ test('resolveOpenAICompatibleRequest avoids duplicate /v1 for Ollama endpoint wi
   assert.equal(resolved.providerId, 'ollama')
   assert.equal(resolved.requestUrl, 'http://127.0.0.1:11434/v1/chat/completions')
 })
+
+test('resolveOpenAICompatibleRequest avoids duplicate /v1 for custom provider baseUrl with default paths', () => {
+  const config = {
+    customOpenAIProviders: [
+      {
+        id: 'myproxy',
+        name: 'My Proxy',
+        baseUrl: 'https://proxy.example.com/v1/',
+        enabled: true,
+      },
+    ],
+    providerSecrets: {
+      myproxy: 'proxy-key',
+    },
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      providerId: 'myproxy',
+      customName: 'proxy-model',
+      customUrl: '',
+    },
+  }
+
+  const resolved = resolveOpenAICompatibleRequest(config, session)
+
+  assert.equal(resolved.requestUrl, 'https://proxy.example.com/v1/chat/completions')
+})
+
+test('resolveOpenAICompatibleRequest preserves /v1 for custom provider baseUrl with explicit non-default paths', () => {
+  const config = {
+    customOpenAIProviders: [
+      {
+        id: 'myproxy',
+        name: 'My Proxy',
+        baseUrl: 'https://proxy.example.com/v1/',
+        chatCompletionsPath: '/chat/completions',
+        completionsPath: '/completions',
+        enabled: true,
+      },
+    ],
+    providerSecrets: {
+      myproxy: 'proxy-key',
+    },
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      providerId: 'myproxy',
+      customName: 'proxy-model',
+      customUrl: '',
+    },
+  }
+
+  const resolved = resolveOpenAICompatibleRequest(config, session)
+
+  assert.equal(resolved.requestUrl, 'https://proxy.example.com/v1/chat/completions')
+})
