@@ -76,12 +76,12 @@ export async function generateAnswersWithCustomApi(
 
       if (data.response) answer = data.response
       else {
-        const delta = data.choices[0]?.delta?.content
-        const content = data.choices[0]?.message?.content
-        const text = data.choices[0]?.text
+        const delta = data.choices?.[0]?.delta?.content
+        const content = data.choices?.[0]?.message?.content
+        const text = data.choices?.[0]?.text
         if (delta !== undefined) {
           answer += delta
-        } else if (content) {
+        } else if (typeof content === 'string') {
           answer = content
         } else if (text) {
           answer += text
@@ -89,7 +89,7 @@ export async function generateAnswersWithCustomApi(
       }
       port.postMessage({ answer: answer, done: false, session: null })
 
-      if (data.choices[0]?.finish_reason) {
+      if (data.choices?.[0]?.finish_reason) {
         finish()
         return
       }
