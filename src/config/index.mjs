@@ -473,6 +473,12 @@ export const defaultConfig = {
   alwaysPinWindow: false,
   focusAfterAnswer: true,
 
+  // TTS settings
+  enableOpenAiTts: false,
+  openAiTtsVoice: 'alloy',
+  openAiTtsModel: 'tts-1',
+  openAiTtsSpeed: 1.0,
+
   apiKey: '', // openai ApiKey
 
   azureApiKey: '',
