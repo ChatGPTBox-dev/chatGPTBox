@@ -1,5 +1,20 @@
 import PropTypes from 'prop-types'
 
+const siteDisplayNames = {
+  bilibili: 'Bilibili',
+  github: 'GitHub',
+  gitlab: 'GitLab',
+  quora: 'Quora',
+  reddit: 'Reddit',
+  youtube: 'YouTube',
+  zhihu: 'Zhihu',
+  stackoverflow: 'Stack Overflow',
+  juejin: 'Juejin',
+  'mp.weixin.qq': 'WeChat MP',
+  followin: 'Followin',
+  arxiv: 'arXiv',
+}
+
 SiteAdapters.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
@@ -20,7 +35,7 @@ export function SiteAdapters({ config, updateConfig }) {
               updateConfig({ activeSiteAdapters })
             }}
           />
-          {key}
+          {siteDisplayNames[key] || key}
         </label>
       ))}
     </>
