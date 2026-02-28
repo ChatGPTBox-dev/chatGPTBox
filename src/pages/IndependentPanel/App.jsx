@@ -17,8 +17,11 @@ import { openUrl } from '../../utils/index.mjs'
 import Browser from 'webextension-polyfill'
 import FileSaver from 'file-saver'
 
+const logo = Browser.runtime.getURL('logo.png')
+
 function App() {
   const { t } = useTranslation()
+  const hasUserToggledRef = useRef(false)
   const [collapsed, setCollapsed] = useState(true)
   const config = useConfig(null, false)
   const [sessions, setSessions] = useState([])
@@ -65,6 +68,22 @@ function App() {
   }, [])
 
   useEffect(() => {
+    // Default open only on the standalone IndependentPanel (tab/window) when wide enough.
+    // Keep the existing side-panel behavior (closed by default).
+    void (async () => {
+      if (hasUserToggledRef.current) return
+      if (!window.matchMedia('(min-width: 900px)').matches) return
+      try {
+        // In a regular tab, this returns the current tab object; in the side panel it returns null.
+        const tab = await Browser.tabs.getCurrent()
+        if (!hasUserToggledRef.current && tab) setCollapsed(false)
+      } catch (e) {
+        // If we can't tell, keep current (closed) default.
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
     if ('sessions' in config && config['sessions']) setSessions(config['sessions'])
   }, [config])
 
@@ -82,7 +101,19 @@ function App() {
   }, [sessionId])
 
   const toggleSidebar = () => {
+    hasUserToggledRef.current = true
     setCollapsed(!collapsed)
+  }
+
+  const closeSidebar = () => {
+    hasUserToggledRef.current = true
+    setCollapsed(true)
+  }
+
+  const closeSidebarIfOverlay = () => {
+    if (window.matchMedia('(max-width: 600px)').matches) {
+      closeSidebar()
+    }
   }
 
   const createNewChat = async () => {
@@ -105,62 +136,80 @@ function App() {
 
   return (
     <div className="IndependentPanel">
-      <div className="chat-container">
+      <div className={`chat-container ${collapsed ? 'sidebar-collapsed' : 'sidebar-open'}`}>
+        {!collapsed && (
+          <div className="chat-sidebar-backdrop" role="presentation" onClick={closeSidebar} />
+        )}
         <div className={`chat-sidebar ${collapsed ? 'collapsed' : ''}`}>
-          <div className="chat-sidebar-button-group">
-            <button className="normal-button" onClick={toggleSidebar}>
-              {collapsed ? t('Pin') : t('Unpin')}
-            </button>
-            <button className="normal-button" onClick={createNewChat}>
-              {t('New Chat')}
-            </button>
-            <button className="normal-button" onClick={exportConversations}>
-              {t('Export')}
-            </button>
-          </div>
-          <hr />
-          <div className="chat-list">
-            {sessions.map(
-              (
-                session,
-                index, // TODO editable session name
-              ) => (
-                <button
-                  key={index}
-                  className={`normal-button ${sessionId === session.sessionId ? 'active' : ''}`}
-                  style="display: flex; align-items: center; justify-content: space-between;"
-                  onClick={() => {
-                    setSessionIdSafe(session.sessionId)
-                  }}
-                >
-                  {session.sessionName}
-                  <span className="gpt-util-group">
-                    <DeleteButton
-                      size={14}
-                      text={t('Delete Conversation')}
-                      onConfirm={() =>
-                        deleteSession(session.sessionId).then((sessions) => {
-                          setSessions(sessions)
-                          setSessionIdSafe(sessions[0].sessionId)
-                        })
-                      }
-                    />
-                  </span>
-                </button>
-              ),
-            )}
-          </div>
-          <hr />
-          <div className="chat-sidebar-button-group">
-            <ConfirmButton text={t('Clear conversations')} onConfirm={clearConversations} />
-            <button
-              className="normal-button"
-              onClick={() => {
-                openUrl(Browser.runtime.getURL('popup.html'))
-              }}
-            >
-              {t('Settings')}
-            </button>
+          <div className="chat-sidebar-content">
+            <div className="chat-sidebar-topbar">
+              <div className="chat-sidebar-brand-group">
+                <img className="chat-sidebar-logo" src={logo} alt="ChatGPTBox" />
+                <div className="chat-sidebar-brand">ChatGPTBox</div>
+              </div>
+              <button
+                type="button"
+                className="gpt-util-icon gpt-menu-toggle chat-sidebar-close"
+                aria-label="Close sidebar"
+                onClick={closeSidebar}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="chat-sidebar-button-group">
+              <button className="normal-button" onClick={createNewChat}>
+                {t('New Chat')}
+              </button>
+              <button className="normal-button" onClick={exportConversations}>
+                {t('Export')}
+              </button>
+            </div>
+            <hr />
+            <div className="chat-list">
+              {sessions.map(
+                (
+                  session,
+                  index, // TODO editable session name
+                ) => (
+                  <button
+                    key={index}
+                    className={`normal-button ${sessionId === session.sessionId ? 'active' : ''}`}
+                    style="display: flex; align-items: center; justify-content: space-between;"
+                    onClick={() => {
+                      setSessionIdSafe(session.sessionId)
+                      closeSidebarIfOverlay()
+                    }}
+                  >
+                    {session.sessionName}
+                    <span className="gpt-util-group">
+                      <DeleteButton
+                        size={14}
+                        text={t('Delete Conversation')}
+                        onConfirm={() =>
+                          deleteSession(session.sessionId).then((sessions) => {
+                            setSessions(sessions)
+                            setSessionIdSafe(sessions[0].sessionId)
+                          })
+                        }
+                      />
+                    </span>
+                  </button>
+                ),
+              )}
+            </div>
+            <hr />
+            <div className="chat-sidebar-button-group">
+              <ConfirmButton text={t('Clear conversations')} onConfirm={clearConversations} />
+              <button
+                className="normal-button"
+                onClick={() => {
+                  openUrl(Browser.runtime.getURL('popup.html'))
+                  closeSidebarIfOverlay()
+                }}
+              >
+                {t('Settings')}
+              </button>
+            </div>
           </div>
         </div>
         <div className="chat-content">
@@ -170,6 +219,8 @@ function App() {
                 session={currentSession}
                 notClampSize={true}
                 pageMode={true}
+                sidebarOpen={!collapsed}
+                onToggleSidebar={toggleSidebar}
                 onUpdate={(port, session, cData) => {
                   currentPort.current = port
                   if (cData.length > 0 && cData[cData.length - 1].done) {
