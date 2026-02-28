@@ -226,7 +226,7 @@ The extension supports multiple AI providers:
 
 ### Build Issues
 
-- Build failures: Check Node.js version (requires Node 20+), clear caches and rebuild.
+- Build failures: Check Node.js version (requires Node 22+), clear caches and rebuild.
   - macOS/Linux: `rm -rf node_modules && npm ci && rm -rf node_modules/.cache build/ dist/`
   - Windows (PowerShell): `Remove-Item -Recurse -Force node_modules, build, dist; if (Test-Path node_modules\.cache) { Remove-Item -Recurse -Force node_modules\.cache }; npm ci`
 - "Module not found" errors: Usually indicate missing `npm ci`
