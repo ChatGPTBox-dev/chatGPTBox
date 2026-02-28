@@ -104,9 +104,9 @@ function Popup() {
         >
           <TabList>
             <Tab className="popup-tab">{t('General')}</Tab>
-            <Tab className="popup-tab">{t('Feature Pages')}</Tab>
             <Tab className="popup-tab">{t('Modules')}</Tab>
             <Tab className="popup-tab">{t('Advanced')}</Tab>
+            <Tab className="popup-tab">{t('Feature Pages')}</Tab>
           </TabList>
 
           <TabPanel>
