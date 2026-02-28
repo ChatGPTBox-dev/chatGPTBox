@@ -13,7 +13,7 @@ import { getModelValue } from '../../utils/model-name-convert.mjs'
 export async function generateAnswersWithClaudeApi(port, question, session) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
   const config = await getUserConfig()
-  const apiUrl = config.customClaudeApiUrl
+  const apiUrl = config.customAnthropicApiUrl
   const model = getModelValue(session)
 
   const prompt = getConversationPairs(
@@ -29,7 +29,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     headers: {
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01',
-      'x-api-key': config.claudeApiKey,
+      'x-api-key': config.anthropicApiKey,
       'anthropic-dangerous-direct-browser-access': true,
     },
     body: JSON.stringify({

@@ -76,6 +76,17 @@ const storageLocal = {
     }
     return Promise.resolve()
   },
+  remove(keys, callback) {
+    const keyList = Array.isArray(keys) ? keys : [keys]
+    for (const key of keyList) {
+      delete storageState[key]
+    }
+    if (typeof callback === 'function') {
+      queueMicrotask(() => callback())
+      return
+    }
+    return Promise.resolve()
+  },
   clear(callback) {
     storageState = createStorageState()
     if (typeof callback === 'function') {

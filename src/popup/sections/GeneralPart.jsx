@@ -290,11 +290,11 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
             <input
               type="password"
               style="width: 50%;"
-              value={config.claudeApiKey}
-              placeholder={t('Claude API Key')}
+              value={config.anthropicApiKey}
+              placeholder={t('Anthropic API Key')}
               onChange={(e) => {
                 const apiKey = e.target.value
-                updateConfig({ claudeApiKey: apiKey })
+                updateConfig({ anthropicApiKey: apiKey })
               }}
             />
           )}

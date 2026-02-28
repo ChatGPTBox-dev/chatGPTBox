@@ -28,6 +28,59 @@ test('getUserConfig keeps modern chatgpt.com URL unchanged', async () => {
   assert.equal(config.customChatGptWebApiUrl, 'https://chatgpt.com')
 })
 
+test('getUserConfig migrates legacy Claude keys to Anthropic keys and removes old keys', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    claudeApiKey: 'legacy-key',
+    customClaudeApiUrl: 'https://legacy.anthropic.example',
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(config.anthropicApiKey, 'legacy-key')
+  assert.equal(config.customAnthropicApiUrl, 'https://legacy.anthropic.example')
+  assert.equal(storage.anthropicApiKey, 'legacy-key')
+  assert.equal(storage.customAnthropicApiUrl, 'https://legacy.anthropic.example')
+  assert.equal(Object.hasOwn(storage, 'claudeApiKey'), false)
+  assert.equal(Object.hasOwn(storage, 'customClaudeApiUrl'), false)
+})
+
+test('getUserConfig prefers legacy Claude keys when both legacy and Anthropic keys exist', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    anthropicApiKey: 'new-key',
+    claudeApiKey: 'legacy-key',
+    customAnthropicApiUrl: 'https://new.anthropic.example',
+    customClaudeApiUrl: 'https://legacy.anthropic.example',
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(config.anthropicApiKey, 'legacy-key')
+  assert.equal(config.customAnthropicApiUrl, 'https://legacy.anthropic.example')
+  assert.equal(storage.anthropicApiKey, 'legacy-key')
+  assert.equal(storage.customAnthropicApiUrl, 'https://legacy.anthropic.example')
+  assert.equal(Object.hasOwn(storage, 'claudeApiKey'), false)
+  assert.equal(Object.hasOwn(storage, 'customClaudeApiUrl'), false)
+})
+
+test('getUserConfig keeps Anthropic keys unchanged when legacy Claude keys are absent', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    anthropicApiKey: 'new-key',
+    customAnthropicApiUrl: 'https://new.anthropic.example',
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(config.anthropicApiKey, 'new-key')
+  assert.equal(config.customAnthropicApiUrl, 'https://new.anthropic.example')
+  assert.equal(storage.anthropicApiKey, 'new-key')
+  assert.equal(storage.customAnthropicApiUrl, 'https://new.anthropic.example')
+  assert.equal(Object.hasOwn(storage, 'claudeApiKey'), false)
+  assert.equal(Object.hasOwn(storage, 'customClaudeApiUrl'), false)
+})
+
 test('clearOldAccessToken clears expired token older than 30 days', async (t) => {
   const now = 1_700_000_000_000
   t.mock.method(Date, 'now', () => now)

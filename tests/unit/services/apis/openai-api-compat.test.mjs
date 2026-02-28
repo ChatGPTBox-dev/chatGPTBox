@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
 import {
-  generateAnswersWithChatgptApiCompat,
+  generateAnswersWithOpenAiApiCompat,
   generateAnswersWithGptCompletionApi,
 } from '../../../../src/services/apis/openai-api.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
@@ -15,7 +15,7 @@ beforeEach(() => {
   globalThis.__TEST_BROWSER_SHIM__.clearStorage()
 })
 
-test('generateAnswersWithChatgptApiCompat sends expected request and aggregates SSE deltas', async (t) => {
+test('generateAnswersWithOpenAiApiCompat sends expected request and aggregates SSE deltas', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -41,7 +41,7 @@ test('generateAnswersWithChatgptApiCompat sends expected request and aggregates 
     ])
   })
 
-  await generateAnswersWithChatgptApiCompat(
+  await generateAnswersWithOpenAiApiCompat(
     'https://api.example.com/v1',
     port,
     'CurrentQ',
@@ -79,7 +79,7 @@ test('generateAnswersWithChatgptApiCompat sends expected request and aggregates 
   assert.deepEqual(session.conversationRecords.at(-1), { question: 'CurrentQ', answer: 'Hello' })
 })
 
-test('generateAnswersWithChatgptApiCompat uses max_completion_tokens for OpenAI gpt-5 models', async (t) => {
+test('generateAnswersWithOpenAiApiCompat uses max_completion_tokens for OpenAI gpt-5 models', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -102,7 +102,7 @@ test('generateAnswersWithChatgptApiCompat uses max_completion_tokens for OpenAI 
     ])
   })
 
-  await generateAnswersWithChatgptApiCompat(
+  await generateAnswersWithOpenAiApiCompat(
     'https://api.example.com/v1',
     port,
     'CurrentQ',
@@ -117,7 +117,7 @@ test('generateAnswersWithChatgptApiCompat uses max_completion_tokens for OpenAI 
   assert.equal(Object.hasOwn(body, 'max_tokens'), false)
 })
 
-test('generateAnswersWithChatgptApiCompat removes conflicting token key from extraBody', async (t) => {
+test('generateAnswersWithOpenAiApiCompat removes conflicting token key from extraBody', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -140,7 +140,7 @@ test('generateAnswersWithChatgptApiCompat removes conflicting token key from ext
     ])
   })
 
-  await generateAnswersWithChatgptApiCompat(
+  await generateAnswersWithOpenAiApiCompat(
     'https://api.example.com/v1',
     port,
     'CurrentQ',
@@ -158,7 +158,7 @@ test('generateAnswersWithChatgptApiCompat removes conflicting token key from ext
   assert.equal(body.top_p, 0.9)
 })
 
-test('generateAnswersWithChatgptApiCompat removes max_tokens from extraBody for OpenAI gpt-5 models', async (t) => {
+test('generateAnswersWithOpenAiApiCompat removes max_tokens from extraBody for OpenAI gpt-5 models', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -181,7 +181,7 @@ test('generateAnswersWithChatgptApiCompat removes max_tokens from extraBody for 
     ])
   })
 
-  await generateAnswersWithChatgptApiCompat(
+  await generateAnswersWithOpenAiApiCompat(
     'https://api.example.com/v1',
     port,
     'CurrentQ',
@@ -200,7 +200,7 @@ test('generateAnswersWithChatgptApiCompat removes max_tokens from extraBody for 
   assert.equal(body.top_p, 0.8)
 })
 
-test('generateAnswersWithChatgptApiCompat allows max_tokens override for compat provider', async (t) => {
+test('generateAnswersWithOpenAiApiCompat allows max_tokens override for compat provider', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -223,7 +223,7 @@ test('generateAnswersWithChatgptApiCompat allows max_tokens override for compat 
     ])
   })
 
-  await generateAnswersWithChatgptApiCompat(
+  await generateAnswersWithOpenAiApiCompat(
     'https://api.example.com/v1',
     port,
     'CurrentQ',
@@ -241,7 +241,7 @@ test('generateAnswersWithChatgptApiCompat allows max_tokens override for compat 
   assert.equal(body.top_p, 0.75)
 })
 
-test('generateAnswersWithChatgptApiCompat allows max_completion_tokens override for OpenAI gpt-5 models', async (t) => {
+test('generateAnswersWithOpenAiApiCompat allows max_completion_tokens override for OpenAI gpt-5 models', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -264,7 +264,7 @@ test('generateAnswersWithChatgptApiCompat allows max_completion_tokens override 
     ])
   })
 
-  await generateAnswersWithChatgptApiCompat(
+  await generateAnswersWithOpenAiApiCompat(
     'https://api.example.com/v1',
     port,
     'CurrentQ',
@@ -283,7 +283,7 @@ test('generateAnswersWithChatgptApiCompat allows max_completion_tokens override 
   assert.equal(body.top_p, 0.65)
 })
 
-test('generateAnswersWithChatgptApiCompat throws on non-ok response with JSON error body', async (t) => {
+test('generateAnswersWithOpenAiApiCompat throws on non-ok response with JSON error body', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -308,7 +308,7 @@ test('generateAnswersWithChatgptApiCompat throws on non-ok response with JSON er
   )
 
   await assert.rejects(async () => {
-    await generateAnswersWithChatgptApiCompat(
+    await generateAnswersWithOpenAiApiCompat(
       'https://api.example.com/v1',
       port,
       'CurrentQ',
@@ -320,7 +320,7 @@ test('generateAnswersWithChatgptApiCompat throws on non-ok response with JSON er
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })
 
-test('generateAnswersWithChatgptApiCompat throws on network error', async (t) => {
+test('generateAnswersWithOpenAiApiCompat throws on network error', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -340,7 +340,7 @@ test('generateAnswersWithChatgptApiCompat throws on network error', async (t) =>
   })
 
   await assert.rejects(async () => {
-    await generateAnswersWithChatgptApiCompat(
+    await generateAnswersWithOpenAiApiCompat(
       'https://api.example.com/v1',
       port,
       'CurrentQ',
@@ -352,7 +352,7 @@ test('generateAnswersWithChatgptApiCompat throws on network error', async (t) =>
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })
 
-test('generateAnswersWithChatgptApiCompat falls back to status text when JSON error parsing fails', async (t) => {
+test('generateAnswersWithOpenAiApiCompat falls back to status text when JSON error parsing fails', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -379,7 +379,7 @@ test('generateAnswersWithChatgptApiCompat falls back to status text when JSON er
   )
 
   await assert.rejects(async () => {
-    await generateAnswersWithChatgptApiCompat(
+    await generateAnswersWithOpenAiApiCompat(
       'https://api.example.com/v1',
       port,
       'CurrentQ',
@@ -391,7 +391,7 @@ test('generateAnswersWithChatgptApiCompat falls back to status text when JSON er
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })
 
-test('generateAnswersWithChatgptApiCompat supports message.content fallback', async (t) => {
+test('generateAnswersWithOpenAiApiCompat supports message.content fallback', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 2,
@@ -412,7 +412,7 @@ test('generateAnswersWithChatgptApiCompat supports message.content fallback', as
     ]),
   )
 
-  await generateAnswersWithChatgptApiCompat(
+  await generateAnswersWithOpenAiApiCompat(
     'https://api.example.com/v1',
     port,
     'CurrentQ',
