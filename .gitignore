@@ -2,5 +2,7 @@
 .vscode/
 node_modules/
 build/
+.coverage/
+coverage/
 .DS_Store
 *.zip

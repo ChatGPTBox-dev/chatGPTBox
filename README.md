@@ -12,6 +12,7 @@ Deep ChatGPT integrations in your browser, completely for free.
 [![release][release-image]][release-url]
 [![size](https://img.shields.io/badge/minified%20size-390%20kB-blue)][release-url]
 [![verfiy][verify-image]][verify-url]
+[![coverage][coverage-image]][coverage-url]
 
 English &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&nbsp; [简体中文](README_ZH.md) &nbsp;&nbsp;|&nbsp;&nbsp; [日本語](README_JA.md) &nbsp;&nbsp;|&nbsp;&nbsp; [Türkçe](README_TR.md)
 
@@ -39,6 +40,10 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&
 [verify-image]: https://github.com/ChatGPTBox-dev/chatGPTBox/workflows/verify-configs/badge.svg
 
 [verify-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/verify-configs.yml
+
+[coverage-image]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ChatGPTBox-dev/chatGPTBox/master/badges/coverage.json
+
+[coverage-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/pr-tests.yml
 
 [Chrome-image]: https://img.shields.io/badge/-Chrome-brightgreen?logo=google-chrome&logoColor=white
 

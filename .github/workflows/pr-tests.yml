@@ -12,6 +12,7 @@ on:
       - "tests/**"
       - "package.json"
       - "package-lock.json"
+      - ".github/workflows/scripts/**"
       - ".github/workflows/pr-tests.yml"
   push:
     branches:
@@ -22,11 +23,14 @@ on:
       - "tests/**"
       - "package.json"
       - "package-lock.json"
+      - ".github/workflows/scripts/**"
       - ".github/workflows/pr-tests.yml"
 
 jobs:
   tests:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v6
@@ -34,6 +38,66 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm test
+      - run: npm run test:coverage
       - run: npm run lint
       - run: npm run build
+
+  update_coverage_badge:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: tests
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run test:coverage
+      - run: node .github/workflows/scripts/update-coverage-badge.mjs
+      - name: Commit coverage badge
+        run: |
+          branch="${GITHUB_REF#refs/heads/}"
+          max_retries=3
+
+          if git diff --quiet -- badges/coverage.json; then
+            echo "Coverage badge unchanged"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add badges/coverage.json
+          git commit -m "Update coverage badge [skip ci]"
+
+          for attempt in $(seq 1 "${max_retries}"); do
+            echo "Attempt ${attempt}/${max_retries}: pushing coverage badge update to ${branch}"
+
+            if git push origin "HEAD:${branch}"; then
+              echo "Coverage badge push succeeded"
+              exit 0
+            fi
+
+            if [ "${attempt}" -eq "${max_retries}" ]; then
+              echo "::warning::Failed to push coverage badge after ${max_retries} attempts due to concurrent updates. Skipping without failing CI."
+              exit 0
+            fi
+
+            echo "Push rejected. Fetching latest origin/${branch} and retrying with rebase..."
+            if ! git fetch origin "${branch}"; then
+              echo "::warning::Failed to fetch origin/${branch} while retrying coverage badge push. Skipping without failing CI."
+              exit 0
+            fi
+
+            if ! git rebase "origin/${branch}"; then
+              git rebase --abort || true
+              echo "::warning::Rebase conflict while retrying coverage badge push. Skipping without failing CI."
+              exit 0
+            fi
+
+            sleep $((attempt * 2))
+          done
