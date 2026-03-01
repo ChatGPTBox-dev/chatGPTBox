@@ -75,8 +75,46 @@ test('generateAnswersWithChatgptApiCompat sends expected request and aggregates 
     port.postedMessages.some((message) => message.done === true && message.session === session),
     true,
   )
-  assert.deepEqual(port.postedMessages.at(-1), { done: true })
+  assert.deepEqual(port.postedMessages.at(-1), { answer: null, done: true, session })
   assert.deepEqual(session.conversationRecords.at(-1), { question: 'CurrentQ', answer: 'Hello' })
+})
+
+test('generateAnswersWithChatgptApiCompat emits fallback done message when stream ends without finish reason', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    temperature: 0.25,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse(['data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n']),
+  )
+
+  await generateAnswersWithChatgptApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'Partial'),
+    true,
+  )
+  assert.equal(
+    port.postedMessages.some((message) => message.done === true && message.session === session),
+    false,
+  )
+  assert.deepEqual(port.postedMessages.at(-1), { done: true })
 })
 
 test('generateAnswersWithChatgptApiCompat uses max_completion_tokens for OpenAI gpt-5 models', async (t) => {

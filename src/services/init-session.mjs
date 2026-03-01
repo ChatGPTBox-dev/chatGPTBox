@@ -1,5 +1,9 @@
 import { v4 as uuidv4 } from 'uuid'
-import { apiModeToModelName, modelNameToDesc } from '../utils/model-name-convert.mjs'
+import {
+  apiModeToModelName,
+  modelNameToDesc,
+  normalizeApiMode,
+} from '../utils/model-name-convert.mjs'
 import { t } from 'i18next'
 
 /**
@@ -68,7 +72,7 @@ export function initSession({
           )
         : null,
     modelName,
-    apiMode,
+    apiMode: normalizeApiMode(apiMode),
 
     autoClean,
     isRetry: false,

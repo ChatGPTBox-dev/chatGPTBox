@@ -72,12 +72,30 @@ export function modelNameToApiMode(modelName) {
       customName,
       customUrl: '',
       apiKey: '',
+      providerId: '',
       active: true,
     }
   }
 }
 
+export function normalizeApiMode(apiMode) {
+  if (!apiMode || typeof apiMode !== 'object') return null
+  return {
+    ...apiMode,
+    groupName: apiMode.groupName || '',
+    itemName: apiMode.itemName || '',
+    isCustom: Boolean(apiMode.isCustom),
+    customName: apiMode.customName || '',
+    customUrl: apiMode.customUrl || '',
+    apiKey: apiMode.apiKey || '',
+    providerId: apiMode.providerId || '',
+    active: apiMode.active !== false,
+  }
+}
+
 export function apiModeToModelName(apiMode) {
+  apiMode = normalizeApiMode(apiMode)
+  if (!apiMode) return ''
   if (AlwaysCustomGroups.includes(apiMode.groupName))
     return apiMode.groupName + '-' + apiMode.customName
 
@@ -90,7 +108,13 @@ export function apiModeToModelName(apiMode) {
 }
 
 export function getApiModesFromConfig(config, onlyActive) {
-  const stringApiModes = config.customApiModes
+  const normalizedCustomApiModes = (
+    Array.isArray(config.customApiModes) ? config.customApiModes : []
+  )
+    .map((apiMode) => normalizeApiMode(apiMode))
+    .filter((apiMode) => apiMode && apiMode.groupName && apiMode.itemName)
+
+  const stringApiModes = normalizedCustomApiModes
     .map((apiMode) => {
       if (onlyActive) {
         if (apiMode.active) return apiModeToModelName(apiMode)
@@ -105,13 +129,14 @@ export function getApiModesFromConfig(config, onlyActive) {
         return
       }
       if (modelName === 'azureOpenAi') modelName += '-' + config.azureDeploymentName
-      if (modelName === 'ollama') modelName += '-' + config.ollamaModelName
+      if (modelName === 'ollama' || modelName === 'ollamaModel')
+        modelName = 'ollamaModel-' + config.ollamaModelName
       return modelNameToApiMode(modelName)
     })
     .filter((apiMode) => apiMode)
   return [
     ...originalApiModes,
-    ...config.customApiModes.filter((apiMode) => (onlyActive ? apiMode.active : true)),
+    ...normalizedCustomApiModes.filter((apiMode) => (onlyActive ? apiMode.active : true)),
   ]
 }
 
@@ -120,9 +145,19 @@ export function getApiModesStringArrayFromConfig(config, onlyActive) {
 }
 
 export function isApiModeSelected(apiMode, configOrSession) {
+  const normalizeForCompare = (value) => {
+    const normalized = normalizeApiMode(value)
+    if (!normalized) return ''
+    return JSON.stringify({
+      groupName: normalized.groupName,
+      itemName: normalized.itemName,
+      isCustom: normalized.isCustom,
+      customName: normalized.customName,
+      providerId: normalized.providerId,
+    })
+  }
   return configOrSession.apiMode
-    ? JSON.stringify(configOrSession.apiMode, Object.keys(configOrSession.apiMode).sort()) ===
-        JSON.stringify(apiMode, Object.keys(apiMode).sort())
+    ? normalizeForCompare(configOrSession.apiMode) === normalizeForCompare(apiMode)
     : configOrSession.modelName === apiModeToModelName(apiMode)
 }
 
