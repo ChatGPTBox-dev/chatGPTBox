@@ -56,86 +56,13 @@ import { generateAnswersWithMoonshotCompletionApi } from '../services/apis/moons
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
 import { generateAnswersWithDeepSeekApi } from '../services/apis/deepseek-api.mjs'
+import { redactSensitiveFields } from './redact.mjs'
 
 const RECONNECT_CONFIG = {
   MAX_ATTEMPTS: 5,
   BASE_DELAY_MS: 1000, // Base delay in milliseconds
   BACKOFF_MULTIPLIER: 2, // Multiplier for exponential backoff
   STABLE_CONNECT_RESET_DELAY_MS: 3000, // Reset retries only after connection stays stable
-}
-
-const SENSITIVE_KEYWORDS = [
-  'apikey', // Covers apiKey, customApiKey, claudeApiKey, etc.
-  'token', // Covers accessToken, refreshToken, etc.
-  'secret',
-  'password',
-  'kimimoonshotrefreshtoken',
-  'credential',
-  'jwt',
-  'session',
-]
-
-function isPromptOrSelectionLikeKey(lowerKey) {
-  const normalizedKey = lowerKey.replace(/[^a-z0-9]/g, '')
-  return (
-    normalizedKey.endsWith('question') ||
-    normalizedKey.endsWith('prompt') ||
-    normalizedKey.endsWith('query') ||
-    normalizedKey === 'selection' ||
-    normalizedKey === 'selectiontext'
-  )
-}
-
-function redactSensitiveFields(obj, recursionDepth = 0, maxDepth = 5, seen = new WeakSet()) {
-  if (recursionDepth > maxDepth) {
-    // Prevent infinite recursion on circular objects or excessively deep structures
-    return 'REDACTED_TOO_DEEP'
-  }
-  if (obj === null || typeof obj !== 'object') {
-    return obj
-  }
-
-  if (seen.has(obj)) {
-    return 'REDACTED_CIRCULAR_REFERENCE'
-  }
-  seen.add(obj)
-
-  if (Array.isArray(obj)) {
-    const redactedArray = []
-    for (let i = 0; i < obj.length; i++) {
-      const item = obj[i]
-      if (item !== null && typeof item === 'object') {
-        redactedArray[i] = redactSensitiveFields(item, recursionDepth + 1, maxDepth, seen)
-      } else {
-        redactedArray[i] = item
-      }
-    }
-    return redactedArray
-  }
-
-  const redactedObj = {}
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      const lowerKey = key.toLowerCase()
-      let isKeySensitive = isPromptOrSelectionLikeKey(lowerKey)
-      if (!isKeySensitive) {
-        for (const keyword of SENSITIVE_KEYWORDS) {
-          if (lowerKey.includes(keyword)) {
-            isKeySensitive = true
-            break
-          }
-        }
-      }
-      if (isKeySensitive) {
-        redactedObj[key] = 'REDACTED'
-      } else if (obj[key] !== null && typeof obj[key] === 'object') {
-        redactedObj[key] = redactSensitiveFields(obj[key], recursionDepth + 1, maxDepth, seen)
-      } else {
-        redactedObj[key] = obj[key]
-      }
-    }
-  }
-  return redactedObj
 }
 
 function setPortProxy(port, proxyTabId) {
