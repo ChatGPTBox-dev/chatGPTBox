@@ -354,6 +354,8 @@ function ConversationCard(props) {
           {props.closeable ? (
             <span
               className="gpt-util-icon"
+              role="button"
+              aria-label={t('Close the Window')}
               title={t('Close the Window')}
               onClick={() => {
                 port.disconnect()
@@ -365,6 +367,8 @@ function ConversationCard(props) {
           ) : props.dockable ? (
             <span
               className="gpt-util-icon"
+              role="button"
+              aria-label={t('Pin the Window')}
               title={t('Pin the Window')}
               onClick={() => {
                 if (props.onDock) props.onDock()
@@ -373,9 +377,14 @@ function ConversationCard(props) {
               <Pin size={16} />
             </span>
           ) : (
-            <img src={logo} style="user-select:none;width:20px;height:20px;" />
+            <img
+              src={logo}
+              alt="ChatGPTBox logo"
+              style="user-select:none;width:20px;height:20px;"
+            />
           )}
           <select
+            aria-label="Select AI model"
             style={props.notClampSize ? {} : { width: 0, flexGrow: 1 }}
             className="normal-button"
             required
@@ -442,6 +451,8 @@ function ConversationCard(props) {
           )}
           <span
             className="gpt-util-icon"
+            role="button"
+            aria-label={t('Float the Window')}
             title={t('Float the Window')}
             onClick={() => {
               const position = { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 - 200 }
@@ -484,6 +495,8 @@ function ConversationCard(props) {
           />
           {!props.pageMode && (
             <span
+              role="button"
+              aria-label={t('Store to Independent Conversation Page')}
               title={t('Store to Independent Conversation Page')}
               className="gpt-util-icon"
               onClick={() => {
@@ -509,6 +522,8 @@ function ConversationCard(props) {
           )}
           {conversationItemData.length > 0 && (
             <span
+              role="button"
+              aria-label={t('Jump to bottom')}
               title={t('Jump to bottom')}
               className="gpt-util-icon"
               onClick={() => {
@@ -522,6 +537,8 @@ function ConversationCard(props) {
             </span>
           )}
           <span
+            role="button"
+            aria-label={t('Save Conversation')}
             title={t('Save Conversation')}
             className="gpt-util-icon"
             onClick={() => {

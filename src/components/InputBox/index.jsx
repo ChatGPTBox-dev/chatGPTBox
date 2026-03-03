@@ -68,7 +68,7 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
   }
 
   return (
-    <div className="input-box">
+    <div className="input-box" role="form" aria-label="Chat input form">
       <div
         ref={reverseDivRef}
         style={
@@ -81,10 +81,12 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
         }
       >
         <textarea
+          id="chat-input"
           dir="auto"
           ref={inputRef}
           disabled={false}
           className="interact-input"
+          aria-label="Chat input"
           style={
             internalReverseResizeDir
               ? { transform: 'rotateX(180deg)', resize: 'none' }
@@ -102,6 +104,7 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
       </div>
       <button
         className="submit-button"
+        aria-label={enabled ? t('Ask') : t('Stop')}
         style={{
           backgroundColor: enabled ? '#30a14e' : '#cf222e',
         }}

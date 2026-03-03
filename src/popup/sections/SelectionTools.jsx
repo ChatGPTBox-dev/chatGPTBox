@@ -28,6 +28,7 @@ export function SelectionTools({ config, updateConfig }) {
     <div style={{ display: 'flex', flexDirection: 'column', '--spacing': '4px' }}>
       <div style={{ display: 'flex', gap: '12px' }}>
         <button
+          aria-label={t('Cancel')}
           onClick={(e) => {
             e.preventDefault()
             setEditing(false)
@@ -36,6 +37,7 @@ export function SelectionTools({ config, updateConfig }) {
           {t('Cancel')}
         </button>
         <button
+          aria-label={editingIndex === -1 ? t('Add tool') : t('Save changes')}
           onClick={(e) => {
             e.preventDefault()
             if (!editingTool.name) {
@@ -65,12 +67,14 @@ export function SelectionTools({ config, updateConfig }) {
       <div style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'noWrap' }}>
         {t('Name')}
         <input
+          aria-label={t('Tool name')}
           type="text"
           value={editingTool.name}
           onChange={(e) => setEditingTool({ ...editingTool, name: e.target.value })}
         />
         {t('Icon')}
         <select
+          aria-label={t('Select icon')}
           value={editingTool.iconKey}
           onChange={(e) => setEditingTool({ ...editingTool, iconKey: e.target.value })}
         >
@@ -83,6 +87,7 @@ export function SelectionTools({ config, updateConfig }) {
       </div>
       {t('Prompt Template')}
       <textarea
+        aria-label={t('Prompt template')}
         type="text"
         placeholder={t('Explain this: {{selection}}')}
         style={{
@@ -133,6 +138,8 @@ export function SelectionTools({ config, updateConfig }) {
               <div style={{ display: 'flex', gap: '12px' }}>
                 <div
                   style={{ cursor: 'pointer' }}
+                  role="button"
+                  aria-label={t('Edit tool')}
                   onClick={(e) => {
                     e.preventDefault()
                     setEditing(true)
@@ -145,6 +152,8 @@ export function SelectionTools({ config, updateConfig }) {
                 </div>
                 <div
                   style={{ cursor: 'pointer' }}
+                  role="button"
+                  aria-label={t('Delete tool')}
                   onClick={(e) => {
                     e.preventDefault()
                     const customSelectionTools = [...config.customSelectionTools]
