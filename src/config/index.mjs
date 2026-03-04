@@ -76,6 +76,7 @@ export const claudeApiModelKeys = [
   'claudeOpus46Api',
   'claudeSonnet4Api',
   'claudeSonnet45Api',
+  'claudeSonnet46Api',
   'claudeHaiku45Api',
 ]
 export const chatglmApiModelKeys = ['chatglmTurbo', 'chatglm4', 'chatglmEmohaa', 'chatglmCharGLM3']
@@ -285,6 +286,10 @@ export const Models = {
   claudeSonnet45Api: {
     value: 'claude-sonnet-4-5-20250929',
     desc: 'Claude.ai (API, Claude Sonnet 4.5)',
+  },
+  claudeSonnet46Api: {
+    value: 'claude-sonnet-4-6',
+    desc: 'Claude.ai (API, Claude Sonnet 4.6)',
   },
   claudeHaiku45Api: {
     value: 'claude-haiku-4-5-20251001',
