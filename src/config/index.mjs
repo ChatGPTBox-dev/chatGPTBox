@@ -52,6 +52,8 @@ export const chatgptApiModelKeys = [
   'chatgptApi4o_128k',
   'chatgptApi5Latest',
   'chatgptApi5_1Latest',
+  'chatgptApi5_2Latest',
+  'chatgptApi5_3Latest',
   'chatgptApi4oMini',
   'chatgptApi4_8k',
   'chatgptApi4_8k_0613',
@@ -244,6 +246,8 @@ export const Models = {
   },
   chatgptApi5Latest: { value: 'gpt-5-chat-latest', desc: 'ChatGPT (ChatGPT-5 latest)' },
   chatgptApi5_1Latest: { value: 'gpt-5.1-chat-latest', desc: 'ChatGPT (ChatGPT-5.1 latest)' },
+  chatgptApi5_2Latest: { value: 'gpt-5.2-chat-latest', desc: 'ChatGPT (ChatGPT-5.2 latest)' },
+  chatgptApi5_3Latest: { value: 'gpt-5.3-chat-latest', desc: 'ChatGPT (ChatGPT-5.3 latest)' },
 
   chatgptApi4_1: { value: 'gpt-4.1', desc: 'ChatGPT (GPT-4.1)' },
   chatgptApi4_1_mini: { value: 'gpt-4.1-mini', desc: 'ChatGPT (GPT-4.1 mini)' },
