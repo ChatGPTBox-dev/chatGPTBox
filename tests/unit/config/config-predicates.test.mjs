@@ -65,6 +65,10 @@ test('getNavigatorLanguage treats zh-Hant locale as zhHant', () => {
 
 test('isUsingChatgptApiModel detects chatgpt API models and excludes custom model', () => {
   assert.equal(isUsingChatgptApiModel({ modelName: 'chatgptApi4oMini' }), true)
+  assert.equal(isUsingChatgptApiModel({ modelName: 'chatgptApi5' }), true)
+  assert.equal(isUsingChatgptApiModel({ modelName: 'chatgptApi5_1' }), true)
+  assert.equal(isUsingChatgptApiModel({ modelName: 'chatgptApi5_2' }), true)
+  assert.equal(isUsingChatgptApiModel({ modelName: 'chatgptApi5_4' }), true)
   assert.equal(isUsingChatgptApiModel({ modelName: 'customModel' }), false)
 })
 
