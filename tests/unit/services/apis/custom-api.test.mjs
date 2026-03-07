@@ -151,7 +151,10 @@ test('ignores null message.content to avoid null-prefixed answers', async (t) =>
   )
 
   const partialAnswers = port.postedMessages.filter((m) => m.done === false).map((m) => m.answer)
-  assert.equal(partialAnswers.some((a) => a === null), false)
+  assert.equal(
+    partialAnswers.some((a) => a === null),
+    false,
+  )
   assert.equal(
     partialAnswers.some((a) => typeof a === 'string' && a.startsWith('null')),
     false,
