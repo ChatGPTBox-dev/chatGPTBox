@@ -8,9 +8,9 @@ test('uses max_completion_tokens for gpt-5.x chat models', () => {
   })
 })
 
-test('uses max_completion_tokens for provider-prefixed gpt-5.x models', () => {
+test('uses max_tokens for provider-prefixed gpt-5.x model names', () => {
   assert.deepEqual(getChatCompletionsTokenParams('openai', 'openai/gpt-5.2', 2048), {
-    max_completion_tokens: 2048,
+    max_tokens: 2048,
   })
 })
 

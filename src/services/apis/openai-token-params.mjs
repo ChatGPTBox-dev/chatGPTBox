@@ -1,4 +1,4 @@
-const GPT5_CHAT_COMPLETIONS_MODEL_PATTERN = /(^|\/)gpt-5([.-]|$)/
+const GPT5_CHAT_COMPLETIONS_MODEL_PATTERN = /^gpt-5([.-]|$)/
 
 function shouldUseMaxCompletionTokens(provider, model) {
   const normalizedProvider = String(provider || '').toLowerCase()
