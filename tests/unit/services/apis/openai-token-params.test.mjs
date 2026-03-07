@@ -14,6 +14,23 @@ test('uses max_tokens for provider-prefixed gpt-5.x model names', () => {
   })
 })
 
+test('uses max_completion_tokens for recent gpt-5.x model names', () => {
+  const models = [
+    'gpt-5.1',
+    'gpt-5.1-chat-latest',
+    'gpt-5.2',
+    'gpt-5.2-chat-latest',
+    'gpt-5.3',
+    'gpt-5.3-chat-latest',
+  ]
+
+  for (const model of models) {
+    assert.deepEqual(getChatCompletionsTokenParams('openai', model, 333), {
+      max_completion_tokens: 333,
+    })
+  }
+})
+
 test('uses max_completion_tokens for gpt-5 baseline model name', () => {
   assert.deepEqual(getChatCompletionsTokenParams('openai', 'gpt-5', 1536), {
     max_completion_tokens: 1536,
@@ -39,7 +56,7 @@ test('uses max_tokens for empty model values', () => {
 })
 
 test('uses max_tokens for non OpenAI providers even with gpt-5 models', () => {
-  assert.deepEqual(getChatCompletionsTokenParams('some-proxy-provider', 'openai/gpt-5.2', 257), {
+  assert.deepEqual(getChatCompletionsTokenParams('some-proxy-provider', 'gpt-5.2', 257), {
     max_tokens: 257,
   })
 })

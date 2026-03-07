@@ -10,6 +10,7 @@ import {
   modelNameToApiMode,
   modelNameToCustomPart,
   modelNameToDesc,
+  modelNameToPresetPart,
   modelNameToValue,
   getModelValue,
 } from '../../../src/utils/model-name-convert.mjs'
@@ -148,6 +149,19 @@ test('modelNameToCustomPart returns modelName when not custom', () => {
   assert.equal(modelNameToCustomPart('chatgptFree35'), 'chatgptFree35')
 })
 
+test('modelNameToPresetPart returns preset segment for custom names', () => {
+  assert.equal(
+    modelNameToPresetPart('azureOpenAiApiModelKeys-my-deploy'),
+    'azureOpenAiApiModelKeys',
+  )
+  assert.equal(modelNameToPresetPart('chatgptApi5_3Latest-chatgpt'), 'chatgptApi5_3Latest')
+})
+
+test('modelNameToCustomPart keeps entire suffix for multi-hyphen custom names', () => {
+  assert.equal(modelNameToCustomPart('azureOpenAiApiModelKeys-my-eu-1'), 'my-eu-1')
+  assert.equal(modelNameToCustomPart('chatgptApi5_3Latest-blue-green'), 'blue-green')
+})
+
 test('apiModeToModelName uses groupName prefix when itemName is custom', () => {
   const apiMode = {
     groupName: 'customApiModelKeys',
@@ -231,6 +245,13 @@ test('modelNameToValue returns value for known model', () => {
   assert.equal(modelNameToValue('chatgptFree35'), 'auto')
 })
 
+test('modelNameToValue returns endpoint for latest chatgptApi models', () => {
+  assert.equal(modelNameToValue('chatgptApi5Latest'), 'gpt-5-chat-latest')
+  assert.equal(modelNameToValue('chatgptApi5_1Latest'), 'gpt-5.1-chat-latest')
+  assert.equal(modelNameToValue('chatgptApi5_2Latest'), 'gpt-5.2-chat-latest')
+  assert.equal(modelNameToValue('chatgptApi5_3Latest'), 'gpt-5.3-chat-latest')
+})
+
 test('modelNameToValue returns custom part for unknown model', () => {
   assert.equal(modelNameToValue('bingFree4-fast'), 'fast')
 })
@@ -247,6 +268,20 @@ test('getModelValue uses apiMode when present', () => {
   }
   const value = getModelValue({ apiMode })
   assert.equal(value, '')
+})
+
+test('getModelValue uses custom segment for always-custom groups in apiMode', () => {
+  const apiMode = {
+    groupName: 'azureOpenAiApiModelKeys',
+    itemName: 'azureOpenAi',
+    isCustom: true,
+    customName: 'deployment-east-1',
+    customUrl: '',
+    apiKey: '',
+    active: true,
+  }
+  const value = getModelValue({ apiMode })
+  assert.equal(value, 'deployment-east-1')
 })
 
 test('getModelValue uses modelName when apiMode is absent', () => {
