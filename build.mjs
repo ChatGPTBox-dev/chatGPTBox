@@ -85,16 +85,22 @@ const resolveSymlinks = getBooleanEnv(process.env.BUILD_RESOLVE_SYMLINKS, false)
 
 // Cache and resolve Sass implementation once per process
 let sassImplPromise
+function resolveSassImplementation(mod) {
+  if (mod && typeof mod.info === 'string') return mod
+  if (mod?.default && typeof mod.default.info === 'string') return mod.default
+  return mod
+}
+
 async function getSassImplementation() {
   if (!sassImplPromise) {
     sassImplPromise = (async () => {
       try {
         const mod = await import('sass-embedded')
-        return mod.default || mod
+        return resolveSassImplementation(mod)
       } catch (e1) {
         try {
           const mod = await import('sass')
-          return mod.default || mod
+          return resolveSassImplementation(mod)
         } catch (e2) {
           console.error('[build] Failed to load sass-embedded:', e1)
           console.error('[build] Failed to load sass:', e2)
