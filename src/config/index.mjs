@@ -126,10 +126,11 @@ export const openRouterApiModelKeys = [
   'openRouter_openai_gpt_4_1_mini',
 ]
 export const aimlApiModelKeys = [
-  'aiml_claude_3_7_sonnet_20250219',
-  'aiml_openai_o3_2025_04_16',
-  'aiml_openai_gpt_4_1_2025_04_14',
-  'aiml_moonshot_kimi_k2_preview',
+  'aiml_claude_sonnet_4_6_20260218',
+  'aiml_openai_gpt_5_2',
+  'aiml_google_gemini_3_flash_preview',
+  'aiml_google_gemini_3_1_pro_preview',
+  'aiml_moonshot_kimi_k2_5',
 ]
 
 export const AlwaysCustomGroups = [
@@ -435,21 +436,25 @@ export const Models = {
     value: 'openai/gpt-4.1-mini',
     desc: 'OpenRouter (GPT-4.1 Mini)',
   },
-  aiml_claude_3_7_sonnet_20250219: {
-    value: 'claude-3-7-sonnet-20250219',
-    desc: 'AIML (Claude 3.7 Sonnet)',
+  aiml_claude_sonnet_4_6_20260218: {
+    value: 'anthropic/claude-sonnet-4-6-20260218',
+    desc: 'AIML (Claude Sonnet 4.6)',
   },
-  aiml_openai_o3_2025_04_16: {
-    value: 'openai/o3-2025-04-16',
-    desc: 'AIML (GPT-o3)',
+  aiml_openai_gpt_5_2: {
+    value: 'openai/gpt-5-2',
+    desc: 'AIML (GPT-5.2)',
   },
-  aiml_openai_gpt_4_1_2025_04_14: {
-    value: 'openai/gpt-4.1-2025-04-14',
-    desc: 'AIML (GPT-4.1)',
+  aiml_google_gemini_3_flash_preview: {
+    value: 'google/gemini-3-flash-preview',
+    desc: 'AIML (Gemini 3 Flash)',
   },
-  aiml_moonshot_kimi_k2_preview: {
-    value: 'moonshot/kimi-k2-preview',
-    desc: 'AIML (Kimi K2)',
+  aiml_google_gemini_3_1_pro_preview: {
+    value: 'google/gemini-3-1-pro-preview',
+    desc: 'AIML (Gemini 3.1 Pro)',
+  },
+  aiml_moonshot_kimi_k2_5: {
+    value: 'moonshot/kimi-k2-5',
+    desc: 'AIML (Kimi K2.5)',
   },
 }
 
