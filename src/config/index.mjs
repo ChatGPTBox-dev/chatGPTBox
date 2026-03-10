@@ -111,6 +111,8 @@ export const moonshotApiModelKeys = [
 ]
 export const deepSeekApiModelKeys = ['deepseek_chat', 'deepseek_reasoner']
 export const openRouterApiModelKeys = [
+  'openRouter_auto',
+  'openRouter_free',
   'openRouter_google_gemini_3_pro',
   'openRouter_google_gemini_3_flash',
   'openRouter_google_gemini_3_1_pro',
@@ -406,6 +408,14 @@ export const Models = {
   openRouter_anthropic_claude_3_7_sonnet: {
     value: 'anthropic/claude-3.7-sonnet',
     desc: 'OpenRouter (Claude 3.7 Sonnet)',
+  },
+  openRouter_auto: {
+    value: 'openrouter/auto',
+    desc: 'OpenRouter (Auto Router)',
+  },
+  openRouter_free: {
+    value: 'openrouter/free',
+    desc: 'OpenRouter (Free Models Router)',
   },
   openRouter_google_gemini_3_pro: {
     value: 'google/gemini-3-pro-preview',
