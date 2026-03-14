@@ -1,5 +1,5 @@
 import { getUserConfig } from '../../config/index.mjs'
-import { generateAnswersWithChatgptApiCompat } from './openai-api.mjs'
+import { generateAnswersWithOpenAiApiCompat } from './openai-api.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 
 /**
@@ -10,7 +10,7 @@ import { getModelValue } from '../../utils/model-name-convert.mjs'
 export async function generateAnswersWithOllamaApi(port, question, session) {
   const config = await getUserConfig()
   const model = getModelValue(session)
-  return generateAnswersWithChatgptApiCompat(
+  return generateAnswersWithOpenAiApiCompat(
     config.ollamaEndpoint + '/v1',
     port,
     question,

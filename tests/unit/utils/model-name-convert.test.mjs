@@ -119,10 +119,10 @@ test('modelNameToDesc returns desc for a known model name without t function', (
 })
 
 test('modelNameToDesc returns desc for GPT-5 stable presets', () => {
-  assert.equal(modelNameToDesc('chatgptApi5'), 'ChatGPT (GPT-5)')
-  assert.equal(modelNameToDesc('chatgptApi5_1'), 'ChatGPT (GPT-5.1)')
-  assert.equal(modelNameToDesc('chatgptApi5_2'), 'ChatGPT (GPT-5.2)')
-  assert.equal(modelNameToDesc('chatgptApi5_4'), 'ChatGPT (GPT-5.4)')
+  assert.equal(modelNameToDesc('chatgptApi5'), 'OpenAI (GPT-5)')
+  assert.equal(modelNameToDesc('chatgptApi5_1'), 'OpenAI (GPT-5.1)')
+  assert.equal(modelNameToDesc('chatgptApi5_2'), 'OpenAI (GPT-5.2)')
+  assert.equal(modelNameToDesc('chatgptApi5_4'), 'OpenAI (GPT-5.4)')
 })
 
 test('modelNameToDesc appends extraCustomModelName for customModel', () => {
@@ -143,6 +143,15 @@ test('modelNameToDesc handles custom model with presetPart in Models, customPart
 test('modelNameToDesc handles custom model with presetPart in ModelGroups', () => {
   const desc = modelNameToDesc('bingWebModelKeys-customVariant')
   assert.equal(desc, 'Bing (Web) (customVariant)')
+})
+
+test('modelNameToDesc shows Azure OpenAI deployment without duplicate API label', () => {
+  const desc = modelNameToDesc('azureOpenAiApiModelKeys-deployment-a')
+  assert.equal(desc, 'Azure OpenAI (deployment-a)')
+})
+
+test('Azure OpenAI group label remains unchanged', () => {
+  assert.equal(ModelGroups.azureOpenAiApiModelKeys.desc, 'Azure OpenAI (API)')
 })
 
 test('modelNameToCustomPart returns modelName when not custom', () => {

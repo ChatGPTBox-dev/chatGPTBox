@@ -166,11 +166,11 @@ export const ModelGroups = {
 
   chatgptApiModelKeys: {
     value: chatgptApiModelKeys,
-    desc: 'ChatGPT (API)',
+    desc: 'OpenAI (API)',
   },
   claudeApiModelKeys: {
     value: claudeApiModelKeys,
-    desc: 'Claude.ai (API)',
+    desc: 'Anthropic (API)',
   },
   moonshotApiModelKeys: {
     value: moonshotApiModelKeys,
@@ -186,7 +186,7 @@ export const ModelGroups = {
   },
   azureOpenAiApiModelKeys: {
     value: azureOpenAiApiModelKeys,
-    desc: 'ChatGPT (Azure API)',
+    desc: 'Azure OpenAI (API)',
   },
   gptApiModelKeys: {
     value: gptApiModelKeys,
@@ -230,85 +230,85 @@ export const Models = {
   chatgptPlus4: { value: 'gpt-4', desc: 'ChatGPT (Web, GPT-4)' },
   chatgptPlus4Browsing: { value: 'gpt-4', desc: 'ChatGPT (Web, GPT-4)' }, // for compatibility
 
-  chatgptApi35: { value: 'gpt-3.5-turbo', desc: 'ChatGPT (GPT-3.5-turbo)' },
-  chatgptApi35_16k: { value: 'gpt-3.5-turbo-16k', desc: 'ChatGPT (GPT-3.5-turbo-16k)' },
+  chatgptApi35: { value: 'gpt-3.5-turbo', desc: 'OpenAI (GPT-3.5-turbo)' },
+  chatgptApi35_16k: { value: 'gpt-3.5-turbo-16k', desc: 'OpenAI (GPT-3.5-turbo-16k)' },
 
-  chatgptApi4o_128k: { value: 'gpt-4o', desc: 'ChatGPT (GPT-4o, 128k)' },
-  chatgptApi4oMini: { value: 'gpt-4o-mini', desc: 'ChatGPT (GPT-4o mini)' },
-  chatgptApi4_8k: { value: 'gpt-4', desc: 'ChatGPT (GPT-4-8k)' },
+  chatgptApi4o_128k: { value: 'gpt-4o', desc: 'OpenAI (GPT-4o, 128k)' },
+  chatgptApi4oMini: { value: 'gpt-4o-mini', desc: 'OpenAI (GPT-4o mini)' },
+  chatgptApi4_8k: { value: 'gpt-4', desc: 'OpenAI (GPT-4-8k)' },
   chatgptApi4_128k: {
     value: 'gpt-4-turbo',
-    desc: 'ChatGPT (GPT-4-Turbo 128k)',
+    desc: 'OpenAI (GPT-4-Turbo 128k)',
   },
   chatgptApi4_128k_preview: {
     value: 'gpt-4-turbo-preview',
-    desc: 'ChatGPT (GPT-4-Turbo 128k Preview)',
+    desc: 'OpenAI (GPT-4-Turbo 128k Preview)',
   },
   chatgptApi4_128k_1106_preview: {
     value: 'gpt-4-1106-preview',
-    desc: 'ChatGPT (GPT-4-Turbo 128k 1106 Preview)',
+    desc: 'OpenAI (GPT-4-Turbo 128k 1106 Preview)',
   },
   chatgptApi4_128k_0125_preview: {
     value: 'gpt-4-0125-preview',
-    desc: 'ChatGPT (GPT-4-Turbo 128k 0125 Preview)',
+    desc: 'OpenAI (GPT-4-Turbo 128k 0125 Preview)',
   },
-  chatgptApi5Latest: { value: 'gpt-5-chat-latest', desc: 'ChatGPT (ChatGPT-5 latest)' },
-  chatgptApi5: { value: 'gpt-5', desc: 'ChatGPT (GPT-5)' },
-  chatgptApi5_1Latest: { value: 'gpt-5.1-chat-latest', desc: 'ChatGPT (ChatGPT-5.1 latest)' },
-  chatgptApi5_1: { value: 'gpt-5.1', desc: 'ChatGPT (GPT-5.1)' },
-  chatgptApi5_2Latest: { value: 'gpt-5.2-chat-latest', desc: 'ChatGPT (ChatGPT-5.2 latest)' },
-  chatgptApi5_2: { value: 'gpt-5.2', desc: 'ChatGPT (GPT-5.2)' },
-  chatgptApi5_3Latest: { value: 'gpt-5.3-chat-latest', desc: 'ChatGPT (ChatGPT-5.3 latest)' },
-  chatgptApi5_4: { value: 'gpt-5.4', desc: 'ChatGPT (GPT-5.4)' },
+  chatgptApi5Latest: { value: 'gpt-5-chat-latest', desc: 'OpenAI (GPT-5 latest)' },
+  chatgptApi5: { value: 'gpt-5', desc: 'OpenAI (GPT-5)' },
+  chatgptApi5_1Latest: { value: 'gpt-5.1-chat-latest', desc: 'OpenAI (GPT-5.1 latest)' },
+  chatgptApi5_1: { value: 'gpt-5.1', desc: 'OpenAI (GPT-5.1)' },
+  chatgptApi5_2Latest: { value: 'gpt-5.2-chat-latest', desc: 'OpenAI (GPT-5.2 latest)' },
+  chatgptApi5_2: { value: 'gpt-5.2', desc: 'OpenAI (GPT-5.2)' },
+  chatgptApi5_3Latest: { value: 'gpt-5.3-chat-latest', desc: 'OpenAI (GPT-5.3 latest)' },
+  chatgptApi5_4: { value: 'gpt-5.4', desc: 'OpenAI (GPT-5.4)' },
 
-  chatgptApi4_1: { value: 'gpt-4.1', desc: 'ChatGPT (GPT-4.1)' },
-  chatgptApi4_1_mini: { value: 'gpt-4.1-mini', desc: 'ChatGPT (GPT-4.1 mini)' },
-  chatgptApi4_1_nano: { value: 'gpt-4.1-nano', desc: 'ChatGPT (GPT-4.1 nano)' },
+  chatgptApi4_1: { value: 'gpt-4.1', desc: 'OpenAI (GPT-4.1)' },
+  chatgptApi4_1_mini: { value: 'gpt-4.1-mini', desc: 'OpenAI (GPT-4.1 mini)' },
+  chatgptApi4_1_nano: { value: 'gpt-4.1-nano', desc: 'OpenAI (GPT-4.1 nano)' },
 
   claude2WebFree: { value: '', desc: 'Claude.ai (Web)' },
   claude3HaikuApi: {
     value: 'claude-3-haiku-20240307',
-    desc: 'Claude.ai (API, Claude 3 Haiku)',
+    desc: 'Anthropic (Claude 3 Haiku)',
   },
   claude35HaikuApi: {
     value: 'claude-3-5-haiku-20241022',
-    desc: 'Claude.ai (API, Claude 3.5 Haiku)',
+    desc: 'Anthropic (Claude 3.5 Haiku)',
   },
   claude37SonnetApi: {
     value: 'claude-3-7-sonnet-20250219',
-    desc: 'Claude.ai (API, Claude 3.7 Sonnet)',
+    desc: 'Anthropic (Claude 3.7 Sonnet)',
   },
   claudeOpus4Api: {
     value: 'claude-opus-4-20250514',
-    desc: 'Claude.ai (API, Claude Opus 4)',
+    desc: 'Anthropic (Claude Opus 4)',
   },
   claudeOpus41Api: {
     value: 'claude-opus-4-1-20250805',
-    desc: 'Claude.ai (API, Claude Opus 4.1)',
+    desc: 'Anthropic (Claude Opus 4.1)',
   },
   claudeOpus45Api: {
     value: 'claude-opus-4-5',
-    desc: 'Claude.ai (API, Claude Opus 4.5)',
+    desc: 'Anthropic (Claude Opus 4.5)',
   },
   claudeOpus46Api: {
     value: 'claude-opus-4-6',
-    desc: 'Claude.ai (API, Claude Opus 4.6)',
+    desc: 'Anthropic (Claude Opus 4.6)',
   },
   claudeSonnet4Api: {
     value: 'claude-sonnet-4-20250514',
-    desc: 'Claude.ai (API, Claude Sonnet 4)',
+    desc: 'Anthropic (Claude Sonnet 4)',
   },
   claudeSonnet45Api: {
     value: 'claude-sonnet-4-5-20250929',
-    desc: 'Claude.ai (API, Claude Sonnet 4.5)',
+    desc: 'Anthropic (Claude Sonnet 4.5)',
   },
   claudeSonnet46Api: {
     value: 'claude-sonnet-4-6',
-    desc: 'Claude.ai (API, Claude Sonnet 4.6)',
+    desc: 'Anthropic (Claude Sonnet 4.6)',
   },
   claudeHaiku45Api: {
     value: 'claude-haiku-4-5-20251001',
-    desc: 'Claude.ai (API, Claude Haiku 4.5)',
+    desc: 'Anthropic (Claude Haiku 4.5)',
   },
 
   bingFree4: { value: '', desc: 'Bing (Web, GPT-4)' },
@@ -331,15 +331,15 @@ export const Models = {
   chatgptFree35Mobile: { value: 'text-davinci-002-render-sha-mobile', desc: 'ChatGPT (Mobile)' },
   chatgptPlus4Mobile: { value: 'gpt-4-mobile', desc: 'ChatGPT (Mobile, GPT-4)' },
 
-  chatgptApi35_1106: { value: 'gpt-3.5-turbo-1106', desc: 'ChatGPT (GPT-3.5-turbo 1106)' },
-  chatgptApi35_0125: { value: 'gpt-3.5-turbo-0125', desc: 'ChatGPT (GPT-3.5-turbo 0125)' },
-  chatgptApi4_8k_0613: { value: 'gpt-4', desc: 'ChatGPT (GPT-4-8k 0613)' },
+  chatgptApi35_1106: { value: 'gpt-3.5-turbo-1106', desc: 'OpenAI (GPT-3.5-turbo 1106)' },
+  chatgptApi35_0125: { value: 'gpt-3.5-turbo-0125', desc: 'OpenAI (GPT-3.5-turbo 0125)' },
+  chatgptApi4_8k_0613: { value: 'gpt-4', desc: 'OpenAI (GPT-4-8k 0613)' },
 
   gptApiInstruct: { value: 'gpt-3.5-turbo-instruct', desc: 'GPT-3.5-turbo Instruct' },
 
   customModel: { value: '', desc: 'Custom Model' },
   ollamaModel: { value: '', desc: 'Ollama API' },
-  azureOpenAi: { value: '', desc: 'ChatGPT (Azure)' },
+  azureOpenAi: { value: '', desc: 'Azure OpenAI' },
   waylaidwandererApi: { value: '', desc: 'Waylaidwanderer API (Github)' },
 
   poeAiWebSage: { value: 'Assistant', desc: 'Poe AI (Web, Assistant)' },
@@ -513,7 +513,7 @@ export const defaultConfig = {
 
   poeCustomBotName: '',
 
-  claudeApiKey: '',
+  anthropicApiKey: '',
   chatglmApiKey: '',
   moonshotApiKey: '',
   deepSeekApiKey: '',
@@ -543,7 +543,7 @@ export const defaultConfig = {
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',
   customOpenAiApiUrl: 'https://api.openai.com',
-  customClaudeApiUrl: 'https://api.anthropic.com',
+  customAnthropicApiUrl: 'https://api.anthropic.com',
   disableWebModeHistory: true,
   hideContextMenu: false,
   cropText: true,
@@ -759,9 +759,45 @@ export async function getPreferredLanguageKey() {
  * @returns {Promise<UserConfig>}
  */
 export async function getUserConfig() {
-  const options = await Browser.storage.local.get(Object.keys(defaultConfig))
+  // Also fetch old keys for migration
+  const options = await Browser.storage.local.get([
+    ...Object.keys(defaultConfig),
+    'claudeApiKey',
+    'customClaudeApiUrl',
+  ])
   if (options.customChatGptWebApiUrl === 'https://chat.openai.com')
     options.customChatGptWebApiUrl = 'https://chatgpt.com'
+
+  // Migrate legacy Claude-named keys to Anthropic-named keys.
+  // If both old/new keys coexist (for example after a partial migration),
+  // keep the Anthropic-named keys and clean up the legacy Claude-named keys.
+  if (options.claudeApiKey !== undefined) {
+    if (options.anthropicApiKey === undefined) {
+      options.anthropicApiKey = options.claudeApiKey
+      try {
+        await Browser.storage.local.set({ anthropicApiKey: options.claudeApiKey })
+        await Browser.storage.local.remove('claudeApiKey')
+      } catch {
+        // Retry the legacy-key cleanup on the next config read.
+      }
+    } else {
+      await Browser.storage.local.remove('claudeApiKey').catch(() => {})
+    }
+  }
+  if (options.customClaudeApiUrl !== undefined) {
+    if (options.customAnthropicApiUrl === undefined) {
+      options.customAnthropicApiUrl = options.customClaudeApiUrl
+      try {
+        await Browser.storage.local.set({ customAnthropicApiUrl: options.customClaudeApiUrl })
+        await Browser.storage.local.remove('customClaudeApiUrl')
+      } catch {
+        // Retry the legacy-key cleanup on the next config read.
+      }
+    } else {
+      await Browser.storage.local.remove('customClaudeApiUrl').catch(() => {})
+    }
+  }
+
   return defaults(options, defaultConfig)
 }
 

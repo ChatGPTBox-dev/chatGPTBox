@@ -18,7 +18,11 @@ export function modelNameToDesc(modelName, t, extraCustomModelName = '') {
         desc = `${t(Models[presetPart].desc)} (${t(ModelMode[customPart])})`
       else desc = `${t(Models[presetPart].desc)} (${customPart})`
     } else if (presetPart in ModelGroups) {
-      desc = `${t(ModelGroups[presetPart].desc)} (${customPart})`
+      const baseDesc =
+        presetPart === 'azureOpenAiApiModelKeys'
+          ? Models.azureOpenAi.desc
+          : ModelGroups[presetPart].desc
+      desc = `${t(baseDesc)} (${customPart})`
     }
   }
   return desc
