@@ -631,6 +631,88 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
         />
         {t("Crop Text to ensure the input tokens do not exceed the model's limit")}
       </label>
+
+      {/* Text-to-Speech Settings */}
+      <br />
+      <fieldset>
+        <legend>{t('Text-to-Speech Settings')}</legend>
+        <label>
+          <input
+            type="checkbox"
+            checked={config.enableOpenAiTts}
+            onChange={(e) => {
+              const checked = e.target.checked
+              updateConfig({ enableOpenAiTts: checked })
+            }}
+          />
+          {t('Enable OpenAI TTS (requires API key)')}
+        </label>
+        {config.enableOpenAiTts && (
+          <>
+            <label>
+              <legend>{t('TTS Voice')}</legend>
+              <select
+                required
+                onChange={(e) => {
+                  const voice = e.target.value
+                  updateConfig({ openAiTtsVoice: voice })
+                }}
+              >
+                <option value="alloy" selected={config.openAiTtsVoice === 'alloy'}>
+                  Alloy
+                </option>
+                <option value="echo" selected={config.openAiTtsVoice === 'echo'}>
+                  Echo
+                </option>
+                <option value="fable" selected={config.openAiTtsVoice === 'fable'}>
+                  Fable
+                </option>
+                <option value="onyx" selected={config.openAiTtsVoice === 'onyx'}>
+                  Onyx
+                </option>
+                <option value="nova" selected={config.openAiTtsVoice === 'nova'}>
+                  Nova
+                </option>
+                <option value="shimmer" selected={config.openAiTtsVoice === 'shimmer'}>
+                  Shimmer
+                </option>
+              </select>
+            </label>
+            <label>
+              <legend>{t('TTS Model')}</legend>
+              <select
+                required
+                onChange={(e) => {
+                  const model = e.target.value
+                  updateConfig({ openAiTtsModel: model })
+                }}
+              >
+                <option value="tts-1" selected={config.openAiTtsModel === 'tts-1'}>
+                  TTS-1 (Standard)
+                </option>
+                <option value="tts-1-hd" selected={config.openAiTtsModel === 'tts-1-hd'}>
+                  TTS-1-HD (High Quality)
+                </option>
+              </select>
+            </label>
+            <label>
+              <legend>{t('TTS Speed')}</legend>
+              <input
+                type="range"
+                min="0.25"
+                max="4.0"
+                step="0.25"
+                value={config.openAiTtsSpeed}
+                onChange={(e) => {
+                  const speed = parseFloat(e.target.value)
+                  updateConfig({ openAiTtsSpeed: speed })
+                }}
+              />
+              <span>{config.openAiTtsSpeed}x</span>
+            </label>
+          </>
+        )}
+      </fieldset>
       <br />
       <div style={{ display: 'flex', gap: '10px' }}>
         <button
