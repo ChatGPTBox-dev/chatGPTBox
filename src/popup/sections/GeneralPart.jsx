@@ -31,6 +31,7 @@ import { languageList } from '../../config/language.mjs'
 import PropTypes from 'prop-types'
 import { config as menuConfig } from '../../content-script/menu-tools'
 import { PencilIcon } from '@primer/octicons-react'
+import { importDataIntoStorage } from './import-data-cleanup.mjs'
 
 GeneralPart.propTypes = {
   config: PropTypes.object.isRequired,
@@ -290,11 +291,11 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
             <input
               type="password"
               style="width: 50%;"
-              value={config.claudeApiKey}
-              placeholder={t('Claude API Key')}
+              value={config.anthropicApiKey}
+              placeholder={t('Anthropic API Key')}
               onChange={(e) => {
                 const apiKey = e.target.value
-                updateConfig({ claudeApiKey: apiKey })
+                updateConfig({ anthropicApiKey: apiKey })
               }}
             />
           )}
@@ -650,7 +651,7 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
               reader.onload = (e) => resolve(JSON.parse(e.target.result))
               reader.readAsText(file)
             })
-            await Browser.storage.local.set(data)
+            await importDataIntoStorage(Browser.storage.local, data)
             window.location.reload()
           }}
         >

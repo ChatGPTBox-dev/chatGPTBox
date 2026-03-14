@@ -1,4 +1,4 @@
-import { generateAnswersWithChatgptApiCompat } from './openai-api.mjs'
+import { generateAnswersWithOpenAiApiCompat } from './openai-api.mjs'
 
 /**
  * @param {Browser.Runtime.Port} port
@@ -8,5 +8,5 @@ import { generateAnswersWithChatgptApiCompat } from './openai-api.mjs'
  */
 export async function generateAnswersWithDeepSeekApi(port, question, session, apiKey) {
   const baseUrl = 'https://api.deepseek.com'
-  return generateAnswersWithChatgptApiCompat(baseUrl, port, question, session, apiKey)
+  return generateAnswersWithOpenAiApiCompat(baseUrl, port, question, session, apiKey)
 }
