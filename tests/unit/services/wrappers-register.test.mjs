@@ -43,6 +43,7 @@ import {
   getBardCookies,
   getClaudeSessionKey,
 } from '../../../src/services/wrappers.mjs'
+import { normalizeApiMode } from '../../../src/utils/model-name-convert.mjs'
 
 const setStorage = (values) => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage(values)
@@ -176,7 +177,7 @@ test('registerPortListener defaults apiMode from config for non-custom models', 
   port.emitMessage({ session: { conversationRecords: [] } })
   const session = await execDone
 
-  assert.deepEqual(session.apiMode, apiMode)
+  assert.deepEqual(session.apiMode, normalizeApiMode(apiMode))
 })
 
 test('registerPortListener sets aiName when not provided', async (t) => {
