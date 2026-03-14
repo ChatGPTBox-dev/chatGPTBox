@@ -6,7 +6,7 @@ import {
 } from '../services/apis/chatgpt-web'
 import { generateAnswersWithBingWebApi } from '../services/apis/bing-web.mjs'
 import {
-  generateAnswersWithChatgptApi,
+  generateAnswersWithOpenAiApi,
   generateAnswersWithGptCompletionApi,
 } from '../services/apis/openai-api'
 import { generateAnswersWithCustomApi } from '../services/apis/custom-api.mjs'
@@ -64,7 +64,6 @@ const RECONNECT_CONFIG = {
   BACKOFF_MULTIPLIER: 2, // Multiplier for exponential backoff
   STABLE_CONNECT_RESET_DELAY_MS: 3000, // Reset retries only after connection stays stable
 }
-
 function setPortProxy(port, proxyTabId) {
   try {
     console.debug(`[background] Attempting to connect to proxy tab: ${proxyTabId}`)
@@ -509,10 +508,10 @@ async function executeApi(session, port, config) {
       const cookies = await getBardCookies()
       await generateAnswersWithBardWebApi(port, session.question, session, cookies)
     } else if (isUsingChatgptApiModel(session)) {
-      console.debug('[background] Using ChatGPT API Model')
-      await generateAnswersWithChatgptApi(port, session.question, session, config.apiKey)
+      console.debug('[background] Using OpenAI API Model')
+      await generateAnswersWithOpenAiApi(port, session.question, session, config.apiKey)
     } else if (isUsingClaudeApiModel(session)) {
-      console.debug('[background] Using Claude API Model')
+      console.debug('[background] Using Anthropic API Model')
       await generateAnswersWithClaudeApi(port, session.question, session)
     } else if (isUsingMoonshotApiModel(session)) {
       console.debug('[background] Using Moonshot API Model')
