@@ -568,13 +568,36 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
               input.click()
             })
             if (!file) return
-            const data = await new Promise((resolve) => {
-              const reader = new FileReader()
-              reader.onload = (e) => resolve(JSON.parse(e.target.result))
-              reader.readAsText(file)
-            })
-            await importDataIntoStorage(Browser.storage.local, data)
-            window.location.reload()
+            try {
+              const fileContent =
+                typeof file.text === 'function'
+                  ? await file.text()
+                  : await new Promise((resolve, reject) => {
+                      const reader = new FileReader()
+                      reader.onload = () => resolve(reader.result)
+                      reader.onerror = () => reject(reader.error)
+                      reader.readAsText(file)
+                    })
+              const parsedData = JSON.parse(fileContent)
+              const isPlainObject =
+                parsedData !== null && typeof parsedData === 'object' && !Array.isArray(parsedData)
+
+              if (!isPlainObject) {
+                throw new Error('Invalid backup file')
+              }
+
+              await importDataIntoStorage(Browser.storage.local, parsedData)
+              window.location.reload()
+            } catch (error) {
+              console.error('[popup] Failed to import data', error)
+              const rawMessage =
+                error instanceof SyntaxError
+                  ? 'Invalid backup file'
+                  : error instanceof Error
+                  ? error.message
+                  : String(error ?? '')
+              window.alert(rawMessage ? `${t('Error')}: ${rawMessage}` : t('Error'))
+            }
           }}
         >
           {t('Import All Data')}
