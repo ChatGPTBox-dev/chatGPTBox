@@ -209,6 +209,76 @@ test('generateAnswersWithOpenAiApi uses OpenAI token params for a latest mapped 
   assert.equal(Object.hasOwn(body, 'max_tokens'), false)
 })
 
+test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-5.4 mini', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customOpenAiApiUrl: 'https://api.openai.example.com',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 444,
+    temperature: 0.3,
+  })
+
+  const session = {
+    modelName: 'chatgptApi5_4Mini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApi(port, 'CurrentQ', session, 'sk-test')
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(capturedInput, 'https://api.openai.example.com/v1/chat/completions')
+  assert.equal(body.model, 'gpt-5.4-mini')
+  assert.equal(body.max_completion_tokens, 444)
+  assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+})
+
+test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-5.4 nano', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customOpenAiApiUrl: 'https://api.openai.example.com',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 555,
+    temperature: 0.3,
+  })
+
+  const session = {
+    modelName: 'chatgptApi5_4Nano',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApi(port, 'CurrentQ', session, 'sk-test')
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(capturedInput, 'https://api.openai.example.com/v1/chat/completions')
+  assert.equal(body.model, 'gpt-5.4-nano')
+  assert.equal(body.max_completion_tokens, 555)
+  assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+})
+
 test('generateAnswersWithOpenAiApiCompat keeps max_tokens for latest mapped gpt-5 models in compat provider', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
