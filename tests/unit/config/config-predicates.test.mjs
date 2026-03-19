@@ -8,6 +8,7 @@ import {
   claudeApiModelKeys,
   openRouterApiModelKeys,
   aimlApiModelKeys,
+  miniMaxApiModelKeys,
   isUsingAimlApiModel,
   isUsingAzureOpenAiApiModel,
   isUsingBingWebModel,
@@ -19,6 +20,7 @@ import {
   isUsingDeepSeekApiModel,
   isUsingGeminiWebModel,
   isUsingGithubThirdPartyApiModel,
+  isUsingMiniMaxApiModel,
   isUsingMoonshotApiModel,
   isUsingMoonshotWebModel,
   isUsingMultiModeModel,
@@ -43,10 +45,7 @@ const representativeOpenRouterApiModelNames = [
   'openRouter_anthropic_claude_sonnet4',
   'openRouter_openai_o3',
 ]
-const representativeAimlApiModelNames = [
-  'aiml_claude_sonnet_4_6_20260218',
-  'aiml_openai_gpt_5_2',
-]
+const representativeAimlApiModelNames = ['aiml_claude_sonnet_4_6_20260218', 'aiml_openai_gpt_5_2']
 
 const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
 
@@ -192,6 +191,19 @@ test('isUsingDeepSeekApiModel detects DeepSeek models', () => {
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_chat' }), true)
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_reasoner' }), true)
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'chatgptApi4oMini' }), false)
+})
+
+test('isUsingMiniMaxApiModel detects MiniMax models', () => {
+  assert.equal(isUsingMiniMaxApiModel({ modelName: 'minimax_m27' }), true)
+  assert.equal(isUsingMiniMaxApiModel({ modelName: 'minimax_m25' }), true)
+  assert.equal(isUsingMiniMaxApiModel({ modelName: 'minimax_m25_highspeed' }), true)
+  assert.equal(isUsingMiniMaxApiModel({ modelName: 'chatgptApi4oMini' }), false)
+})
+
+test('isUsingMiniMaxApiModel accepts exported MiniMax API model keys', () => {
+  for (const modelName of miniMaxApiModelKeys) {
+    assert.equal(isUsingMiniMaxApiModel({ modelName }), true)
+  }
 })
 
 test('isUsingOpenRouterApiModel matches representative OpenRouter API keys', () => {

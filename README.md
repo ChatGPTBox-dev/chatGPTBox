@@ -87,7 +87,7 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&
 - 📱 Support for mobile devices.
 - 📓 Summarize any page with right-click menu. (<kbd>Alt</kbd>+<kbd>B</kbd>)
 - 📖 Independent conversation page. (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd>)
-- 🔗 Multiple API support (Web API for Free and Plus users, GPT-3.5, GPT-4, Claude, New Bing, Moonshot, Self-Hosted, Azure etc.).
+- 🔗 Multiple API support (Web API for Free and Plus users, GPT-3.5, GPT-4, Claude, New Bing, Moonshot, MiniMax, DeepSeek, Self-Hosted, Azure etc.).
 - 📦 Integration for various commonly used websites (Reddit, Quora, YouTube, GitHub, GitLab, StackOverflow, Zhihu, Bilibili). (Inspired by [wimdenherder](https://github.com/wimdenherder))
 - 🔍 Integration to all mainstream search engines, and custom queries to support additional sites.
 - 🧰 Selection tool and right-click menu to perform various tasks, such as translation, summarization, polishing,

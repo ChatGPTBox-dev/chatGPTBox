@@ -38,6 +38,7 @@ import {
   isUsingOpenRouterApiModel,
   isUsingAimlApiModel,
   isUsingDeepSeekApiModel,
+  isUsingMiniMaxApiModel,
 } from '../config/index.mjs'
 import '../_locales/i18n'
 import { openUrl } from '../utils/open-url'
@@ -56,6 +57,7 @@ import { generateAnswersWithMoonshotCompletionApi } from '../services/apis/moons
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
 import { generateAnswersWithDeepSeekApi } from '../services/apis/deepseek-api.mjs'
+import { generateAnswersWithMiniMaxApi } from '../services/apis/minimax-api.mjs'
 import { redactSensitiveFields } from './redact.mjs'
 
 const RECONNECT_CONFIG = {
@@ -527,6 +529,9 @@ async function executeApi(session, port, config) {
     } else if (isUsingDeepSeekApiModel(session)) {
       console.debug('[background] Using DeepSeek API Model')
       await generateAnswersWithDeepSeekApi(port, session.question, session, config.deepSeekApiKey)
+    } else if (isUsingMiniMaxApiModel(session)) {
+      console.debug('[background] Using MiniMax API Model')
+      await generateAnswersWithMiniMaxApi(port, session.question, session, config.minimaxApiKey)
     } else if (isUsingOllamaApiModel(session)) {
       console.debug('[background] Using Ollama API Model')
       await generateAnswersWithOllamaApi(port, session.question, session)

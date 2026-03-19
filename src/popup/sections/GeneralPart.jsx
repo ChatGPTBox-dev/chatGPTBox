@@ -24,6 +24,7 @@ import {
   isUsingOpenRouterApiModel,
   isUsingAimlApiModel,
   isUsingDeepSeekApiModel,
+  isUsingMiniMaxApiModel,
 } from '../../config/index.mjs'
 import Browser from 'webextension-polyfill'
 import { languageList } from '../../config/language.mjs'
@@ -339,6 +340,17 @@ export function GeneralPart({ config, updateConfig, setTabIndex }) {
             onChange={(e) => {
               const apiKey = e.target.value
               updateConfig({ deepSeekApiKey: apiKey })
+            }}
+          />
+        )}
+        {isUsingMiniMaxApiModel(config) && (
+          <input
+            type="password"
+            value={config.minimaxApiKey}
+            placeholder={t('MiniMax API Key')}
+            onChange={(e) => {
+              const apiKey = e.target.value
+              updateConfig({ minimaxApiKey: apiKey })
             }}
           />
         )}

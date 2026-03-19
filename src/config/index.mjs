@@ -112,6 +112,7 @@ export const moonshotApiModelKeys = [
   'moonshot_v1_128k',
 ]
 export const deepSeekApiModelKeys = ['deepseek_chat', 'deepseek_reasoner']
+export const miniMaxApiModelKeys = ['minimax_m27', 'minimax_m25', 'minimax_m25_highspeed']
 export const openRouterApiModelKeys = [
   'openRouter_auto',
   'openRouter_free',
@@ -201,6 +202,10 @@ export const ModelGroups = {
   deepSeekApiModelKeys: {
     value: deepSeekApiModelKeys,
     desc: 'DeepSeek (API)',
+  },
+  miniMaxApiModelKeys: {
+    value: miniMaxApiModelKeys,
+    desc: 'MiniMax (API)',
   },
   openRouterApiModelKeys: {
     value: openRouterApiModelKeys,
@@ -390,6 +395,19 @@ export const Models = {
     desc: 'DeepSeek (Reasoner)',
   },
 
+  minimax_m27: {
+    value: 'MiniMax-M2.7',
+    desc: 'MiniMax (M2.7)',
+  },
+  minimax_m25: {
+    value: 'MiniMax-M2.5',
+    desc: 'MiniMax (M2.5)',
+  },
+  minimax_m25_highspeed: {
+    value: 'MiniMax-M2.5-highspeed',
+    desc: 'MiniMax (M2.5 Highspeed, 204K)',
+  },
+
   openRouter_anthropic_claude_sonnet4: {
     value: 'anthropic/claude-sonnet-4',
     desc: 'OpenRouter (Claude Sonnet 4)',
@@ -521,6 +539,7 @@ export const defaultConfig = {
   chatglmApiKey: '',
   moonshotApiKey: '',
   deepSeekApiKey: '',
+  minimaxApiKey: '',
 
   customApiKey: '',
 
@@ -715,6 +734,10 @@ export function isUsingMoonshotApiModel(configOrSession) {
 
 export function isUsingDeepSeekApiModel(configOrSession) {
   return isInApiModeGroup(deepSeekApiModelKeys, configOrSession)
+}
+
+export function isUsingMiniMaxApiModel(configOrSession) {
+  return isInApiModeGroup(miniMaxApiModelKeys, configOrSession)
 }
 
 export function isUsingOpenRouterApiModel(configOrSession) {
