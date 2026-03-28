@@ -76,12 +76,30 @@ export function modelNameToApiMode(modelName) {
       customName,
       customUrl: '',
       apiKey: '',
+      providerId: '',
       active: true,
     }
   }
 }
 
+export function normalizeApiMode(apiMode) {
+  if (!apiMode || typeof apiMode !== 'object') return null
+  return {
+    ...apiMode,
+    groupName: apiMode.groupName || '',
+    itemName: apiMode.itemName || '',
+    isCustom: Boolean(apiMode.isCustom),
+    customName: apiMode.customName || '',
+    customUrl: apiMode.customUrl || '',
+    apiKey: apiMode.apiKey || '',
+    providerId: typeof apiMode.providerId === 'string' ? apiMode.providerId.trim() : '',
+    active: apiMode.active !== false,
+  }
+}
+
 export function apiModeToModelName(apiMode) {
+  apiMode = normalizeApiMode(apiMode)
+  if (!apiMode) return ''
   if (AlwaysCustomGroups.includes(apiMode.groupName))
     return apiMode.groupName + '-' + apiMode.customName
 
@@ -93,29 +111,111 @@ export function apiModeToModelName(apiMode) {
   return apiMode.itemName
 }
 
+function resolveCanonicalActiveApiModeInfo(modelName, config) {
+  let normalizedModelName = modelName
+  if (normalizedModelName === 'azureOpenAi' && config.azureDeploymentName)
+    normalizedModelName += '-' + config.azureDeploymentName
+  if (
+    (normalizedModelName === 'ollama' || normalizedModelName === 'ollamaModel') &&
+    config.ollamaModelName
+  ) {
+    normalizedModelName = 'ollamaModel-' + config.ollamaModelName
+  }
+  const normalizedApiMode = modelNameToApiMode(normalizedModelName)
+  const canonicalModelName = normalizedApiMode
+    ? apiModeToModelName(normalizedApiMode)
+    : normalizedModelName
+  return { normalizedApiMode, canonicalModelName }
+}
+
 export function getApiModesFromConfig(config, onlyActive) {
-  const stringApiModes = config.customApiModes
-    .map((apiMode) => {
-      if (onlyActive) {
-        if (apiMode.active) return apiModeToModelName(apiMode)
-      } else return apiModeToModelName(apiMode)
-      return false
+  const normalizedCustomApiModes = (
+    Array.isArray(config.customApiModes) ? config.customApiModes : []
+  )
+    .map((apiMode) => normalizeApiMode(apiMode))
+    .filter((apiMode) => {
+      if (!apiMode || !apiMode.groupName) return false
+      if (AlwaysCustomGroups.includes(apiMode.groupName)) {
+        return Boolean(apiMode.customName && apiMode.customName.trim())
+      }
+      return Boolean(apiMode.itemName)
     })
-    .filter((apiMode) => apiMode)
-  const originalApiModes = config.activeApiModes
+  const activeApiModes = Array.isArray(config.activeApiModes) ? config.activeApiModes : []
+  const customApiModeIndexesByCanonicalModelName = normalizedCustomApiModes.reduce(
+    (result, apiMode, index) => {
+      const canonicalModelName = apiModeToModelName(apiMode)
+      if (!canonicalModelName) return result
+      const currentIndexes = result.get(canonicalModelName) || []
+      currentIndexes.push(index)
+      result.set(canonicalModelName, currentIndexes)
+      return result
+    },
+    new Map(),
+  )
+  const mergedCustomApiModes = normalizedCustomApiModes.map((apiMode) => ({ ...apiMode }))
+  const applyCanonicalLegacyItemName = (index, normalizedApiMode) => {
+    const apiMode = mergedCustomApiModes[index]
+    if (
+      !apiMode ||
+      apiMode.itemName ||
+      !normalizedApiMode?.itemName ||
+      apiMode.groupName !== normalizedApiMode.groupName
+    ) {
+      return
+    }
+    if (
+      normalizedApiMode.itemName !== 'azureOpenAi' &&
+      normalizedApiMode.itemName !== 'ollamaModel'
+    )
+      return
+    mergedCustomApiModes[index] = { ...apiMode, itemName: normalizedApiMode.itemName }
+  }
+  const canonicalActiveApiModeNamesRepresentedByCustomRows = new Set()
+  activeApiModes.forEach((modelName) => {
+    const { normalizedApiMode, canonicalModelName } = resolveCanonicalActiveApiModeInfo(
+      modelName,
+      config,
+    )
+    if (!canonicalModelName) return
+    const matchingCustomApiModeIndexes =
+      customApiModeIndexesByCanonicalModelName.get(canonicalModelName) || []
+    if (matchingCustomApiModeIndexes.length === 0) return
+    if (matchingCustomApiModeIndexes.length === 1) {
+      mergedCustomApiModes[matchingCustomApiModeIndexes[0]].active = true
+      applyCanonicalLegacyItemName(matchingCustomApiModeIndexes[0], normalizedApiMode)
+      canonicalActiveApiModeNamesRepresentedByCustomRows.add(canonicalModelName)
+      return
+    }
+    const activeMatchingCustomApiModeIndexes = matchingCustomApiModeIndexes.filter(
+      (index) => mergedCustomApiModes[index].active,
+    )
+    if (activeMatchingCustomApiModeIndexes.length > 0) {
+      activeMatchingCustomApiModeIndexes.forEach((index) => {
+        applyCanonicalLegacyItemName(index, normalizedApiMode)
+      })
+      canonicalActiveApiModeNamesRepresentedByCustomRows.add(canonicalModelName)
+    }
+  })
+
+  const originalApiModes = activeApiModes
     .map((modelName) => {
+      const { normalizedApiMode, canonicalModelName } = resolveCanonicalActiveApiModeInfo(
+        modelName,
+        config,
+      )
       // 'customModel' is always active
-      if (stringApiModes.includes(modelName) || modelName === 'customModel') {
+      if (
+        canonicalActiveApiModeNamesRepresentedByCustomRows.has(canonicalModelName) ||
+        modelName === 'customModel'
+      ) {
         return
       }
-      if (modelName === 'azureOpenAi') modelName += '-' + config.azureDeploymentName
-      if (modelName === 'ollama') modelName += '-' + config.ollamaModelName
-      return modelNameToApiMode(modelName)
+      return normalizedApiMode
     })
     .filter((apiMode) => apiMode)
   return [
     ...originalApiModes,
-    ...config.customApiModes.filter((apiMode) => (onlyActive ? apiMode.active : true)),
+    ...mergedCustomApiModes.filter((apiMode) => (onlyActive ? apiMode.active : true)),
   ]
 }
 
@@ -123,11 +223,107 @@ export function getApiModesStringArrayFromConfig(config, onlyActive) {
   return getApiModesFromConfig(config, onlyActive).map(apiModeToModelName)
 }
 
-export function isApiModeSelected(apiMode, configOrSession) {
-  return configOrSession.apiMode
-    ? JSON.stringify(configOrSession.apiMode, Object.keys(configOrSession.apiMode).sort()) ===
-        JSON.stringify(apiMode, Object.keys(apiMode).sort())
-    : configOrSession.modelName === apiModeToModelName(apiMode)
+export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = false } = {}) {
+  const normalizeForCompare = (value, { includeProviderState = true } = {}) => {
+    const normalized = normalizeApiMode(value)
+    if (!normalized) return null
+    const normalizedForCompare = {
+      groupName: normalized.groupName,
+      itemName: normalized.itemName,
+      isCustom: normalized.isCustom,
+      customName: normalized.customName,
+    }
+    if (includeProviderState) {
+      normalizedForCompare.providerId = normalized.providerId
+      normalizedForCompare.active = normalized.active
+    }
+    return JSON.stringify(normalizedForCompare)
+  }
+
+  const matchesModelName = (targetApiMode) => {
+    const targetModelName = apiModeToModelName(targetApiMode)
+    if (!configOrSession?.modelName || !targetModelName) return false
+    if (configOrSession.modelName === targetModelName) return true
+    if (!targetApiMode?.active) return false
+    const { canonicalModelName } = resolveCanonicalActiveApiModeInfo(
+      configOrSession.modelName,
+      configOrSession,
+    )
+    return canonicalModelName === targetModelName
+  }
+
+  const isLegacyCompatibleSessionMatch = (targetApiMode, selectedApiMode, rawSelectedApiMode) => {
+    if (!targetApiMode || !selectedApiMode || !rawSelectedApiMode) return false
+    if (selectedApiMode.groupName !== targetApiMode.groupName) return false
+
+    const isLegacyCustomSession =
+      selectedApiMode.groupName === 'customApiModelKeys' &&
+      (!Object.hasOwn(rawSelectedApiMode, 'itemName') ||
+        !Object.hasOwn(rawSelectedApiMode, 'isCustom'))
+
+    if (isLegacyCustomSession) {
+      if (targetApiMode.groupName !== 'customApiModelKeys') return false
+      if (selectedApiMode.customName !== targetApiMode.customName) return false
+    } else if (
+      selectedApiMode.itemName !== targetApiMode.itemName ||
+      selectedApiMode.isCustom !== targetApiMode.isCustom ||
+      selectedApiMode.customName !== targetApiMode.customName
+    ) {
+      return false
+    }
+
+    if (!selectedApiMode.providerId) return true
+    if (selectedApiMode.providerId === targetApiMode.providerId) return true
+    if (!targetApiMode.providerId) return isLegacyCustomSession
+    return isLegacyCustomSession
+  }
+
+  const targetApiMode = normalizeApiMode(apiMode)
+  if (!targetApiMode) return false
+
+  if (!configOrSession?.apiMode) {
+    return matchesModelName(targetApiMode)
+  }
+
+  const rawSelectedApiMode = configOrSession.apiMode
+  const selectedApiMode = normalizeApiMode(rawSelectedApiMode)
+  if (!selectedApiMode) {
+    return sessionCompat ? matchesModelName(targetApiMode) : false
+  }
+
+  if (selectedApiMode) {
+    const selectedApiModeForCompare = normalizeForCompare(selectedApiMode)
+    const targetApiModeForCompare = normalizeForCompare(targetApiMode)
+    if (selectedApiModeForCompare && targetApiModeForCompare) {
+      if (selectedApiModeForCompare === targetApiModeForCompare) return true
+      if (
+        sessionCompat &&
+        // Historical sessions may carry stale providerId/active values after config migration.
+        isLegacyCompatibleSessionMatch(targetApiMode, selectedApiMode, rawSelectedApiMode)
+      ) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+export function getUniquelySelectedApiModeIndex(
+  apiModes,
+  configOrSession,
+  { sessionCompat = false } = {},
+) {
+  if (!Array.isArray(apiModes) || apiModes.length === 0) return -1
+
+  let selectedIndex = -1
+  for (const [index, apiMode] of apiModes.entries()) {
+    if (!isApiModeSelected(apiMode, configOrSession, { sessionCompat })) continue
+    if (selectedIndex !== -1) return -1
+    selectedIndex = index
+  }
+
+  return selectedIndex
 }
 
 // also match custom modelName, e.g. when modelName is bingFree4, configOrSession model is bingFree4-fast, it returns true
