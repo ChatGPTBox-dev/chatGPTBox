@@ -74,8 +74,8 @@ export class Claude {
     if (!sessionKey) {
       throw new Error('Session key required')
     }
-    if (!sessionKey.startsWith('sk-ant-sid01')) {
-      throw new Error('Session key invalid: Must be in the format sk-ant-sid01-*****')
+    if (!sessionKey.startsWith('sk-ant-sid')) {
+      throw new Error('Session key invalid: Must be in the format sk-ant-sid**-*****')
     }
     if (fetch) {
       this.fetch = fetch
