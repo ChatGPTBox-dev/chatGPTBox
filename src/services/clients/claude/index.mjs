@@ -44,7 +44,7 @@ export class Claude {
    * @param {function} [options.fetch] - Fetch function
    * @example
    * const claude = new Claude({
-   *   sessionKey: 'sk-ant-sid01-*****',
+   *   sessionKey: 'sk-ant-sidXX-*****',
    *   fetch: globalThis.fetch
    * })
    *
@@ -164,7 +164,7 @@ export class Claude {
     // Can't figure out a way to test this so I'm just assuming it works
     if (!(this.fetch || globalThis.fetch)) {
       throw new Error(
-        `No fetch available in your environment. Use node-18 or later, a modern browser, or add the following code to your project:\n\nimport "isomorphic-fetch";\nconst claude = new Claude({fetch: fetch, sessionKey: "sk-ant-sid01-*****"});`,
+        `No fetch available in your environment. Use node-18 or later, a modern browser, or add the following code to your project:\n\nimport "isomorphic-fetch";\nconst claude = new Claude({fetch: fetch, sessionKey: "sk-ant-sidXX-*****"});`,
       )
     }
     if (!this.proxy) {
