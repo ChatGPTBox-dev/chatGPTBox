@@ -5,30 +5,18 @@ import ReadButton from '../ReadButton'
 import PropTypes from 'prop-types'
 import MarkdownRender from '../MarkdownRender/markdown.jsx'
 import { useTranslation } from 'react-i18next'
-import { isUsingCustomModel } from '../../config/index.mjs'
-import { useConfig } from '../../hooks/use-config.mjs'
 
-function AnswerTitle({ descName, modelName }) {
+function AnswerTitle({ descName }) {
   const { t } = useTranslation()
-  const config = useConfig()
 
-  return (
-    <p style="white-space: nowrap;">
-      {descName && modelName
-        ? `${t(descName)}${
-            isUsingCustomModel({ modelName }) ? ' (' + config.customModelName + ')' : ''
-          }:`
-        : t('Loading...')}
-    </p>
-  )
+  return <p style="white-space: nowrap;">{descName ? `${descName}:` : t('Loading...')}</p>
 }
 
 AnswerTitle.propTypes = {
   descName: PropTypes.string,
-  modelName: PropTypes.string,
 }
 
-export function ConversationItem({ type, content, descName, modelName, onRetry }) {
+export function ConversationItem({ type, content, descName, onRetry }) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -67,17 +55,17 @@ export function ConversationItem({ type, content, descName, modelName, onRetry }
       return (
         <div className={'chatgptbox-' + type} dir="auto">
           <div className="gpt-header">
-            <AnswerTitle descName={descName} modelName={modelName} />
+            <AnswerTitle descName={descName} />
             <div className="gpt-util-group">
               {onRetry && (
                 <span title={t('Retry')} className="gpt-util-icon" onClick={onRetry}>
                   <SyncIcon size={14} />
                 </span>
               )}
-              {modelName && (
+              {descName && (
                 <CopyButton contentFn={() => content.replace(/\n<hr\/>$/, '')} size={14} />
               )}
-              {modelName && <ReadButton contentFn={() => content} size={14} />}
+              {descName && <ReadButton contentFn={() => content} size={14} />}
               {!collapsed ? (
                 <span
                   title={t('Collapse')}
@@ -141,7 +129,6 @@ ConversationItem.propTypes = {
   type: PropTypes.oneOf(['question', 'answer', 'error']).isRequired,
   content: PropTypes.string.isRequired,
   descName: PropTypes.string,
-  modelName: PropTypes.string,
   onRetry: PropTypes.func,
 }
 

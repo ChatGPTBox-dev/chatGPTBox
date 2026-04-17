@@ -89,10 +89,16 @@ function createChatGPtSummaryPrompt(issueData, isIssue = true) {
 
   if (isIssue) {
     prompt =
-      'Please summarize the following GitHub issue thread.\nWhat is the main issue and key points discussed in this thread?\n\n'
+      `You are an expert in analyzing GitHub discussions. ` +
+      `Please provide a concise summary of the following GitHub issue thread. ` +
+      `Identify the main problem reported, key points discussed by participants, proposed solutions (if any), and the current status or next steps. ` +
+      `Present the summary in a structured markdown format.\n\n`
   } else {
     prompt =
-      'Please summarize the following GitHub pull request thread.\nWhat is the main issue this pull request is trying to solve?\n\n'
+      `You are an expert in analyzing GitHub discussions and code reviews. ` +
+      `Please provide a concise summary of the following GitHub pull request thread. ` +
+      `Identify the main problem this pull request aims to solve, the proposed changes, key discussion points from the review, and the overall status of the PR (e.g., approved, needs changes, merged). ` +
+      `Present the summary in a structured markdown format.\n\n`
   }
 
   prompt += '---\n\n'
@@ -124,13 +130,13 @@ export default {
         if (location.href !== oldUrl) {
           oldUrl = location.href
           if (isPull() || isIssue()) {
-            mountComponent(config.github, userConfig)
+            mountComponent('github', config.github)
             return
           }
 
           const patchUrl = await getPatchUrl()
           if (patchUrl) {
-            mountComponent(config.github, userConfig)
+            mountComponent('github', config.github)
           }
         }
       }
@@ -153,8 +159,12 @@ export default {
       if (!patchData) return
 
       return await cropText(
-        `Analyze the contents of a git commit,provide a suitable commit message,and summarize the contents of the commit.` +
-          `The patch contents of this commit are as follows:\n${patchData}`,
+        `You are an expert in analyzing git commits and crafting clear, concise commit messages. ` +
+          `Based on the following git patch, please perform two tasks:\n` +
+          `1. Generate a suitable commit message. It should follow standard conventions: a short imperative subject line (max 50 chars), ` +
+          `followed by a blank line and a more detailed body if necessary, explaining the "what" and "why" of the changes.\n` +
+          `2. Provide a brief summary of the changes introduced in this commit, highlighting the main purpose and impact.\n\n` +
+          `The patch contents are as follows:\n${patchData}`,
       )
     } catch (e) {
       console.log(e)

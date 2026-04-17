@@ -11,13 +11,20 @@ export default {
         const title = document.querySelector('main article h1')?.textContent
         if (title) {
           return await cropText(
-            `以下是一篇文章,请给出文章的结论和3到5个要点.标题是:"${title}",作者是:"${author}",内容是:\n"${description}".
-          `,
+            `You are an expert content summarizer. Please carefully read the following article. ` +
+              `Provide a conclusion and 3 to 5 main points, presented as a markdown list. ` +
+              `The summary should be concise, clear, and accurately reflect the core content.\n` +
+              `Title: "${title}"\n` +
+              `Author: "${author}"\n` +
+              `Content:\n"${description}"`,
           )
         } else {
           return await cropText(
-            `以下是一篇长推文,请给出文章的结论和3到5个要点.作者是:"${author}",内容是:\n"${description}".
-          `,
+            `You are an expert content summarizer. Please carefully read the following long tweet. ` +
+              `Provide a conclusion and 3 to 5 main points, presented as a markdown list. ` +
+              `The summary should be concise, clear, and accurately reflect the core content.\n` +
+              `Author: "${author}"\n` +
+              `Content:\n"${description}"`,
           )
         }
       }

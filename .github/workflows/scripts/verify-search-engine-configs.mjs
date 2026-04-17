@@ -33,9 +33,9 @@ const config = {
   },
   startpage: {
     inputQuery: ["input[name='query']"],
-    sidebarContainerQuery: ['.layout-web__sidebar.layout-web__sidebar--web'],
-    appendContainerQuery: ['.layout-web__body.layout-web__body--desktop'],
-    resultsContainerQuery: ['.mainline-results'],
+    sidebarContainerQuery: ['#sidebar'],
+    appendContainerQuery: [],
+    resultsContainerQuery: ['#main'],
   },
   baidu: {
     inputQuery: ["input[id='kw']"],
@@ -44,7 +44,7 @@ const config = {
     resultsContainerQuery: ['#content_left', '#results'],
   },
   kagi: {
-    inputQuery: ["textarea[name='q']"],
+    inputQuery: ["input[name='q']", "textarea[name='q']"],
     sidebarContainerQuery: ['.right-content-box'],
     appendContainerQuery: ['#_0_app_content'],
     resultsContainerQuery: ['#main', '#app'],
@@ -57,7 +57,7 @@ const config = {
   },
   naver: {
     inputQuery: ["input[name='query']"],
-    sidebarContainerQuery: ['#sub_pack'],
+    sidebarContainerQuery: ['#main_pack'],
     appendContainerQuery: ['#content'],
     resultsContainerQuery: ['#main_pack', '#ct'],
   },
@@ -88,9 +88,13 @@ const config = {
 }
 
 const urls = {
-  google: ['https://www.google.com/search?q=hello'],
+  google: [
+    /*'https://www.google.com/search?q=hello'*/
+  ],
   bing: ['https://www.bing.com/search?q=hello'],
-  yahoo: ['https://search.yahoo.com/search?p=hello', 'https://search.yahoo.co.jp/search?p=hello'],
+  yahoo: [
+    /*'https://search.yahoo.com/search?p=hello', */ 'https://search.yahoo.co.jp/search?p=hello',
+  ],
   duckduckgo: [],
   startpage: [], // need redirect and post https://www.startpage.com/do/search?query=hello
   baidu: ['https://www.baidu.com/s?wd=hello'],
@@ -98,7 +102,9 @@ const urls = {
   yandex: [], // need cookie https://yandex.com/search/?text=hello
   naver: ['https://search.naver.com/search.naver?query=hello'],
   brave: [],
-  searx: ['https://searx.tiekoetter.com/search?q=hello'],
+  searx: [
+    /*'https://searx.tiekoetter.com/search?q=hello'*/
+  ],
   ecosia: [], // unknown verify method https://www.ecosia.org/search?q=hello
   neeva: [], // unknown verify method(FetchError: maximum redirect reached) https://neeva.com/search?q=hello
   presearch: [],

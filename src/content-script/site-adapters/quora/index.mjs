@@ -15,9 +15,10 @@ export default {
         }
 
       return await cropText(
-        `Below is the content from a question and answer platform,giving the corresponding summary and your opinion on it.` +
-          `The question is:'${title}',` +
-          `Some answers are as follows:\n${answers}`,
+        `You are an insightful analyst of Q&A discussions. ` +
+          `Below is content from a Q&A platform. Please provide a summary of the discussion and your opinion on it.\n` +
+          `Question: '${title}'\n` +
+          `Answers:\n${answers}`,
       )
     } catch (e) {
       console.log(e)

@@ -14,7 +14,7 @@ export default {
         const newPath = getVideoPath()
         if (newPath !== oldPath) {
           oldPath = newPath
-          mountComponent(config.bilibili, userConfig)
+          mountComponent('bilibili', config.bilibili)
         }
       }
       window.setInterval(checkPathChange, 500)
@@ -37,13 +37,15 @@ export default {
       const title = videoList[p].part
 
       const infoResponse = await fetch(
-        `https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`,
+        `https://api.bilibili.com/x/player/wbi/v2?bvid=${bvid}&cid=${cid}`,
         {
           credentials: 'include',
         },
       )
       const infoData = await infoResponse.json()
-      const subtitleUrl = infoData.data.subtitle.subtitles[0].subtitle_url
+      let subtitleUrl = infoData.data.subtitle.subtitles[0].subtitle_url
+      if (subtitleUrl.startsWith('//')) subtitleUrl = 'https:' + subtitleUrl
+      else if (!subtitleUrl.startsWith('http')) subtitleUrl = 'https://' + subtitleUrl
 
       const subtitleResponse = await fetch(subtitleUrl)
       const subtitleData = await subtitleResponse.json()
@@ -56,7 +58,10 @@ export default {
       }
 
       return await cropText(
-        `用尽量简练的语言,联系视频标题,对视频进行内容摘要,同时仍要保留重要细节和标题信息,如果可能的话,使用markdown语法将视频内容总结为结构化信息,视频标题为:"${title}",字幕内容为:\n${subtitleContent}`,
+        `You are an expert video summarizer. Create a comprehensive summary of the following Bilibili video in markdown format, ` +
+          `highlighting key takeaways, crucial information, and main topics. Include the video title.\n` +
+          `Video Title: "${title}"\n` +
+          `Subtitle content:\n${subtitleContent}`,
       )
     } catch (e) {
       console.log(e)

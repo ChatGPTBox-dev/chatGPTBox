@@ -1,7 +1,7 @@
 {
   "name": "ChatGPTBox",
   "description": "Integrating ChatGPT into your browser deeply, everything you need is here",
-  "version": "2.5.6",
+  "version": "2.5.9",
   "manifest_version": 3,
   "icons": {
     "16": "logo.png",

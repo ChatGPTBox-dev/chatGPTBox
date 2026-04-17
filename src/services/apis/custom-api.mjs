@@ -10,15 +10,24 @@ import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { pushRecord, setAbortController } from './shared.mjs'
+import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 
 /**
  * @param {Browser.Runtime.Port} port
  * @param {string} question
  * @param {Session} session
+ * @param {string} apiUrl
  * @param {string} apiKey
  * @param {string} modelName
  */
-export async function generateAnswersWithCustomApi(port, question, session, apiKey, modelName) {
+export async function generateAnswersWithCustomApi(
+  port,
+  question,
+  session,
+  apiUrl,
+  apiKey,
+  modelName,
+) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
 
   const config = await getUserConfig()
@@ -26,9 +35,7 @@ export async function generateAnswersWithCustomApi(port, question, session, apiK
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,
   )
-  // prompt.unshift({ role: 'system', content: await getCustomApiPromptBase() })
   prompt.push({ role: 'user', content: question })
-  const apiUrl = config.customModelApiUrl
 
   let answer = ''
   let finished = false
@@ -49,7 +56,7 @@ export async function generateAnswersWithCustomApi(port, question, session, apiK
       messages: prompt,
       model: modelName,
       stream: true,
-      max_tokens: config.maxResponseTokenLength,
+      ...getChatCompletionsTokenParams('custom', modelName, config.maxResponseTokenLength),
       temperature: config.temperature,
     }),
     onMessage(message) {
@@ -69,12 +76,12 @@ export async function generateAnswersWithCustomApi(port, question, session, apiK
 
       if (data.response) answer = data.response
       else {
-        const delta = data.choices[0]?.delta?.content
-        const content = data.choices[0]?.message?.content
-        const text = data.choices[0]?.text
+        const delta = data.choices?.[0]?.delta?.content
+        const content = data.choices?.[0]?.message?.content
+        const text = data.choices?.[0]?.text
         if (delta !== undefined) {
           answer += delta
-        } else if (content) {
+        } else if (typeof content === 'string') {
           answer = content
         } else if (text) {
           answer += text
@@ -82,7 +89,7 @@ export async function generateAnswersWithCustomApi(port, question, session, apiK
       }
       port.postMessage({ answer: answer, done: false, session: null })
 
-      if (data.choices[0]?.finish_reason) {
+      if (data.choices?.[0]?.finish_reason) {
         finish()
         return
       }

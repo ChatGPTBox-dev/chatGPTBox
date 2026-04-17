@@ -64,9 +64,9 @@ export const config = {
   },
   startpage: {
     inputQuery: ["input[name='query']"],
-    sidebarContainerQuery: ['.layout-web__sidebar.layout-web__sidebar--web'],
-    appendContainerQuery: ['.layout-web__body.layout-web__body--desktop'],
-    resultsContainerQuery: ['.mainline-results'],
+    sidebarContainerQuery: ['#sidebar'],
+    appendContainerQuery: [],
+    resultsContainerQuery: ['#main'],
   },
   baidu: {
     inputQuery: ["input[id='kw']"],
@@ -78,7 +78,7 @@ export const config = {
     },
   },
   kagi: {
-    inputQuery: ["textarea[name='q']"],
+    inputQuery: ["input[name='q']", "textarea[name='q']"],
     sidebarContainerQuery: ['.right-content-box'],
     appendContainerQuery: ['#_0_app_content'],
     resultsContainerQuery: ['#main', '#app'],
@@ -91,7 +91,7 @@ export const config = {
   },
   naver: {
     inputQuery: ["input[name='query']"],
-    sidebarContainerQuery: ['#sub_pack'],
+    sidebarContainerQuery: ['#main_pack'],
     appendContainerQuery: ['#content'],
     resultsContainerQuery: ['#main_pack', '#ct'],
   },
@@ -199,7 +199,7 @@ export const config = {
   },
   'mp.weixin.qq': {
     inputQuery: weixin.inputQuery,
-    sidebarContainerQuery: ['.qr_code_pc', '#js_content'],
+    sidebarContainerQuery: ['#js_content'],
     appendContainerQuery: [],
     resultsContainerQuery: ['#js_content'],
   },

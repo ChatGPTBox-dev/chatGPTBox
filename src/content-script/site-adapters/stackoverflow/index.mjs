@@ -14,9 +14,16 @@ export default {
           }
 
         return await cropText(
-          `Below is the content from a developer Q&A platform. Analyze answers and provide a brief solution that can solve the question first,` +
-            `then give an overview of all answers. The question is: "${title}", and the further description of the question is: "${description}".` +
-            `The answers are as follows:\n${answer}`,
+          `You are an expert software developer and technical problem solver. ` +
+            `The following content is from a developer Q&A platform (Stack Overflow).\n\n` +
+            `Question: "${title}"\n` +
+            `Question Description: "${description}"\n\n` +
+            `Provided Answers:\n${answer}\n\n` +
+            `Please perform the following tasks:\n` +
+            `1. **Direct Solution:** Based on the provided answers, formulate a concise and effective solution to the question. ` +
+            `If applicable, include a brief code snippet (using markdown for formatting).\n` +
+            `2. **Overview of Answers:** Provide an overview of the different approaches or key points mentioned in the provided answers. ` +
+            `You can highlight any notable variations, pros, or cons if apparent.`,
         )
       }
     } catch (e) {

@@ -20,13 +20,11 @@ export default {
         }
 
         return await cropText(
-          `以下是一篇文章,标题是:"${title}",文章来源是:"${author}公众号",内容是:\n"${description}".请以如下格式输出你的回答：
-          {文章来源和文章摘要}
-          ======
-          {文章总结}
-          ======
-          {对文章的看法}
-          `,
+          `You are an expert article analyst and summarizer. ` +
+            `Please analyze the following WeChat Official Account article. Provide the source, a summary of the article, its main conclusions, and your opinion on it.\n` +
+            `Article Title: "${title}"\n` +
+            `Source: "${author} Official Account"\n` +
+            `Content:\n"${description}"`,
         )
       }
     } catch (e) {

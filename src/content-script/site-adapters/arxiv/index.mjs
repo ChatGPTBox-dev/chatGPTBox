@@ -8,8 +8,14 @@ export default {
       const abstract = document.querySelector('blockquote.abstract')?.textContent.trim()
 
       return await cropText(
-        `Below is the paper abstract from a preprint site, summarize the key findings, methodology, and conclusions, especially highlight the contributions.` +
-          `\n${title}\n${authors}\n${abstract}`,
+        `You are a research assistant skilled in academic paper analysis. ` +
+          `Based on the provided paper abstract from a preprint site, generate a structured summary. ` +
+          `The summary should clearly outline: key findings, methodology, and conclusions. ` +
+          `Pay special attention to highlighting the main contributions of the paper. ` +
+          `Ensure the summary is concise and maintains an academic tone.\n` +
+          `Title: ${title}\n` +
+          `Authors: ${authors}\n` +
+          `Abstract: ${abstract}`,
       )
     } catch (e) {
       console.log(e)

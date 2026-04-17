@@ -62,7 +62,7 @@ export function SelectionTools({ config, updateConfig }) {
         </button>
       </div>
       {errorMessage && <div style={{ color: 'red' }}>{errorMessage}</div>}
-      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'noWrap' }}>
         {t('Name')}
         <input
           type="text"

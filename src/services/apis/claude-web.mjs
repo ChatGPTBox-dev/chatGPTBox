@@ -1,24 +1,18 @@
 import { pushRecord, setAbortController } from './shared.mjs'
 import Claude from '../clients/claude'
-import { Models } from '../../config/index.mjs'
+import { getModelValue } from '../../utils/model-name-convert.mjs'
 
 /**
  * @param {Runtime.Port} port
  * @param {string} question
  * @param {Session} session
  * @param {string} sessionKey
- * @param {string} modelName
  */
-export async function generateAnswersWithClaudeWebApi(
-  port,
-  question,
-  session,
-  sessionKey,
-  modelName,
-) {
+export async function generateAnswersWithClaudeWebApi(port, question, session, sessionKey) {
   const bot = new Claude({ sessionKey })
   await bot.init()
   const { controller, cleanController } = setAbortController(port)
+  const model = getModelValue(session)
 
   let answer = ''
   const progressFunc = ({ completion }) => {
@@ -35,7 +29,7 @@ export async function generateAnswersWithClaudeWebApi(
   const params = {
     progress: progressFunc,
     done: doneFunc,
-    model: Models[modelName].value,
+    model,
     signal: controller.signal,
   }
 

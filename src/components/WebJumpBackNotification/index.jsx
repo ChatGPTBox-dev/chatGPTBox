@@ -7,7 +7,7 @@ import 'react-toastify/dist/ReactToastify.css'
 import { useTheme } from '../../hooks/use-theme.mjs'
 import { getUserConfig } from '../../config/index.mjs'
 
-const NotificationForChatGPTWeb = () => {
+const WebJumpBackNotification = (props) => {
   const { t } = useTranslation()
   const [theme, config] = useTheme()
 
@@ -17,6 +17,8 @@ const NotificationForChatGPTWeb = () => {
     borderRadius: '4px',
     whiteSpace: 'nowrap',
     cursor: 'pointer',
+    color: 'inherit',
+    backgroundColor: 'transparent',
   }
 
   useEffect(() => {
@@ -27,30 +29,37 @@ const NotificationForChatGPTWeb = () => {
           flexDirection: 'row',
           alignItems: 'center',
           gap: '4px',
+          justifyContent: 'space-between',
         }}
       >
-        <div>{t('Please keep this tab open. You can now use the web mode of ChatGPTBox')}</div>
+        <div>
+          {props.chatgptMode
+            ? t('Please keep this tab open. You can now use the web mode of ChatGPTBox')
+            : t('You have successfully logged in for ChatGPTBox and can now return')}
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <button
-            style={buttonStyle}
-            onClick={() => {
-              Browser.runtime.sendMessage({
-                type: 'PIN_TAB',
-                data: {
-                  saveAsChatgptConfig: true,
-                },
-              })
-            }}
-          >
-            {t('Pin Tab')}
-          </button>
+          {props.chatgptMode && (
+            <button
+              style={buttonStyle}
+              onClick={() => {
+                Browser.runtime.sendMessage({
+                  type: 'PIN_TAB',
+                  data: {
+                    saveAsChatgptConfig: true,
+                  },
+                })
+              }}
+            >
+              {t('Pin Tab')}
+            </button>
+          )}
           <button
             style={buttonStyle}
             onClick={async () => {
               Browser.runtime.sendMessage({
                 type: 'ACTIVATE_URL',
                 data: {
-                  tabId: (await getUserConfig()).chatgptJumpBackTabId,
+                  tabId: (await getUserConfig()).notificationJumpBackTabId,
                 },
               })
             }}
@@ -83,8 +92,9 @@ const NotificationForChatGPTWeb = () => {
   )
 }
 
-NotificationForChatGPTWeb.propTypes = {
+WebJumpBackNotification.propTypes = {
   container: PropTypes.object.isRequired,
+  chatgptMode: PropTypes.bool,
 }
 
-export default NotificationForChatGPTWeb
+export default WebJumpBackNotification

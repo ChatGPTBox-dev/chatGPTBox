@@ -14,9 +14,11 @@ export default {
       }
 
       return await cropText(
-        `Below is the content from a social forum,giving the corresponding summary and your opinion on it.` +
-          `The title is:'${title}',and the further description of the title is:'${description}'.` +
-          `Some answers are as follows:\n${answers}`,
+        `You are an expert in analyzing online forum discussions. ` +
+          `Below is content from a social forum (Reddit). Please provide a summary of the discussion and your opinion on it.\n` +
+          `Title: '${title}'\n` +
+          `Description: '${description}'\n` +
+          `Comments:\n${answers}`,
       )
     } catch (e) {
       console.log(e)

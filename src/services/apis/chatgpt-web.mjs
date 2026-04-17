@@ -2,13 +2,14 @@
 
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
-import { chatgptWebModelKeys, getUserConfig, Models } from '../../config/index.mjs'
+import { getUserConfig, Models } from '../../config/index.mjs'
 import { pushRecord, setAbortController } from './shared.mjs'
 import Browser from 'webextension-polyfill'
 import { v4 as uuidv4 } from 'uuid'
 import { t } from 'i18next'
 import { sha3_512 } from 'js-sha3'
 import randomInt from 'random-int'
+import { getModelValue } from '../../utils/model-name-convert.mjs'
 
 async function request(token, method, path, data) {
   const apiUrl = (await getUserConfig()).customChatGptWebApiUrl
@@ -233,9 +234,9 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     isNeedWebsocket(accessToken).catch(() => undefined),
   ])
   console.debug('models', models)
-  const selectedModel = Models[session.modelName].value
+  const selectedModel = getModelValue(session)
   const usedModel =
-    models && models.includes(selectedModel) ? selectedModel : Models[chatgptWebModelKeys[0]].value
+    models && models.includes(selectedModel) ? selectedModel : Models.chatgptFree35.value
   console.debug('usedModel', usedModel)
   const needArkoseToken = requirements && requirements.arkose?.required
   if (arkoseError && needArkoseToken) throw arkoseError
@@ -396,7 +397,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
 
   function handleMessage(data) {
     if (data.error) {
-      throw new Error(data.error)
+      throw new Error(JSON.stringify(data.error))
     }
 
     if (data.conversation_id) session.conversationId = data.conversation_id

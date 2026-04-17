@@ -1,31 +1,22 @@
 // api version
 
-import { Models, getUserConfig } from '../../config/index.mjs'
+import { getUserConfig } from '../../config/index.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
-import {
-  getChatSystemPromptBase,
-  getCompletionPromptBase,
-  pushRecord,
-  setAbortController,
-} from './shared.mjs'
+import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
+import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 
 /**
  * @param {Browser.Runtime.Port} port
  * @param {string} question
  * @param {Session} session
  * @param {string} apiKey
- * @param {string} modelName
  */
-export async function generateAnswersWithGptCompletionApi(
-  port,
-  question,
-  session,
-  apiKey,
-  modelName,
-) {
+export async function generateAnswersWithGptCompletionApi(port, question, session, apiKey) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
+  const model = getModelValue(session)
 
   const config = await getUserConfig()
   const prompt =
@@ -54,7 +45,7 @@ export async function generateAnswersWithGptCompletionApi(
     },
     body: JSON.stringify({
       prompt: prompt,
-      model: Models[modelName].value,
+      model,
       stream: true,
       max_tokens: config.maxResponseTokenLength,
       temperature: config.temperature,
@@ -104,37 +95,44 @@ export async function generateAnswersWithGptCompletionApi(
  * @param {string} question
  * @param {Session} session
  * @param {string} apiKey
- * @param {string} modelName
  */
-export async function generateAnswersWithChatgptApi(port, question, session, apiKey, modelName) {
+export async function generateAnswersWithOpenAiApi(port, question, session, apiKey) {
   const config = await getUserConfig()
-  return generateAnswersWithChatgptApiCompat(
-    config.customOpenAiApiUrl,
+  return generateAnswersWithOpenAiApiCompat(
+    config.customOpenAiApiUrl + '/v1',
     port,
     question,
     session,
     apiKey,
-    modelName,
+    {},
+    'openai',
   )
 }
 
-export async function generateAnswersWithChatgptApiCompat(
+export async function generateAnswersWithOpenAiApiCompat(
   baseUrl,
   port,
   question,
   session,
   apiKey,
-  modelName,
+  extraBody = {},
+  provider = 'compat',
 ) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
+  const model = getModelValue(session)
 
   const config = await getUserConfig()
   const prompt = getConversationPairs(
     session.conversationRecords.slice(-config.maxConversationContextLength),
     false,
   )
-  prompt.unshift({ role: 'system', content: await getChatSystemPromptBase() })
   prompt.push({ role: 'user', content: question })
+  const tokenParams = getChatCompletionsTokenParams(provider, model, config.maxResponseTokenLength)
+  const conflictingTokenParamKey =
+    'max_completion_tokens' in tokenParams ? 'max_tokens' : 'max_completion_tokens'
+  // Avoid sending both token-limit fields when caller passes extraBody.
+  const safeExtraBody = { ...extraBody }
+  delete safeExtraBody[conflictingTokenParamKey]
 
   let answer = ''
   let finished = false
@@ -144,7 +142,7 @@ export async function generateAnswersWithChatgptApiCompat(
     console.debug('conversation history', { content: session.conversationRecords })
     port.postMessage({ answer: null, done: true, session: session })
   }
-  await fetchSSE(`${baseUrl}/v1/chat/completions`, {
+  await fetchSSE(`${baseUrl}/chat/completions`, {
     method: 'POST',
     signal: controller.signal,
     headers: {
@@ -153,10 +151,11 @@ export async function generateAnswersWithChatgptApiCompat(
     },
     body: JSON.stringify({
       messages: prompt,
-      model: Models[modelName].value,
+      model,
       stream: true,
-      max_tokens: config.maxResponseTokenLength,
+      ...tokenParams,
       temperature: config.temperature,
+      ...safeExtraBody,
     }),
     onMessage(message) {
       console.debug('sse message', message)

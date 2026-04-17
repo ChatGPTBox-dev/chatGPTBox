@@ -1,0 +1,691 @@
+import assert from 'node:assert/strict'
+import { beforeEach, test } from 'node:test'
+import {
+  generateAnswersWithOpenAiApi,
+  generateAnswersWithOpenAiApiCompat,
+  generateAnswersWithGptCompletionApi,
+} from '../../../../src/services/apis/openai-api.mjs'
+import { createFakePort } from '../../helpers/port.mjs'
+import { createMockSseResponse } from '../../helpers/sse-response.mjs'
+
+const gpt5LatestCompatModelNames = [
+  'chatgptApi-gpt-5-chat-latest',
+  'chatgptApi-gpt-5.1-chat-latest',
+  'chatgptApi-gpt-5.2-chat-latest',
+  'chatgptApi-gpt-5.3-chat-latest',
+]
+const gpt5LatestMappedModels = [
+  ['chatgptApi5Latest', 'gpt-5-chat-latest'],
+  ['chatgptApi5_1Latest', 'gpt-5.1-chat-latest'],
+  ['chatgptApi5_2Latest', 'gpt-5.2-chat-latest'],
+  ['chatgptApi5_3Latest', 'gpt-5.3-chat-latest'],
+]
+
+const setStorage = (values) => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage(values)
+}
+
+beforeEach(() => {
+  globalThis.__TEST_BROWSER_SHIM__.clearStorage()
+})
+
+test('generateAnswersWithOpenAiApiCompat sends expected request and aggregates SSE deltas', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    temperature: 0.25,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [{ question: 'PrevQ', answer: 'PrevA' }],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.equal(capturedInput, 'https://api.example.com/v1/chat/completions')
+  assert.equal(capturedInit.method, 'POST')
+  assert.equal(capturedInit.headers.Authorization, 'Bearer sk-test')
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(body.stream, true)
+  assert.equal(body.max_tokens, 256)
+  assert.equal(body.temperature, 0.25)
+  assert.equal(Array.isArray(body.messages), true)
+  assert.equal(body.messages.length >= 3, true)
+  assert.deepEqual(body.messages[0], { role: 'user', content: 'PrevQ' })
+  assert.deepEqual(body.messages[1], { role: 'assistant', content: 'PrevA' })
+  assert.deepEqual(body.messages.at(-1), { role: 'user', content: 'CurrentQ' })
+
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'Hel'),
+    true,
+  )
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'Hello'),
+    true,
+  )
+  assert.equal(
+    port.postedMessages.some((message) => message.done === true && message.session === session),
+    true,
+  )
+  assert.deepEqual(port.postedMessages.at(-1), { done: true })
+  assert.deepEqual(session.conversationRecords.at(-1), { question: 'CurrentQ', answer: 'Hello' })
+})
+
+test('generateAnswersWithOpenAiApiCompat uses max_completion_tokens for OpenAI latest gpt-5 compat models', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 321,
+    temperature: 0.2,
+  })
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  for (const modelName of gpt5LatestCompatModelNames) {
+    capturedInit = undefined
+    const session = {
+      modelName,
+      conversationRecords: [],
+      isRetry: false,
+    }
+    const port = createFakePort()
+
+    await generateAnswersWithOpenAiApiCompat(
+      'https://api.example.com/v1',
+      port,
+      'CurrentQ',
+      session,
+      'sk-test',
+      {},
+      'openai',
+    )
+
+    const body = JSON.parse(capturedInit.body)
+    assert.equal(body.max_completion_tokens, 321)
+    assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+  }
+})
+
+test('generateAnswersWithOpenAiApiCompat uses latest mapped gpt-5 API model values', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 111,
+    temperature: 0.2,
+  })
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  for (const [modelName, expectedModel] of gpt5LatestMappedModels) {
+    capturedInit = undefined
+    const session = {
+      modelName,
+      conversationRecords: [],
+      isRetry: false,
+    }
+    const port = createFakePort()
+
+    await generateAnswersWithOpenAiApiCompat(
+      'https://api.example.com/v1',
+      port,
+      'CurrentQ',
+      session,
+      'sk-test',
+      {},
+      'openai',
+    )
+
+    const body = JSON.parse(capturedInit.body)
+    assert.equal(body.model, expectedModel)
+    assert.equal(body.max_completion_tokens, 111)
+    assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+  }
+})
+
+test('generateAnswersWithOpenAiApi uses OpenAI token params for a latest mapped gpt-5 model', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customOpenAiApiUrl: 'https://api.openai.example.com',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 222,
+    temperature: 0.2,
+  })
+
+  const session = {
+    modelName: 'chatgptApi5_2Latest',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApi(port, 'CurrentQ', session, 'sk-test')
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(capturedInput, 'https://api.openai.example.com/v1/chat/completions')
+  assert.equal(body.model, 'gpt-5.2-chat-latest')
+  assert.equal(body.max_completion_tokens, 222)
+  assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+})
+
+test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-5.4 mini', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customOpenAiApiUrl: 'https://api.openai.example.com',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 444,
+    temperature: 0.3,
+  })
+
+  const session = {
+    modelName: 'chatgptApi5_4Mini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApi(port, 'CurrentQ', session, 'sk-test')
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(capturedInput, 'https://api.openai.example.com/v1/chat/completions')
+  assert.equal(body.model, 'gpt-5.4-mini')
+  assert.equal(body.max_completion_tokens, 444)
+  assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+})
+
+test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-5.4 nano', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customOpenAiApiUrl: 'https://api.openai.example.com',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 555,
+    temperature: 0.3,
+  })
+
+  const session = {
+    modelName: 'chatgptApi5_4Nano',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApi(port, 'CurrentQ', session, 'sk-test')
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(capturedInput, 'https://api.openai.example.com/v1/chat/completions')
+  assert.equal(body.model, 'gpt-5.4-nano')
+  assert.equal(body.max_completion_tokens, 555)
+  assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+})
+
+test('generateAnswersWithOpenAiApiCompat keeps max_tokens for latest mapped gpt-5 models in compat provider', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 223,
+    temperature: 0.2,
+  })
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  for (const [modelName, expectedModel] of gpt5LatestMappedModels) {
+    capturedInit = undefined
+    const session = {
+      modelName,
+      conversationRecords: [],
+      isRetry: false,
+    }
+    const port = createFakePort()
+
+    await generateAnswersWithOpenAiApiCompat(
+      'https://api.example.com/v1',
+      port,
+      'CurrentQ',
+      session,
+      'sk-test',
+      {},
+      'compat',
+    )
+
+    const body = JSON.parse(capturedInit.body)
+    assert.equal(body.model, expectedModel)
+    assert.equal(body.max_tokens, 223)
+    assert.equal(Object.hasOwn(body, 'max_completion_tokens'), false)
+  }
+})
+
+test('generateAnswersWithOpenAiApiCompat removes conflicting token key from extraBody', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 222,
+    temperature: 0.2,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+    {
+      max_completion_tokens: 999,
+      top_p: 0.9,
+    },
+  )
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(body.max_tokens, 222)
+  assert.equal(Object.hasOwn(body, 'max_completion_tokens'), false)
+  assert.equal(body.top_p, 0.9)
+})
+
+test('generateAnswersWithOpenAiApiCompat removes max_tokens from extraBody for OpenAI gpt-5 models', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 500,
+    temperature: 0.2,
+  })
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  for (const modelName of gpt5LatestCompatModelNames) {
+    capturedInit = undefined
+    const session = {
+      modelName,
+      conversationRecords: [],
+      isRetry: false,
+    }
+    const port = createFakePort()
+
+    await generateAnswersWithOpenAiApiCompat(
+      'https://api.example.com/v1',
+      port,
+      'CurrentQ',
+      session,
+      'sk-test',
+      {
+        max_tokens: 999,
+        top_p: 0.8,
+      },
+      'openai',
+    )
+
+    const body = JSON.parse(capturedInit.body)
+    assert.equal(body.max_completion_tokens, 500)
+    assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+    assert.equal(body.top_p, 0.8)
+  }
+})
+
+test('generateAnswersWithOpenAiApiCompat allows max_tokens override for compat provider', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 400,
+    temperature: 0.2,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+    {
+      max_tokens: 333,
+      top_p: 0.75,
+    },
+  )
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(body.max_tokens, 333)
+  assert.equal(Object.hasOwn(body, 'max_completion_tokens'), false)
+  assert.equal(body.top_p, 0.75)
+})
+
+test('generateAnswersWithOpenAiApiCompat allows max_completion_tokens override for OpenAI gpt-5 models', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 400,
+    temperature: 0.2,
+  })
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  for (const modelName of gpt5LatestCompatModelNames) {
+    capturedInit = undefined
+    const session = {
+      modelName,
+      conversationRecords: [],
+      isRetry: false,
+    }
+    const port = createFakePort()
+
+    await generateAnswersWithOpenAiApiCompat(
+      'https://api.example.com/v1',
+      port,
+      'CurrentQ',
+      session,
+      'sk-test',
+      {
+        max_completion_tokens: 333,
+        top_p: 0.65,
+      },
+      'openai',
+    )
+
+    const body = JSON.parse(capturedInit.body)
+    assert.equal(body.max_completion_tokens, 333)
+    assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+    assert.equal(body.top_p, 0.65)
+  }
+})
+
+test('generateAnswersWithOpenAiApiCompat throws on non-ok response with JSON error body', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 128,
+    temperature: 0.1,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([], {
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      json: async () => ({ error: { message: 'invalid key' } }),
+    }),
+  )
+
+  await assert.rejects(async () => {
+    await generateAnswersWithOpenAiApiCompat(
+      'https://api.example.com/v1',
+      port,
+      'CurrentQ',
+      session,
+      'sk-invalid',
+    )
+  }, /invalid key/)
+
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
+test('generateAnswersWithOpenAiApiCompat throws on network error', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 128,
+    temperature: 0.1,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw new TypeError('Failed to fetch')
+  })
+
+  await assert.rejects(async () => {
+    await generateAnswersWithOpenAiApiCompat(
+      'https://api.example.com/v1',
+      port,
+      'CurrentQ',
+      session,
+      'sk-invalid',
+    )
+  }, /Failed to fetch/)
+
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
+test('generateAnswersWithOpenAiApiCompat falls back to status text when JSON error parsing fails', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 128,
+    temperature: 0.1,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([], {
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      json: async () => {
+        throw new SyntaxError('Unexpected token <')
+      },
+    }),
+  )
+
+  await assert.rejects(async () => {
+    await generateAnswersWithOpenAiApiCompat(
+      'https://api.example.com/v1',
+      port,
+      'CurrentQ',
+      session,
+      'sk-invalid',
+    )
+  }, /502 Bad Gateway/)
+
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
+test('generateAnswersWithOpenAiApiCompat supports message.content fallback', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 2,
+    maxResponseTokenLength: 256,
+    temperature: 0.2,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [{ question: 'PrevQ', answer: 'PrevA' }],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: {"choices":[{"message":{"content":"Final content"},"finish_reason":"stop"}]}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.equal(
+    port.postedMessages.some(
+      (message) => message.done === false && message.answer === 'Final content',
+    ),
+    true,
+  )
+  assert.deepEqual(session.conversationRecords.at(-1), {
+    question: 'CurrentQ',
+    answer: 'Final content',
+  })
+})
+
+test('generateAnswersWithGptCompletionApi builds completion prompt and appends answer', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customOpenAiApiUrl: 'https://api.example.com',
+    maxConversationContextLength: 5,
+    maxResponseTokenLength: 300,
+    temperature: 0.5,
+  })
+
+  const session = {
+    modelName: 'gptApiInstruct',
+    conversationRecords: [{ question: 'FirstQ', answer: 'FirstA' }],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"text":"A"}]}\n\n',
+      'data: {"choices":[{"text":"B","finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithGptCompletionApi(port, 'NowQ', session, 'sk-completion')
+
+  assert.equal(capturedInput, 'https://api.example.com/v1/completions')
+  assert.equal(capturedInit.headers.Authorization, 'Bearer sk-completion')
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(body.stream, true)
+  assert.equal(body.max_tokens, 300)
+  assert.equal(body.temperature, 0.5)
+  assert.equal(body.stop, '\nHuman')
+  assert.equal(body.prompt.includes('Human: FirstQ\nAI: FirstA\n'), true)
+  assert.equal(body.prompt.includes('Human: NowQ\nAI: '), true)
+
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'AB'),
+    true,
+  )
+  assert.equal(
+    port.postedMessages.some((message) => message.done === true && message.session === session),
+    true,
+  )
+  assert.deepEqual(session.conversationRecords.at(-1), { question: 'NowQ', answer: 'AB' })
+})

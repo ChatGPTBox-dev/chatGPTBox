@@ -74,8 +74,12 @@ export function getCoreContentText() {
     let article = new Readability(document.cloneNode(true), {
       keepClasses: true,
     }).parse()
-    console.log('readerable')
-    return postProcessText(article.textContent)
+    if (article?.textContent) {
+      console.log('readerable: successfully extracted content')
+      return postProcessText(article.textContent)
+    } else {
+      console.log('readerable: parsing failed despite probability check')
+    }
   }
 
   const largestElement = findLargestElement(document.body)

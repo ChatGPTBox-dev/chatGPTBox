@@ -24,21 +24,21 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 [![Android][Android-image]][Android-url]
 [![Github][Github-image]][Github-url]
 
-[Panduan](https://github.com/josStorer/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [Pratinjau](#Pratinjau) &nbsp;&nbsp;|&nbsp;&nbsp; [Pengembangan & Berkontribusi][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [Demonstrasi Video](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [Kredit](#Kredit)
+[Panduan](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [Pratinjau](#Pratinjau) &nbsp;&nbsp;|&nbsp;&nbsp; [Pengembangan & Berkontribusi][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [Demonstrasi Video](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [Kredit](#Kredit)
 
-[dev-url]: https://github.com/josStorer/chatGPTBox/wiki/Development&Contributing
+[dev-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Development&Contributing
 
 [license-image]: http://img.shields.io/badge/license-MIT-blue.svg
 
-[license-url]: https://github.com/josStorer/chatGPTBox/blob/master/LICENSE
+[license-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/blob/master/LICENSE
 
-[release-image]: https://img.shields.io/github/release/josStorer/chatGPTBox.svg
+[release-image]: https://img.shields.io/github/release/ChatGPTBox-dev/chatGPTBox.svg
 
-[release-url]: https://github.com/josStorer/chatGPTBox/releases/latest
+[release-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/releases/latest
 
-[verify-image]: https://github.com/josStorer/chatGPTBox/workflows/verify-configs/badge.svg
+[verify-image]: https://github.com/ChatGPTBox-dev/chatGPTBox/workflows/verify-configs/badge.svg
 
-[verify-url]: https://github.com/josStorer/chatGPTBox/actions/workflows/verify-configs.yml
+[verify-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/verify-configs.yml
 
 [Chrome-image]: https://img.shields.io/badge/-Chrome-brightgreen?logo=google-chrome&logoColor=white
 
@@ -58,11 +58,11 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 
 [Android-image]: https://img.shields.io/badge/-Android-brightgreen?logo=android&logoColor=white
 
-[Android-url]: https://github.com/josStorer/chatGPTBox/wiki/Install#install-to-android
+[Android-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Install#install-to-android
 
 [Github-image]: https://img.shields.io/badge/-Github-black?logo=github&logoColor=white
 
-[Github-url]: https://github.com/josStorer/chatGPTBox/wiki/Install
+[Github-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Install
 
 </div>
 
@@ -72,7 +72,7 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 
 - Anda dapat menggunakan proyek seperti https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api untuk mengkonversi API LLM ke dalam format OpenAI dan menggunakannya bersama dengan mode `Custom Model` dari ChatGPTBox
 
-- Anda juga dapat menggunakan [Ollama](https://github.com/josStorer/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models dengan mode `Custom Model` dari ChatGPTBox
+- Anda juga dapat menggunakan [Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models dengan mode `Custom Model` dari ChatGPTBox
 
 ## ✨ Fitur
 

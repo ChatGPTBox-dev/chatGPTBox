@@ -12,8 +12,11 @@ export default {
         if (location.pathname.includes('answer')) {
           answer = document.querySelector(answerQuery)?.textContent
           return await cropText(
-            `以下是一个问答平台的提问与回答内容,给出相应的摘要,以及你对此的看法.问题是:"${title}",问题的进一步描述是:"${description}".` +
-              `其中一个回答如下:\n${answer}`,
+            `You are an insightful analyst of Q&A discussions. ` +
+              `Below is content from Zhihu, a Q&A platform. Please provide a summary of the question and answer, and your opinion on them.\n` +
+              `Question: "${title}"\n` +
+              `Description: "${description}"\n` +
+              `Answer:\n${answer}`,
           )
         } else {
           const answers = document.querySelectorAll(answerQuery)
@@ -21,8 +24,11 @@ export default {
             answer += `answer${i}: ${answers[i - 1].textContent}|`
           }
           return await cropText(
-            `以下是一个问答平台的提问与回答内容,给出相应的摘要,以及你对此的看法.问题是:"${title}",问题的进一步描述是:"${description}".` +
-              `各个回答如下:\n${answer}`,
+            `You are an insightful analyst of Q&A discussions. ` +
+              `Below is content from Zhihu, a Q&A platform. Please provide a summary of the question and answers, and your opinion on them.\n` +
+              `Question: "${title}"\n` +
+              `Description: "${description}"\n` +
+              `Answers:\n${answer}`,
           )
         }
       } else {
@@ -31,7 +37,10 @@ export default {
 
         if (title) {
           return await cropText(
-            `以下是一篇文章,给出相应的摘要,以及你对此的看法.标题是:"${title}",内容是:\n"${description}"`,
+            `You are an expert article analyst. ` +
+              `Below is an article from Zhihu. Please provide a summary of the article and your opinion on it.\n` +
+              `Title: "${title}"\n` +
+              `Content:\n"${description}"`,
           )
         }
       }

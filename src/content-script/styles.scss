@@ -1251,6 +1251,12 @@
     cursor: pointer;
     align-items: center;
     z-index: 0;
+
+    svg {
+      z-index: 0;
+      color: var(--font-color);
+      background-color: var(--theme-color);
+    }
   }
 
   .normal-button {
@@ -1431,6 +1437,7 @@
   background-color: var(--theme-color);
   color: var(--toolbar-color);
   cursor: pointer;
+  z-index: 2147483647;
 }
 
 .chatgptbox-selection-toolbar-button:hover {

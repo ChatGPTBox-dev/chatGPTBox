@@ -188,7 +188,7 @@ export class Claude {
   async init() {
     const organizations = await this.getOrganizations()
     if (organizations.error) {
-      throw new Error(JSON.stringify(organizations, null, 2))
+      throw new Error(organizations.error)
     }
     this.organizationId = organizations[0].uuid
     this.recent_conversations = await this.getConversations()
@@ -222,7 +222,19 @@ export class Claude {
         cookie: `sessionKey=${this.sessionKey}`,
       },
     })
-    return await response.json().catch(errorHandle('getOrganizations'))
+    const responseText = await response.text()
+    if (responseText.includes('available in certain regions'))
+      return {
+        error: 'Claude.ai is not available in your region',
+      }
+    try {
+      return JSON.parse(responseText)
+    } catch (e) {
+      errorHandle('getOrganizations')(e)
+      return {
+        error: 'failed to parse response',
+      }
+    }
   }
   /**
    * Delete all conversations
@@ -286,19 +298,20 @@ export class Claude {
       updated_at,
     })
     await convo.sendMessage(message, params)
-    await this.request(`/api/generate_chat_title`, {
-      headers: {
-        'content-type': 'application/json',
-        cookie: `sessionKey=${this.sessionKey}`,
+    await this.request(
+      `/api/organizations/${this.organizationId}/chat_conversations/${convoID}/title`,
+      {
+        headers: {
+          'content-type': 'application/json',
+          cookie: `sessionKey=${this.sessionKey}`,
+        },
+        body: JSON.stringify({
+          message_content: message,
+          recent_titles: this.recent_conversations.map((i) => i.name),
+        }),
+        method: 'POST',
       },
-      body: JSON.stringify({
-        organization_uuid: this.organizationId,
-        conversation_uuid: convoID,
-        message_content: message,
-        recent_titles: this.recent_conversations.map((i) => i.name),
-      }),
-      method: 'POST',
-    })
+    )
       .then((r) => r.json())
       .catch(errorHandle('startConversation generate_chat_title'))
     return convo
@@ -597,6 +610,9 @@ export class Conversation {
           } catch (error) {
             console.debug('json error', error)
             return
+          }
+          if (parsed.error) {
+            throw new Error(message)
           }
           if (parsed.completion) fullResponse += parsed.completion
           const PROGRESS_OBJECT = {

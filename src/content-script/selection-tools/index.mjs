@@ -27,10 +27,10 @@ const createGenPrompt =
     }
 
     let fullMessage = isTranslation
-      ? `Translate the following into ${preferredLanguage} and only show me the translated content`
+      ? `You are a professional translator. Translate the following text into ${preferredLanguage}, preserving meaning, tone, and formatting. Only provide the translated result.`
       : message
     if (enableBidirectional) {
-      fullMessage += `. If it is already in ${preferredLanguage}, translate it into English and only show me the translated content`
+      fullMessage += ` If the text is already in ${preferredLanguage}, translate it into English instead following the same requirements. Only provide the translated result.`
     }
     const prefix = includeLanguagePrefix ? `Reply in ${preferredLanguage}.` : ''
     return `${prefix}${fullMessage}:\n'''\n${selection}\n'''`
@@ -41,7 +41,8 @@ export const config = {
     icon: <ChatText />,
     label: 'Explain',
     genPrompt: createGenPrompt({
-      message: 'Explain the following',
+      message:
+        'You are an expert teacher. Explain the following content in simple terms and highlight the key points',
       includeLanguagePrefix: true,
     }),
   },
@@ -80,7 +81,8 @@ export const config = {
     icon: <CardHeading />,
     label: 'Summary',
     genPrompt: createGenPrompt({
-      message: 'Summarize the following as concisely as possible',
+      message:
+        'You are a professional summarizer. Summarize the following content in a few sentences, focusing on the key points',
       includeLanguagePrefix: true,
     }),
   },
@@ -89,7 +91,7 @@ export const config = {
     label: 'Polish',
     genPrompt: createGenPrompt({
       message:
-        'Check the following content for possible diction and grammar problems, and polish it carefully',
+        'Act as a skilled editor. Correct grammar and word choice in the following text, improve readability and flow while preserving the original meaning, and return only the polished version',
     }),
   },
   sentiment: {
@@ -97,7 +99,7 @@ export const config = {
     label: 'Sentiment Analysis',
     genPrompt: createGenPrompt({
       message:
-        'Analyze the sentiments expressed in the following content and make a brief summary of the sentiments',
+        'You are an expert in sentiment analysis. Analyze the following content and provide a brief summary of the overall emotional tone, labeling it with a short descriptive word or phrase',
       includeLanguagePrefix: true,
     }),
   },
@@ -105,14 +107,16 @@ export const config = {
     icon: <CardList />,
     label: 'Divide Paragraphs',
     genPrompt: createGenPrompt({
-      message: 'Divide the following into paragraphs that are easy to read and understand',
+      message:
+        'You are a skilled editor. Divide the following text into clear, easy-to-read and easy-to-understand paragraphs',
     }),
   },
   code: {
     icon: <Braces />,
     label: 'Code Explain',
     genPrompt: createGenPrompt({
-      message: 'Explain the following code',
+      message:
+        'You are a senior software engineer and system architect. Break down the following code step by step, explain how each part works and why it was designed that way, note any potential issues, and summarize the overall purpose',
       includeLanguagePrefix: true,
     }),
   },
@@ -120,7 +124,8 @@ export const config = {
     icon: <QuestionCircle />,
     label: 'Ask',
     genPrompt: createGenPrompt({
-      message: 'Analyze the following content and express your opinion, or give your answer',
+      message:
+        'Analyze the following content carefully and provide a concise answer or opinion with a short explanation',
       includeLanguagePrefix: true,
     }),
   },

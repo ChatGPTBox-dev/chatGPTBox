@@ -3,31 +3,22 @@ import { cropText } from '../../../utils'
 export default {
   inputQuery: async () => {
     try {
-      const title = document.querySelector(
-        '#juejin > div.view-container > main > div > div.main-area.article-area > article > h1',
-      )?.textContent
-      const description = document.querySelector(
-        '#juejin > div.view-container > main > div > div.main-area.article-area > article > div.article-content',
-      )?.textContent
+      const title = document.querySelector('#juejin .article-title')?.innerText
+      const description = document.querySelector('#juejin #article-root')?.innerText
       if (title && description) {
-        const author = document.querySelector(
-          '#juejin > div.view-container > main > div > div.main-area.article-area > article > div.author-info-block > div > div.author-name > a > span.name',
-        )?.textContent
-        const comments = document.querySelectorAll(
-          'div.content-box > div.comment-main > div.content',
-        )
+        const author = document.querySelector('#juejin .author-block .info-box span')?.innerText
+        const comments = document.querySelectorAll('.comment-list .comment-content')
         let comment = ''
         for (let i = 1; i <= comments.length && i <= 4; i++) {
-          comment += `answer${i}: ${comment[i - 1].textContent}|`
+          comment += `answer${i}: ${comment[i - 1].innerText}|`
         }
         return await cropText(
-          `以下是一篇文章,标题是:"${title}",作者是:"${author}",内容是:\n"${description}".各个评论如下:\n${comment}.请以如下格式输出你的回答：
-          {文章摘要和文章作者}
-          ======
-          {文章总结和对文章的看法}
-          ======
-          {对评论的总结}
-          `,
+          `You are an expert content analyst and summarizer. ` +
+            `Please analyze the following Juejin article and its comments. Provide a summary of the article (including author), your opinion on it, and a summary of the comments.\n` +
+            `Article Title: "${title}"\n` +
+            `Author: "${author}"\n` +
+            `Content:\n"${description}"\n\n` +
+            `Selected comments:\n${comment}`,
         )
       }
     } catch (e) {

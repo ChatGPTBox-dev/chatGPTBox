@@ -4,11 +4,12 @@ import { getUserConfig } from '../config/index.mjs'
 
 export const initDefaultSession = async () => {
   const config = await getUserConfig()
-  const modelName = config.modelName
   return initSession({
     sessionName: new Date().toLocaleString(),
-    modelName: modelName,
+    modelName: config.modelName,
+    apiMode: config.apiMode,
     autoClean: false,
+    extraCustomModelName: config.customModelName,
   })
 }
 

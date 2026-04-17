@@ -1,5 +1,6 @@
-import { Models } from '../config/index.mjs'
 import { v4 as uuidv4 } from 'uuid'
+import { apiModeToModelName, modelNameToDesc } from '../utils/model-name-convert.mjs'
+import { t } from 'i18next'
 
 /**
  * @typedef {object} Session
@@ -35,6 +36,8 @@ import { v4 as uuidv4 } from 'uuid'
  * @param {string|null} sessionName
  * @param {string|null} modelName
  * @param {boolean|null} autoClean
+ * @param {Object|null} apiMode
+ * @param {string} extraCustomModelName
  * @returns {Session}
  */
 export function initSession({
@@ -43,6 +46,8 @@ export function initSession({
   sessionName = null,
   modelName = null,
   autoClean = false,
+  apiMode = null,
+  extraCustomModelName = '',
 } = {}) {
   return {
     // common
@@ -54,8 +59,16 @@ export function initSession({
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
 
-    aiName: modelName ? Models[modelName].desc : null,
+    aiName:
+      modelName || apiMode
+        ? modelNameToDesc(
+            apiMode ? apiModeToModelName(apiMode) : modelName,
+            t,
+            extraCustomModelName,
+          )
+        : null,
     modelName,
+    apiMode,
 
     autoClean,
     isRetry: false,
@@ -85,7 +98,7 @@ export function initSession({
 
     // claude.ai
     claude_conversation: null,
-    // kimi.moonshot.cn
+    // kimi.com
     moonshot_conversation: null,
   }
 }

@@ -51,17 +51,17 @@
         {
           "operation": "set",
           "header": "origin",
-          "value": "https://tcr9i.chat.openai.com"
+          "value": "https://claude.ai"
         },
         {
           "operation": "set",
           "header": "referer",
-          "value": "https://tcr9i.chat.openai.com/v2/2.6.1/enforcement.bf6c920f19fb49ce16c82aaef4b83f45.html"
+          "value": "https://claude.ai"
         }
       ]
     },
     "condition": {
-      "requestDomains": ["https://tcr9i.chat.openai.com"],
+      "requestDomains": ["claude.ai"],
       "resourceTypes": ["xmlhttprequest"]
     }
   }

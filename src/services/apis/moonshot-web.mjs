@@ -1,7 +1,8 @@
 import { pushRecord, setAbortController } from './shared.mjs'
-import { Models, setUserConfig } from '../../config/index.mjs'
+import { setUserConfig } from '../../config/index.mjs'
 import { fetchSSE } from '../../utils/fetch-sse'
 import { isEmpty } from 'lodash-es'
+import { getModelValue } from '../../utils/model-name-convert.mjs'
 
 export class MoonshotWeb {
   /**
@@ -117,7 +118,7 @@ export class MoonshotWeb {
     }
     if (!this.proxy) {
       this.proxy = ({ endpoint, options }) => ({
-        endpoint: 'https://kimi.moonshot.cn' + endpoint,
+        endpoint: 'https://www.kimi.com' + endpoint,
         options,
       })
     }
@@ -138,7 +139,7 @@ export class MoonshotWeb {
       headers: {
         accept: '*/*',
         Authorization: `Bearer ${this.accessToken}`,
-        Origin: 'https://kimi.moonshot.cn',
+        Origin: 'https://www.kimi.com',
       },
       method: 'GET',
     })
@@ -149,7 +150,7 @@ export class MoonshotWeb {
         headers: {
           accept: '*/*',
           Authorization: `Bearer ${this.refreshToken}`,
-          Origin: 'https://kimi.moonshot.cn',
+          Origin: 'https://www.kimi.com',
         },
         method: 'GET',
       })
@@ -186,7 +187,7 @@ export class MoonshotWeb {
         accept: '*/*',
         'content-type': 'application/json',
         Authorization: `Bearer ${this.accessToken}`,
-        Origin: 'https://kimi.moonshot.cn',
+        Origin: 'https://www.kimi.com',
       },
       method: 'POST',
       signal: params.signal,
@@ -315,7 +316,9 @@ export class Conversation {
       throw new Error('moonshot not initialized')
     }
     if (!this.moonshot.refreshToken) {
-      throw new Error('moonshot token required, please login at https://kimi.moonshot.cn first')
+      throw new Error(
+        'moonshot token required, please login at https://kimi.com first, and then click the retry button',
+      )
     }
     if (!this.conversationId) {
       throw new Error('Conversation ID required, are you calling `await moonshot.init()`?')
@@ -365,7 +368,7 @@ export class Conversation {
     {
       // eslint-disable-next-line no-unused-vars
       retry = false,
-      model = 'default',
+      model = 'k2',
       done = () => {},
       progress = () => {},
       // eslint-disable-next-line no-unused-vars
@@ -373,18 +376,23 @@ export class Conversation {
       signal = null,
     } = {},
   ) {
-    if (model === 'default') {
-      model = this.moonshot.defaultModel()
-    }
     // {"messages":[{"role":"user","content":"hello"}],"refs":[],"use_search":true}
-    const body = { messages: [{ role: 'user', content: message }], refs: [], use_search: true }
+    const body = {
+      kimiplus_id: 'kimi',
+      messages: [{ role: 'user', content: message }],
+      model,
+      refs: [],
+      use_search: true,
+      use_deep_research: false,
+      use_semantic_memory: false,
+    }
     let resolve, reject
     let returnPromise = new Promise((r, j) => {
       resolve = r
       reject = j
     })
     let fullResponse = ''
-    await fetchSSE(`https://kimi.moonshot.cn/api/chat/${this.conversationId}/completion/stream`, {
+    await fetchSSE(`https://www.kimi.com/api/chat/${this.conversationId}/completion/stream`, {
       method: 'POST',
       headers: {
         accept: '*/*',
@@ -401,6 +409,9 @@ export class Conversation {
         } catch (error) {
           console.debug('json error', error)
           return
+        }
+        if (parsed.error) {
+          throw new Error(message)
         }
         if (parsed.event === 'cmpl' && parsed.text) fullResponse += parsed.text
         const PROGRESS_OBJECT = {
@@ -444,7 +455,7 @@ export class Conversation {
       headers: {
         accept: '*/*',
         Authorization: `Bearer ${this.moonshot.accessToken}`,
-        Origin: 'https://kimi.moonshot.cn',
+        Origin: 'https://www.kimi.com',
       },
       method: 'DELETE',
     }).catch(errorHandle('Delete conversation ' + this.conversationId))
@@ -566,18 +577,12 @@ export class Message {
  * @param {string} question
  * @param {Session} session
  * @param {UserConfig} config
- * @param {string} modelName
  */
-export async function generateAnswersWithMoonshotWebApi(
-  port,
-  question,
-  session,
-  config,
-  modelName,
-) {
+export async function generateAnswersWithMoonshotWebApi(port, question, session, config) {
   const bot = new MoonshotWeb({ config })
   await bot.init()
   const { controller, cleanController } = setAbortController(port)
+  const model = getModelValue(session)
 
   let answer = ''
   const progressFunc = ({ completion }) => {
@@ -594,7 +599,7 @@ export async function generateAnswersWithMoonshotWebApi(
   const params = {
     progress: progressFunc,
     done: doneFunc,
-    model: Models[modelName].value,
+    model,
     signal: controller.signal,
   }
 

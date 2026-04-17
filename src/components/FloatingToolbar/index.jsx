@@ -22,7 +22,7 @@ function FloatingToolbar(props) {
   const windowSize = useClampWindowSize([750, 1500], [0, Infinity])
   const config = useConfig(() => {
     setRender(true)
-    if (!triggered) {
+    if (!triggered && selection) {
       props.container.style.position = 'absolute'
       setTimeout(() => {
         const left = Math.min(
@@ -49,7 +49,7 @@ function FloatingToolbar(props) {
 
   if (!render) return <div />
 
-  if (triggered) {
+  if (triggered || (prompt && !selection)) {
     const updatePosition = () => {
       const newPosition = setElementPositionInViewport(props.container, position.x, position.y)
       if (position.x !== newPosition.x || position.y !== newPosition.y) setPosition(newPosition) // clear extra virtual position offset
@@ -106,6 +106,7 @@ function FloatingToolbar(props) {
                 dockable={props.dockable}
                 onDock={onDock}
                 onUpdate={onUpdate}
+                waitForTrigger={prompt && !triggered && !selection}
               />
             </div>
           </div>
