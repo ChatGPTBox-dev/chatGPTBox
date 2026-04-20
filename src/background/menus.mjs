@@ -5,10 +5,21 @@ import { config as menuConfig } from '../content-script/menu-tools/index.mjs'
 
 const menuId = 'ChatGPTBox-Menu'
 const onClickMenu = (info, tab) => {
+  const itemId = info.menuItemId.replace(menuId, '')
+
+  // sidePanel.open() must be called synchronously within the user gesture handler.
+  // Calling it inside a Promise callback (e.g. Browser.tabs.query().then()) breaks
+  // Chrome's user gesture requirement and causes the error:
+  // "sidePanel.open() may only be called in response to a user gesture."
+  if (itemId === 'openSidePanel' && menuConfig.openSidePanel?.action) {
+    menuConfig.openSidePanel.action(true, tab)
+    return
+  }
+
   Browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
     const currentTab = tabs[0]
     const message = {
-      itemId: info.menuItemId.replace(menuId, ''),
+      itemId,
       selectionText: info.selectionText,
       useMenuPosition: tab.id === currentTab.id,
     }
