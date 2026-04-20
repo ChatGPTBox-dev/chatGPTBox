@@ -12,7 +12,15 @@ const onClickMenu = (info, tab) => {
   // Chrome's user gesture requirement and causes the error:
   // "sidePanel.open() may only be called in response to a user gesture."
   if (itemId === 'openSidePanel' && menuConfig.openSidePanel?.action) {
-    menuConfig.openSidePanel.action(true, tab)
+    // Keep the call synchronous to preserve the user-gesture requirement,
+    // but observe the returned Promise so a rejected sidePanel.open() does
+    // not become an unhandled rejection in the background script.
+    const result = menuConfig.openSidePanel.action(true, tab)
+    if (result && typeof result.catch === 'function') {
+      result.catch((error) => {
+        console.error('failed to open side panel', error)
+      })
+    }
     return
   }
 
