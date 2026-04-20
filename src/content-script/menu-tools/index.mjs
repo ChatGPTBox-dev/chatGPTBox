@@ -63,6 +63,11 @@ export const config = {
       console.debug('action is from background', fromBackground)
       if (fromBackground) {
         // eslint-disable-next-line no-undef
+        if (typeof chrome === 'undefined' || !chrome.sidePanel?.open) {
+          // sidePanel API is not available in this browser (e.g. Firefox)
+          return Promise.reject(new Error('chrome.sidePanel API is not available'))
+        }
+        // eslint-disable-next-line no-undef
         return chrome.sidePanel.open({ windowId: tab.windowId, tabId: tab.id })
       }
       // side panel is not supported

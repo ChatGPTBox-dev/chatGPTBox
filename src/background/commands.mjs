@@ -12,7 +12,16 @@ export function registerCommands() {
 
     if (command in menuConfig) {
       if (menuConfig[command].action) {
-        menuConfig[command].action(true, tab)
+        // The action may return a Promise (e.g. openSidePanel returns the
+        // chrome.sidePanel.open() Promise). Keep the call synchronous so the
+        // user-gesture context is preserved, but observe the Promise so a
+        // rejection does not become an unhandled rejection in the background.
+        const result = menuConfig[command].action(true, tab)
+        if (result && typeof result.catch === 'function') {
+          result.catch((error) => {
+            console.error(`failed to run command action "${command}"`, error)
+          })
+        }
       }
 
       if (menuConfig[command].genPrompt) {
