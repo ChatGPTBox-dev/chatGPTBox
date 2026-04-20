@@ -16,7 +16,16 @@ export function registerCommands() {
         // chrome.sidePanel.open() Promise). Keep the call synchronous so the
         // user-gesture context is preserved, but observe the Promise so a
         // rejection does not become an unhandled rejection in the background.
-        const result = menuConfig[command].action(true, tab)
+        // Also wrap in try/catch because Browser.commands.onCommand documents
+        // `tab` as optional, so an action that dereferences tab.* (e.g. the
+        // openSidePanel call) can throw synchronously.
+        let result
+        try {
+          result = menuConfig[command].action(true, tab)
+        } catch (error) {
+          console.error(`failed to run command action "${command}"`, error)
+          return
+        }
         if (result && typeof result.catch === 'function') {
           result.catch((error) => {
             console.error(`failed to run command action "${command}"`, error)
