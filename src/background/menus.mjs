@@ -15,7 +15,17 @@ const onClickMenu = (info, tab) => {
     // Keep the call synchronous to preserve the user-gesture requirement,
     // but observe the returned Promise so a rejected sidePanel.open() does
     // not become an unhandled rejection in the background script.
-    const result = menuConfig.openSidePanel.action(true, tab)
+    // Also wrap in try/catch because contextMenus.onClicked documents `tab`
+    // as optional ("If the click did not take place in a tab, this parameter
+    // will be missing"), so the openSidePanel action that dereferences
+    // tab.windowId/tab.id can throw synchronously.
+    let result
+    try {
+      result = menuConfig.openSidePanel.action(true, tab)
+    } catch (error) {
+      console.error('failed to open side panel', error)
+      return
+    }
     if (result && typeof result.catch === 'function') {
       result.catch((error) => {
         console.error('failed to open side panel', error)
