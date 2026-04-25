@@ -51,11 +51,10 @@ export default {
       const subtitleData = await subtitleResponse.json()
       const subtitles = subtitleData.body
 
-      let subtitleContent = ''
-      for (let i = 0; i < subtitles.length; i++) {
-        if (i === subtitles.length - 1) subtitleContent += subtitles[i].content
-        else subtitleContent += subtitles[i].content + ','
-      }
+      const subtitleContent = subtitles
+        .map((s) => s.content)
+        .filter((c) => c != null)
+        .join(',')
 
       return await cropText(
         `You are an expert video summarizer. Create a comprehensive summary of the following Bilibili video in markdown format, ` +
