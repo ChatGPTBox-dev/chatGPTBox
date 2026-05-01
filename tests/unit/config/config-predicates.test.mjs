@@ -43,10 +43,7 @@ const representativeOpenRouterApiModelNames = [
   'openRouter_anthropic_claude_sonnet4',
   'openRouter_openai_o3',
 ]
-const representativeAimlApiModelNames = [
-  'aiml_claude_sonnet_4_6_20260218',
-  'aiml_openai_gpt_5_2',
-]
+const representativeAimlApiModelNames = ['aiml_claude_sonnet_4_6_20260218', 'aiml_openai_gpt_5_2']
 
 const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
 
