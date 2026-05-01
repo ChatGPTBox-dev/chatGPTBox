@@ -60,6 +60,7 @@ export const chatgptApiModelKeys = [
   'chatgptApi5_4',
   'chatgptApi5_4Mini',
   'chatgptApi5_4Nano',
+  'chatgptApi5_5',
   'chatgptApi4oMini',
   'chatgptApi4_8k',
   'chatgptApi4_8k_0613',
@@ -264,6 +265,7 @@ export const Models = {
   chatgptApi5_4: { value: 'gpt-5.4', desc: 'OpenAI (GPT-5.4)' },
   chatgptApi5_4Mini: { value: 'gpt-5.4-mini', desc: 'OpenAI (GPT-5.4 mini)' },
   chatgptApi5_4Nano: { value: 'gpt-5.4-nano', desc: 'OpenAI (GPT-5.4 nano)' },
+  chatgptApi5_5: { value: 'gpt-5.5', desc: 'OpenAI (GPT-5.5)' },
 
   chatgptApi4_1: { value: 'gpt-4.1', desc: 'OpenAI (GPT-4.1)' },
   chatgptApi4_1_mini: { value: 'gpt-4.1-mini', desc: 'OpenAI (GPT-4.1 mini)' },

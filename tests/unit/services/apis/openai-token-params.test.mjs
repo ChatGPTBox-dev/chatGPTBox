@@ -24,6 +24,7 @@ test('uses max_completion_tokens for recent gpt-5.x model names', () => {
     'gpt-5.3-chat-latest',
     'gpt-5.4-mini',
     'gpt-5.4-nano',
+    'gpt-5.5',
   ]
 
   for (const model of models) {
