@@ -8,13 +8,15 @@ import {
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
 
-const gpt5LatestCompatModelNames = [
+const latestCompatModelNames = [
+  'chatgptApi-chat-latest',
   'chatgptApi-gpt-5-chat-latest',
   'chatgptApi-gpt-5.1-chat-latest',
   'chatgptApi-gpt-5.2-chat-latest',
   'chatgptApi-gpt-5.3-chat-latest',
 ]
-const gpt5LatestMappedModels = [
+const latestMappedModels = [
+  ['chatgptApiChatLatest', 'chat-latest'],
   ['chatgptApi5Latest', 'gpt-5-chat-latest'],
   ['chatgptApi5_1Latest', 'gpt-5.1-chat-latest'],
   ['chatgptApi5_2Latest', 'gpt-5.2-chat-latest'],
@@ -93,7 +95,7 @@ test('generateAnswersWithOpenAiApiCompat sends expected request and aggregates S
   assert.deepEqual(session.conversationRecords.at(-1), { question: 'CurrentQ', answer: 'Hello' })
 })
 
-test('generateAnswersWithOpenAiApiCompat uses max_completion_tokens for OpenAI latest gpt-5 compat models', async (t) => {
+test('generateAnswersWithOpenAiApiCompat uses max_completion_tokens for OpenAI latest compat models', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -108,7 +110,7 @@ test('generateAnswersWithOpenAiApiCompat uses max_completion_tokens for OpenAI l
     ])
   })
 
-  for (const modelName of gpt5LatestCompatModelNames) {
+  for (const modelName of latestCompatModelNames) {
     capturedInit = undefined
     const session = {
       modelName,
@@ -133,7 +135,7 @@ test('generateAnswersWithOpenAiApiCompat uses max_completion_tokens for OpenAI l
   }
 })
 
-test('generateAnswersWithOpenAiApiCompat uses latest mapped gpt-5 API model values', async (t) => {
+test('generateAnswersWithOpenAiApiCompat uses latest mapped API model values', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -148,7 +150,7 @@ test('generateAnswersWithOpenAiApiCompat uses latest mapped gpt-5 API model valu
     ])
   })
 
-  for (const [modelName, expectedModel] of gpt5LatestMappedModels) {
+  for (const [modelName, expectedModel] of latestMappedModels) {
     capturedInit = undefined
     const session = {
       modelName,
@@ -279,7 +281,7 @@ test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-5.4 nano',
   assert.equal(Object.hasOwn(body, 'max_tokens'), false)
 })
 
-test('generateAnswersWithOpenAiApiCompat keeps max_tokens for latest mapped gpt-5 models in compat provider', async (t) => {
+test('generateAnswersWithOpenAiApiCompat keeps max_tokens for latest mapped models in compat provider', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -294,7 +296,7 @@ test('generateAnswersWithOpenAiApiCompat keeps max_tokens for latest mapped gpt-
     ])
   })
 
-  for (const [modelName, expectedModel] of gpt5LatestMappedModels) {
+  for (const [modelName, expectedModel] of latestMappedModels) {
     capturedInit = undefined
     const session = {
       modelName,
@@ -361,7 +363,7 @@ test('generateAnswersWithOpenAiApiCompat removes conflicting token key from extr
   assert.equal(body.top_p, 0.9)
 })
 
-test('generateAnswersWithOpenAiApiCompat removes max_tokens from extraBody for OpenAI gpt-5 models', async (t) => {
+test('generateAnswersWithOpenAiApiCompat removes max_tokens from extraBody for OpenAI latest models', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -376,7 +378,7 @@ test('generateAnswersWithOpenAiApiCompat removes max_tokens from extraBody for O
     ])
   })
 
-  for (const modelName of gpt5LatestCompatModelNames) {
+  for (const modelName of latestCompatModelNames) {
     capturedInit = undefined
     const session = {
       modelName,
@@ -446,7 +448,7 @@ test('generateAnswersWithOpenAiApiCompat allows max_tokens override for compat p
   assert.equal(body.top_p, 0.75)
 })
 
-test('generateAnswersWithOpenAiApiCompat allows max_completion_tokens override for OpenAI gpt-5 models', async (t) => {
+test('generateAnswersWithOpenAiApiCompat allows max_completion_tokens override for OpenAI latest models', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 3,
@@ -461,7 +463,7 @@ test('generateAnswersWithOpenAiApiCompat allows max_completion_tokens override f
     ])
   })
 
-  for (const modelName of gpt5LatestCompatModelNames) {
+  for (const modelName of latestCompatModelNames) {
     capturedInit = undefined
     const session = {
       modelName,

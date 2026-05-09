@@ -257,6 +257,7 @@ test('modelNameToValue returns value for known model', () => {
 })
 
 test('modelNameToValue returns endpoint for latest chatgptApi models', () => {
+  assert.equal(modelNameToValue('chatgptApiChatLatest'), 'chat-latest')
   assert.equal(modelNameToValue('chatgptApi5Latest'), 'gpt-5-chat-latest')
   assert.equal(modelNameToValue('chatgptApi5_1Latest'), 'gpt-5.1-chat-latest')
   assert.equal(modelNameToValue('chatgptApi5_2Latest'), 'gpt-5.2-chat-latest')

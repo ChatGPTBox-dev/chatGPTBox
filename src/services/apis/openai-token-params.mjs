@@ -1,4 +1,4 @@
-const GPT5_CHAT_COMPLETIONS_MODEL_PATTERN = /^gpt-5([.-]|$)/
+const OPENAI_MAX_COMPLETION_TOKENS_MODEL_PATTERN = /^(?:gpt-5(?:[.-]|$)|chat-latest$)/
 
 function shouldUseMaxCompletionTokens(provider, model) {
   const normalizedProvider = String(provider || '').toLowerCase()
@@ -6,7 +6,7 @@ function shouldUseMaxCompletionTokens(provider, model) {
 
   switch (true) {
     case normalizedProvider === 'openai' &&
-      GPT5_CHAT_COMPLETIONS_MODEL_PATTERN.test(normalizedModel):
+      OPENAI_MAX_COMPLETION_TOKENS_MODEL_PATTERN.test(normalizedModel):
       return true
     default:
       return false

@@ -8,6 +8,12 @@ test('uses max_completion_tokens for gpt-5.x chat models', () => {
   })
 })
 
+test('uses max_completion_tokens for chat-latest model', () => {
+  assert.deepEqual(getChatCompletionsTokenParams('openai', 'chat-latest', 1025), {
+    max_completion_tokens: 1025,
+  })
+})
+
 test('uses max_tokens for provider-prefixed gpt-5.x model names', () => {
   assert.deepEqual(getChatCompletionsTokenParams('openai', 'openai/gpt-5.2', 2048), {
     max_tokens: 2048,
@@ -48,6 +54,9 @@ test('uses max_tokens for non gpt-5 chat models', () => {
 test('uses max_tokens for lookalike model names', () => {
   assert.deepEqual(getChatCompletionsTokenParams('openai', 'my-gpt-5-clone', 640), {
     max_tokens: 640,
+  })
+  assert.deepEqual(getChatCompletionsTokenParams('openai', 'my-chat-latest', 641), {
+    max_tokens: 641,
   })
 })
 
