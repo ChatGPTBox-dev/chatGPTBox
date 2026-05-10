@@ -44,7 +44,7 @@ export class Claude {
    * @param {function} [options.fetch] - Fetch function
    * @example
    * const claude = new Claude({
-   *   sessionKey: 'sk-ant-sidXX-*****',
+   *   sessionKey: 'sk-ant-sid02-*****',
    *   fetch: globalThis.fetch
    * })
    *
@@ -75,7 +75,7 @@ export class Claude {
       throw new Error('Session key required')
     }
     if (!/^sk-ant-sid\d+-/.test(sessionKey)) {
-      throw new Error('Session key invalid: Must be in the format sk-ant-sidXX-*****')
+      throw new Error('Session key invalid: Must be in the format sk-ant-sid02-*****')
     }
     if (fetch) {
       this.fetch = fetch
@@ -164,7 +164,7 @@ export class Claude {
     // Can't figure out a way to test this so I'm just assuming it works
     if (!(this.fetch || globalThis.fetch)) {
       throw new Error(
-        `No fetch available in your environment. Use node-18 or later, a modern browser, or add the following code to your project:\n\nimport "isomorphic-fetch";\nconst claude = new Claude({fetch: fetch, sessionKey: "sk-ant-sidXX-*****"});`,
+        `No fetch available in your environment. Use node-18 or later, a modern browser, or add the following code to your project:\n\nimport "isomorphic-fetch";\nconst claude = new Claude({fetch: fetch, sessionKey: "sk-ant-sid02-*****"});`,
       )
     }
     if (!this.proxy) {
