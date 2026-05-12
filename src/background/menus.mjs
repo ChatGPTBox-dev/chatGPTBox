@@ -34,33 +34,48 @@ const onClickMenu = (info, tab) => {
     return
   }
 
-  Browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
-    const currentTab = tabs[0]
-    const message = {
-      itemId,
-      selectionText: info.selectionText,
-      useMenuPosition: tab.id === currentTab.id,
-    }
-    console.debug('menu clicked', message)
-
-    if (defaultConfig.selectionTools.includes(message.itemId)) {
-      Browser.tabs.sendMessage(currentTab.id, {
-        type: 'CREATE_CHAT',
-        data: message,
-      })
-    } else if (message.itemId in menuConfig) {
-      if (menuConfig[message.itemId].action) {
-        menuConfig[message.itemId].action(true, tab)
+  Browser.tabs
+    .query({ active: true, currentWindow: true })
+    .then((tabs) => {
+      const currentTab = tabs && tabs[0]
+      if (!currentTab) {
+        console.debug('menu clicked but no active tab found, skipping')
+        return
       }
 
-      if (menuConfig[message.itemId].genPrompt) {
+      // contextMenus.onClicked documents `tab` as optional ("If the click did
+      // not take place in a tab, this parameter will be missing"), so guard
+      // before dereferencing tab.id when computing useMenuPosition.
+      const message = {
+        itemId,
+        selectionText: info.selectionText,
+        useMenuPosition: tab ? tab.id === currentTab.id : false,
+      }
+      console.debug('menu clicked', message)
+
+      if (defaultConfig.selectionTools.includes(message.itemId)) {
         Browser.tabs.sendMessage(currentTab.id, {
           type: 'CREATE_CHAT',
           data: message,
         })
+      } else if (message.itemId in menuConfig) {
+        if (menuConfig[message.itemId].action) {
+          menuConfig[message.itemId].action(true, tab)
+        }
+
+        if (menuConfig[message.itemId].genPrompt) {
+          Browser.tabs.sendMessage(currentTab.id, {
+            type: 'CREATE_CHAT',
+            data: message,
+          })
+        }
       }
-    }
-  })
+    })
+    .catch((error) => {
+      // Browser.tabs.query() can reject (e.g. on permission errors); make sure
+      // it does not become an unhandled promise rejection in the background.
+      console.error('failed to query active tab for menu click', error)
+    })
 }
 export function refreshMenu() {
   if (Browser.contextMenus.onClicked.hasListener(onClickMenu))
