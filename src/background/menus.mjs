@@ -60,7 +60,22 @@ const onClickMenu = (info, tab) => {
         })
       } else if (message.itemId in menuConfig) {
         if (menuConfig[message.itemId].action) {
-          menuConfig[message.itemId].action(true, tab)
+          // Several actions in menuConfig are async (e.g. tabs/windows calls)
+          // and can throw synchronously or return a rejected Promise. Mirror
+          // the handling already used for openSidePanel above and in
+          // commands.mjs so neither path leaks an unhandled rejection in the
+          // background script.
+          let actionResult
+          try {
+            actionResult = menuConfig[message.itemId].action(true, tab)
+          } catch (error) {
+            console.error(`failed to run menu action "${message.itemId}"`, error)
+          }
+          if (actionResult && typeof actionResult.catch === 'function') {
+            actionResult.catch((error) => {
+              console.error(`failed to run menu action "${message.itemId}"`, error)
+            })
+          }
         }
 
         if (menuConfig[message.itemId].genPrompt) {
