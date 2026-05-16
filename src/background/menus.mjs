@@ -54,10 +54,18 @@ const onClickMenu = (info, tab) => {
       console.debug('menu clicked', message)
 
       if (defaultConfig.selectionTools.includes(message.itemId)) {
-        Browser.tabs.sendMessage(currentTab.id, {
-          type: 'CREATE_CHAT',
-          data: message,
-        })
+        // Browser.tabs.sendMessage() (via webextension-polyfill) returns a
+        // Promise that commonly rejects (no content script listening, restricted
+        // pages such as chrome://, stale content scripts after extension reload)
+        // — observe it so we don't leak unhandled rejections in the background.
+        Browser.tabs
+          .sendMessage(currentTab.id, {
+            type: 'CREATE_CHAT',
+            data: message,
+          })
+          .catch((error) => {
+            console.error(`failed to send CREATE_CHAT message for "${message.itemId}"`, error)
+          })
       } else if (message.itemId in menuConfig) {
         if (menuConfig[message.itemId].action) {
           // Several actions in menuConfig are async (e.g. tabs/windows calls)
@@ -79,10 +87,17 @@ const onClickMenu = (info, tab) => {
         }
 
         if (menuConfig[message.itemId].genPrompt) {
-          Browser.tabs.sendMessage(currentTab.id, {
-            type: 'CREATE_CHAT',
-            data: message,
-          })
+          // Same rationale as the sendMessage call above — observe the Promise
+          // so a rejected sendMessage (no content script, restricted page, etc.)
+          // doesn't surface as an unhandled rejection in the background.
+          Browser.tabs
+            .sendMessage(currentTab.id, {
+              type: 'CREATE_CHAT',
+              data: message,
+            })
+            .catch((error) => {
+              console.error(`failed to send CREATE_CHAT message for "${message.itemId}"`, error)
+            })
         }
       }
     })
