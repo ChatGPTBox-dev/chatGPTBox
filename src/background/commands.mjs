@@ -34,11 +34,36 @@ export function registerCommands() {
       }
 
       if (menuConfig[command].genPrompt) {
-        const currentTab = (await Browser.tabs.query({ active: true, currentWindow: true }))[0]
-        Browser.tabs.sendMessage(currentTab.id, {
-          type: 'CREATE_CHAT',
-          data: message,
-        })
+        // Mirror the pattern in menus.mjs so no step here can leak an
+        // unhandled rejection in the background:
+        //   - Browser.tabs.query() can reject (permission errors, etc.) —
+        //     observe via try/catch.
+        //   - tabs[0] may be undefined when no active tab exists — guard
+        //     before dereferencing currentTab.id.
+        //   - Browser.tabs.sendMessage() (via webextension-polyfill) rejects
+        //     in normal extension usage (no content script listening,
+        //     restricted pages like chrome://, stale content scripts after
+        //     extension reload) — attach a .catch().
+        let tabs
+        try {
+          tabs = await Browser.tabs.query({ active: true, currentWindow: true })
+        } catch (error) {
+          console.error(`failed to query active tab for command "${command}"`, error)
+          return
+        }
+        const currentTab = tabs && tabs[0]
+        if (!currentTab) {
+          console.debug(`command "${command}" triggered but no active tab found, skipping`)
+          return
+        }
+        Browser.tabs
+          .sendMessage(currentTab.id, {
+            type: 'CREATE_CHAT',
+            data: message,
+          })
+          .catch((error) => {
+            console.error(`failed to send CREATE_CHAT message for command "${command}"`, error)
+          })
       }
     }
   })
