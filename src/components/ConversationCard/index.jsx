@@ -72,7 +72,7 @@ function ConversationCard(props) {
 
   /**
    * @type {[ConversationItemData[], (conversationItemData: ConversationItemData[]) => void]}
-  */
+   */
   const [conversationItemData, setConversationItemData] = useState([])
   const config = useConfig()
   const customOpenAIProviders = Array.isArray(config.customOpenAIProviders)
