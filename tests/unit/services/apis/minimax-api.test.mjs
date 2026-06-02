@@ -21,7 +21,7 @@ test('generateAnswersWithMiniMaxApi sends request to MiniMax base URL', async (t
   })
 
   const session = {
-    modelName: 'minimax_m27',
+    modelName: 'minimax_m3',
     conversationRecords: [{ question: 'PrevQ', answer: 'PrevA' }],
     isRetry: false,
   }
@@ -63,7 +63,7 @@ test('generateAnswersWithMiniMaxApi aggregates SSE deltas and posts messages', a
   })
 
   const session = {
-    modelName: 'minimax_m25',
+    modelName: 'minimax_m27',
     conversationRecords: [],
     isRetry: false,
   }
@@ -105,7 +105,7 @@ test('generateAnswersWithMiniMaxApi throws on non-ok response', async (t) => {
   })
 
   const session = {
-    modelName: 'minimax_m25_highspeed',
+    modelName: 'minimax_m27_highspeed',
     conversationRecords: [],
     isRetry: false,
   }

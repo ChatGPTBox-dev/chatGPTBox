@@ -112,7 +112,7 @@ export const moonshotApiModelKeys = [
   'moonshot_v1_128k',
 ]
 export const deepSeekApiModelKeys = ['deepseek_chat', 'deepseek_reasoner']
-export const miniMaxApiModelKeys = ['minimax_m27', 'minimax_m25', 'minimax_m25_highspeed']
+export const miniMaxApiModelKeys = ['minimax_m3', 'minimax_m27', 'minimax_m27_highspeed']
 export const openRouterApiModelKeys = [
   'openRouter_auto',
   'openRouter_free',
@@ -395,17 +395,17 @@ export const Models = {
     desc: 'DeepSeek (Reasoner)',
   },
 
+  minimax_m3: {
+    value: 'MiniMax-M3',
+    desc: 'MiniMax (M3)',
+  },
   minimax_m27: {
     value: 'MiniMax-M2.7',
     desc: 'MiniMax (M2.7)',
   },
-  minimax_m25: {
-    value: 'MiniMax-M2.5',
-    desc: 'MiniMax (M2.5)',
-  },
-  minimax_m25_highspeed: {
-    value: 'MiniMax-M2.5-highspeed',
-    desc: 'MiniMax (M2.5 Highspeed, 204K)',
+  minimax_m27_highspeed: {
+    value: 'MiniMax-M2.7-highspeed',
+    desc: 'MiniMax (M2.7 Highspeed, 204K)',
   },
 
   openRouter_anthropic_claude_sonnet4: {

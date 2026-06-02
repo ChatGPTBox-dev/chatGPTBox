@@ -194,9 +194,9 @@ test('isUsingDeepSeekApiModel detects DeepSeek models', () => {
 })
 
 test('isUsingMiniMaxApiModel detects MiniMax models', () => {
+  assert.equal(isUsingMiniMaxApiModel({ modelName: 'minimax_m3' }), true)
   assert.equal(isUsingMiniMaxApiModel({ modelName: 'minimax_m27' }), true)
-  assert.equal(isUsingMiniMaxApiModel({ modelName: 'minimax_m25' }), true)
-  assert.equal(isUsingMiniMaxApiModel({ modelName: 'minimax_m25_highspeed' }), true)
+  assert.equal(isUsingMiniMaxApiModel({ modelName: 'minimax_m27_highspeed' }), true)
   assert.equal(isUsingMiniMaxApiModel({ modelName: 'chatgptApi4oMini' }), false)
 })
 

@@ -23,9 +23,9 @@ describe('MiniMax integration', () => {
   })
 
   test('MiniMax model values match expected API model names', () => {
+    assert.equal(Models.minimax_m3.value, 'MiniMax-M3')
     assert.equal(Models.minimax_m27.value, 'MiniMax-M2.7')
-    assert.equal(Models.minimax_m25.value, 'MiniMax-M2.5')
-    assert.equal(Models.minimax_m25_highspeed.value, 'MiniMax-M2.5-highspeed')
+    assert.equal(Models.minimax_m27_highspeed.value, 'MiniMax-M2.7-highspeed')
   })
 
   test('isUsingMiniMaxApiModel does not match other provider models', () => {
