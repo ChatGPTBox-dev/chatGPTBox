@@ -88,6 +88,7 @@ export const claudeApiModelKeys = [
   'claudeOpus41Api',
   'claudeOpus45Api',
   'claudeOpus46Api',
+  'claudeOpus48Api',
   'claudeSonnet4Api',
   'claudeSonnet45Api',
   'claudeSonnet46Api',
@@ -128,6 +129,7 @@ export const openRouterApiModelKeys = [
   'openRouter_anthropic_claude_sonnet4_5',
   'openRouter_anthropic_claude_opus4_5',
   'openRouter_anthropic_claude_opus4_6',
+  'openRouter_anthropic_claude_opus4_8',
   'openRouter_anthropic_claude_haiku4_5',
   'openRouter_anthropic_claude_3_7_sonnet',
   'openRouter_google_gemini_2_5_pro',
@@ -306,6 +308,10 @@ export const Models = {
     value: 'claude-opus-4-6',
     desc: 'Anthropic (Claude Opus 4.6)',
   },
+  claudeOpus48Api: {
+    value: 'claude-opus-4-8',
+    desc: 'Anthropic (Claude Opus 4.8)',
+  },
   claudeSonnet4Api: {
     value: 'claude-sonnet-4-20250514',
     desc: 'Anthropic (Claude Sonnet 4)',
@@ -417,6 +423,10 @@ export const Models = {
   openRouter_anthropic_claude_opus4_6: {
     value: 'anthropic/claude-opus-4.6',
     desc: 'OpenRouter (Claude Opus 4.6)',
+  },
+  openRouter_anthropic_claude_opus4_8: {
+    value: 'anthropic/claude-opus-4.8',
+    desc: 'OpenRouter (Claude Opus 4.8)',
   },
   openRouter_anthropic_claude_3_7_sonnet: {
     value: 'anthropic/claude-3.7-sonnet',
