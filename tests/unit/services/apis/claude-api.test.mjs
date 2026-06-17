@@ -23,7 +23,7 @@ test('claude-api: sends correct URL and headers', async (t) => {
   })
 
   const session = {
-    modelName: 'claude37SonnetApi',
+    modelName: 'claudeSonnet46Api',
     conversationRecords: [],
     isRetry: false,
   }
@@ -60,7 +60,7 @@ test('claude-api: sends model, max_tokens, temperature in body', async (t) => {
   })
 
   const session = {
-    modelName: 'claude37SonnetApi',
+    modelName: 'claudeSonnet46Api',
     conversationRecords: [],
     isRetry: false,
   }
@@ -78,7 +78,7 @@ test('claude-api: sends model, max_tokens, temperature in body', async (t) => {
   await generateAnswersWithClaudeApi(port, 'Q', session)
 
   const body = JSON.parse(capturedInit.body)
-  assert.equal(body.model, 'claude-3-7-sonnet-20250219')
+  assert.equal(body.model, 'claude-sonnet-4-6')
   assert.equal(body.max_tokens, 1024)
   assert.equal(body.temperature, 0.9)
   assert.equal(body.stream, true)
@@ -95,7 +95,7 @@ test('claude-api: delta.text streams accumulate and message_stop terminates', as
   })
 
   const session = {
-    modelName: 'claude37SonnetApi',
+    modelName: 'claudeSonnet46Api',
     conversationRecords: [{ question: 'PrevQ', answer: 'PrevA' }],
     isRetry: false,
   }
@@ -137,7 +137,7 @@ test('claude-api: pushRecord on message_stop', async (t) => {
   })
 
   const session = {
-    modelName: 'claude37SonnetApi',
+    modelName: 'claudeSonnet46Api',
     conversationRecords: [],
     isRetry: false,
   }
@@ -169,7 +169,7 @@ test('claude-api: cleans up listeners on end', async (t) => {
   })
 
   const session = {
-    modelName: 'claude37SonnetApi',
+    modelName: 'claudeSonnet46Api',
     conversationRecords: [],
     isRetry: false,
   }
@@ -198,7 +198,7 @@ test('claude-api: throws on error response', async (t) => {
   })
 
   const session = {
-    modelName: 'claude37SonnetApi',
+    modelName: 'claudeSonnet46Api',
     conversationRecords: [],
     isRetry: false,
   }
@@ -231,7 +231,7 @@ test('claude-api: ignores unparseable JSON messages', async (t) => {
   })
 
   const session = {
-    modelName: 'claude37SonnetApi',
+    modelName: 'claudeSonnet46Api',
     conversationRecords: [],
     isRetry: false,
   }

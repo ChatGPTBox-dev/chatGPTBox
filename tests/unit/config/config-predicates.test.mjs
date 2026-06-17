@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, test } from 'node:test'
 import {
   getNavigatorLanguage,
   getPreferredLanguageKey,
+  Models,
   chatgptApiModelKeys,
   gptApiModelKeys,
   claudeApiModelKeys,
@@ -39,12 +40,12 @@ const representativeChatgptApiModelNames = [
   'chatgptApi5_5',
 ]
 const representativeGptCompletionApiModelNames = ['gptApiInstruct']
-const representativeClaudeApiModelNames = ['claude37SonnetApi', 'claudeOpus4Api']
+const representativeClaudeApiModelNames = ['claudeOpus48Api', 'claudeSonnet46Api']
 const representativeOpenRouterApiModelNames = [
-  'openRouter_anthropic_claude_sonnet4',
-  'openRouter_openai_o3',
+  'openRouter_anthropic_claude_sonnet4_6',
+  'openRouter_openai_gpt_5_5',
 ]
-const representativeAimlApiModelNames = ['aiml_claude_sonnet_4_6_20260218', 'aiml_openai_gpt_5_2']
+const representativeAimlApiModelNames = ['aiml_claude_sonnet_4_6_20260218', 'aiml_openai_gpt_5_5']
 
 const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
 
@@ -182,13 +183,13 @@ test('isUsingClaudeApiModel accepts exported Claude API model keys', () => {
 
 test('isUsingMoonshotApiModel detects moonshot API models', () => {
   assert.equal(isUsingMoonshotApiModel({ modelName: 'moonshot_v1_8k' }), true)
-  assert.equal(isUsingMoonshotApiModel({ modelName: 'moonshot_k2' }), true)
+  assert.equal(isUsingMoonshotApiModel({ modelName: 'moonshot_k2_5' }), true)
   assert.equal(isUsingMoonshotApiModel({ modelName: 'moonshotWebFree' }), false)
 })
 
 test('isUsingDeepSeekApiModel detects DeepSeek models', () => {
-  assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_chat' }), true)
-  assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_reasoner' }), true)
+  assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_v4_flash' }), true)
+  assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_v4_pro' }), true)
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'chatgptApi4oMini' }), false)
 })
 
@@ -218,9 +219,18 @@ test('isUsingAimlApiModel accepts exported AI/ML model keys', () => {
   }
 })
 
+test('aimlApiModelKeys does not expose duplicate picker entries', () => {
+  const signatures = aimlApiModelKeys.map((modelName) => {
+    const model = Models[modelName]
+    return model.value + '\n' + model.desc
+  })
+
+  assert.equal(new Set(signatures).size, signatures.length)
+})
+
 test('isUsingChatGLMApiModel detects ChatGLM models', () => {
-  assert.equal(isUsingChatGLMApiModel({ modelName: 'chatglmTurbo' }), true)
-  assert.equal(isUsingChatGLMApiModel({ modelName: 'chatglm4' }), true)
+  assert.equal(isUsingChatGLMApiModel({ modelName: 'chatglm52' }), true)
+  assert.equal(isUsingChatGLMApiModel({ modelName: 'chatglm47' }), true)
   assert.equal(isUsingChatGLMApiModel({ modelName: 'chatgptApi4oMini' }), false)
 })
 

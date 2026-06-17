@@ -49,10 +49,6 @@ export const moonshotWebModelKeys = [
 ]
 export const gptApiModelKeys = ['gptApiInstruct']
 export const chatgptApiModelKeys = [
-  'chatgptApi35',
-  'chatgptApi35_16k',
-  'chatgptApi35_1106',
-  'chatgptApi35_0125',
   'chatgptApi4o_128k',
   'chatgptApiChatLatest',
   'chatgptApi5Latest',
@@ -67,12 +63,6 @@ export const chatgptApiModelKeys = [
   'chatgptApi5_4Nano',
   'chatgptApi5_5',
   'chatgptApi4oMini',
-  'chatgptApi4_8k',
-  'chatgptApi4_8k_0613',
-  'chatgptApi4_128k',
-  'chatgptApi4_128k_preview',
-  'chatgptApi4_128k_1106_preview',
-  'chatgptApi4_128k_0125_preview',
   'chatgptApi4_1',
   'chatgptApi4_1_mini',
   'chatgptApi4_1_nano',
@@ -81,20 +71,25 @@ export const customApiModelKeys = ['customModel']
 export const ollamaApiModelKeys = ['ollamaModel']
 export const azureOpenAiApiModelKeys = ['azureOpenAi']
 export const claudeApiModelKeys = [
-  'claude3HaikuApi',
-  'claude35HaikuApi',
-  'claude37SonnetApi',
-  'claudeOpus4Api',
   'claudeOpus41Api',
   'claudeOpus45Api',
   'claudeOpus46Api',
+  'claudeOpus47Api',
   'claudeOpus48Api',
-  'claudeSonnet4Api',
   'claudeSonnet45Api',
   'claudeSonnet46Api',
   'claudeHaiku45Api',
 ]
-export const chatglmApiModelKeys = ['chatglmTurbo', 'chatglm4', 'chatglmEmohaa', 'chatglmCharGLM3']
+export const chatglmApiModelKeys = [
+  'chatglm52',
+  'chatglm51',
+  'chatglm5',
+  'chatglm5Turbo',
+  'chatglm47',
+  'chatglm46',
+  'chatglm45Air',
+  'chatglm4Long',
+]
 export const githubThirdPartyApiModelKeys = ['waylaidwandererApi']
 export const poeWebModelKeys = [
   'poeAiWebSage', //poe.com/Assistant
@@ -112,30 +107,49 @@ export const poeWebModelKeys = [
   'poeAiWeb_Llama_2_70b',
 ]
 export const moonshotApiModelKeys = [
-  'moonshot_k2',
+  'moonshot_k2_5',
   'moonshot_kimi_latest',
   'moonshot_v1_8k',
   'moonshot_v1_32k',
   'moonshot_v1_128k',
 ]
-export const deepSeekApiModelKeys = ['deepseek_chat', 'deepseek_reasoner']
+export const deepSeekApiModelKeys = [
+  'deepseek_chat',
+  'deepseek_reasoner',
+  'deepseek_v4_flash',
+  'deepseek_v4_pro',
+]
 export const openRouterApiModelKeys = [
   'openRouter_auto',
   'openRouter_free',
-  'openRouter_google_gemini_3_pro',
   'openRouter_google_gemini_3_flash',
   'openRouter_google_gemini_3_1_pro',
-  'openRouter_anthropic_claude_sonnet4',
-  'openRouter_anthropic_claude_sonnet4_5',
-  'openRouter_anthropic_claude_opus4_5',
-  'openRouter_anthropic_claude_opus4_6',
   'openRouter_anthropic_claude_opus4_8',
   'openRouter_anthropic_claude_haiku4_5',
-  'openRouter_anthropic_claude_3_7_sonnet',
   'openRouter_google_gemini_2_5_pro',
   'openRouter_google_gemini_2_5_flash',
   'openRouter_openai_o3',
   'openRouter_openai_gpt_4_1_mini',
+  'openRouter_fusion',
+  'openRouter_openai_gpt_chat_latest',
+  'openRouter_openai_gpt_5_5',
+  'openRouter_openai_gpt_5_5_pro',
+  'openRouter_openai_gpt_5_4',
+  'openRouter_openai_gpt_5_4_mini',
+  'openRouter_openai_gpt_5_4_nano',
+  'openRouter_openai_gpt_5_2',
+  'openRouter_openai_gpt_5_1',
+  'openRouter_openai_gpt_4_1',
+  'openRouter_anthropic_claude_sonnet4_6',
+  'openRouter_google_gemini_3_5_flash',
+  'openRouter_google_gemini_2_5_flash_lite',
+  'openRouter_moonshot_kimi_k2_5',
+  'openRouter_zai_glm_5_2',
+  'openRouter_zai_glm_5_1',
+  'openRouter_zai_glm_5_turbo',
+  'openRouter_zai_glm_4_7',
+  'openRouter_deepseek_v4_pro',
+  'openRouter_deepseek_v4_flash',
 ]
 export const aimlApiModelKeys = [
   'aiml_claude_sonnet_4_6_20260218',
@@ -143,6 +157,17 @@ export const aimlApiModelKeys = [
   'aiml_google_gemini_3_flash_preview',
   'aiml_google_gemini_3_1_pro_preview',
   'aiml_moonshot_kimi_k2_5',
+  'aiml_openai_gpt_5_5',
+  'aiml_openai_gpt_5_4',
+  'aiml_openai_gpt_5_1',
+  'aiml_openai_gpt_5',
+  'aiml_claude_opus_4_8',
+  'aiml_claude_haiku_4_5',
+  'aiml_google_gemini_3_5_flash',
+  'aiml_google_gemini_2_5_pro',
+  'aiml_google_gemini_2_5_flash',
+  'aiml_deepseek_v4_pro',
+  'aiml_deepseek_v4_flash',
 ]
 
 export const AlwaysCustomGroups = [
@@ -240,28 +265,8 @@ export const Models = {
   chatgptPlus4: { value: 'gpt-4', desc: 'ChatGPT (Web, GPT-4)' },
   chatgptPlus4Browsing: { value: 'gpt-4', desc: 'ChatGPT (Web, GPT-4)' }, // for compatibility
 
-  chatgptApi35: { value: 'gpt-3.5-turbo', desc: 'OpenAI (GPT-3.5-turbo)' },
-  chatgptApi35_16k: { value: 'gpt-3.5-turbo-16k', desc: 'OpenAI (GPT-3.5-turbo-16k)' },
-
   chatgptApi4o_128k: { value: 'gpt-4o', desc: 'OpenAI (GPT-4o, 128k)' },
   chatgptApi4oMini: { value: 'gpt-4o-mini', desc: 'OpenAI (GPT-4o mini)' },
-  chatgptApi4_8k: { value: 'gpt-4', desc: 'OpenAI (GPT-4-8k)' },
-  chatgptApi4_128k: {
-    value: 'gpt-4-turbo',
-    desc: 'OpenAI (GPT-4-Turbo 128k)',
-  },
-  chatgptApi4_128k_preview: {
-    value: 'gpt-4-turbo-preview',
-    desc: 'OpenAI (GPT-4-Turbo 128k Preview)',
-  },
-  chatgptApi4_128k_1106_preview: {
-    value: 'gpt-4-1106-preview',
-    desc: 'OpenAI (GPT-4-Turbo 128k 1106 Preview)',
-  },
-  chatgptApi4_128k_0125_preview: {
-    value: 'gpt-4-0125-preview',
-    desc: 'OpenAI (GPT-4-Turbo 128k 0125 Preview)',
-  },
   chatgptApiChatLatest: { value: 'chat-latest', desc: 'OpenAI (Chat latest)' },
   chatgptApi5Latest: { value: 'gpt-5-chat-latest', desc: 'OpenAI (GPT-5 latest)' },
   chatgptApi5: { value: 'gpt-5', desc: 'OpenAI (GPT-5)' },
@@ -280,22 +285,6 @@ export const Models = {
   chatgptApi4_1_nano: { value: 'gpt-4.1-nano', desc: 'OpenAI (GPT-4.1 nano)' },
 
   claude2WebFree: { value: '', desc: 'Claude.ai (Web)' },
-  claude3HaikuApi: {
-    value: 'claude-3-haiku-20240307',
-    desc: 'Anthropic (Claude 3 Haiku)',
-  },
-  claude35HaikuApi: {
-    value: 'claude-3-5-haiku-20241022',
-    desc: 'Anthropic (Claude 3.5 Haiku)',
-  },
-  claude37SonnetApi: {
-    value: 'claude-3-7-sonnet-20250219',
-    desc: 'Anthropic (Claude 3.7 Sonnet)',
-  },
-  claudeOpus4Api: {
-    value: 'claude-opus-4-20250514',
-    desc: 'Anthropic (Claude Opus 4)',
-  },
   claudeOpus41Api: {
     value: 'claude-opus-4-1-20250805',
     desc: 'Anthropic (Claude Opus 4.1)',
@@ -308,13 +297,13 @@ export const Models = {
     value: 'claude-opus-4-6',
     desc: 'Anthropic (Claude Opus 4.6)',
   },
+  claudeOpus47Api: {
+    value: 'claude-opus-4-7',
+    desc: 'Anthropic (Claude Opus 4.7)',
+  },
   claudeOpus48Api: {
     value: 'claude-opus-4-8',
     desc: 'Anthropic (Claude Opus 4.8)',
-  },
-  claudeSonnet4Api: {
-    value: 'claude-sonnet-4-20250514',
-    desc: 'Anthropic (Claude Sonnet 4)',
   },
   claudeSonnet45Api: {
     value: 'claude-sonnet-4-5-20250929',
@@ -341,17 +330,17 @@ export const Models = {
 
   bardWebFree: { value: '', desc: 'Gemini (Web)' },
 
-  chatglmTurbo: { value: 'GLM-4-Air', desc: 'ChatGLM (GLM-4-Air, 128k)' },
-  chatglm4: { value: 'GLM-4-0520', desc: 'ChatGLM (GLM-4-0520, 128k)' },
-  chatglmEmohaa: { value: 'Emohaa', desc: 'ChatGLM (Emohaa)' },
-  chatglmCharGLM3: { value: 'CharGLM-3', desc: 'ChatGLM (CharGLM-3)' },
+  chatglm52: { value: 'glm-5.2', desc: 'ChatGLM (GLM-5.2)' },
+  chatglm51: { value: 'glm-5.1', desc: 'ChatGLM (GLM-5.1)' },
+  chatglm5: { value: 'glm-5', desc: 'ChatGLM (GLM-5)' },
+  chatglm5Turbo: { value: 'glm-5-turbo', desc: 'ChatGLM (GLM-5-Turbo)' },
+  chatglm47: { value: 'glm-4.7', desc: 'ChatGLM (GLM-4.7)' },
+  chatglm46: { value: 'glm-4.6', desc: 'ChatGLM (GLM-4.6)' },
+  chatglm45Air: { value: 'glm-4.5-air', desc: 'ChatGLM (GLM-4.5-Air)' },
+  chatglm4Long: { value: 'glm-4-long', desc: 'ChatGLM (GLM-4-Long)' },
 
   chatgptFree35Mobile: { value: 'text-davinci-002-render-sha-mobile', desc: 'ChatGPT (Mobile)' },
   chatgptPlus4Mobile: { value: 'gpt-4-mobile', desc: 'ChatGPT (Mobile, GPT-4)' },
-
-  chatgptApi35_1106: { value: 'gpt-3.5-turbo-1106', desc: 'OpenAI (GPT-3.5-turbo 1106)' },
-  chatgptApi35_0125: { value: 'gpt-3.5-turbo-0125', desc: 'OpenAI (GPT-3.5-turbo 0125)' },
-  chatgptApi4_8k_0613: { value: 'gpt-4', desc: 'OpenAI (GPT-4-8k 0613)' },
 
   gptApiInstruct: { value: 'gpt-3.5-turbo-instruct', desc: 'GPT-3.5-turbo Instruct' },
 
@@ -374,10 +363,11 @@ export const Models = {
   poeAiWebChatGpt_16k: { value: 'chatgpt-16k', desc: 'Poe AI (Web, ChatGPT-16k)' },
   poeAiWebCustom: { value: '', desc: 'Poe AI (Web, Custom)' },
 
-  moonshot_k2: {
-    value: 'kimi-k2-0711-preview',
-    desc: 'Kimi.Moonshot (k2)',
+  moonshot_k2_5: {
+    value: 'kimi-k2.5',
+    desc: 'Kimi.Moonshot (Kimi K2.5)',
   },
+
   moonshot_kimi_latest: {
     value: 'kimi-latest',
     desc: 'Kimi.Moonshot (kimi-latest)',
@@ -399,38 +389,31 @@ export const Models = {
     value: 'deepseek-chat',
     desc: 'DeepSeek (Chat)',
   },
+  deepseek_v4_flash: {
+    value: 'deepseek-v4-flash',
+    desc: 'DeepSeek (V4 Flash)',
+  },
+  deepseek_v4_pro: {
+    value: 'deepseek-v4-pro',
+    desc: 'DeepSeek (V4 Pro)',
+  },
+
   deepseek_reasoner: {
     value: 'deepseek-reasoner',
     desc: 'DeepSeek (Reasoner)',
   },
 
-  openRouter_anthropic_claude_sonnet4: {
-    value: 'anthropic/claude-sonnet-4',
-    desc: 'OpenRouter (Claude Sonnet 4)',
-  },
-  openRouter_anthropic_claude_sonnet4_5: {
-    value: 'anthropic/claude-sonnet-4.5',
-    desc: 'OpenRouter (Claude Sonnet 4.5)',
-  },
   openRouter_anthropic_claude_haiku4_5: {
     value: 'anthropic/claude-haiku-4.5',
     desc: 'OpenRouter (Claude Haiku 4.5)',
-  },
-  openRouter_anthropic_claude_opus4_5: {
-    value: 'anthropic/claude-opus-4.5',
-    desc: 'OpenRouter (Claude Opus 4.5)',
-  },
-  openRouter_anthropic_claude_opus4_6: {
-    value: 'anthropic/claude-opus-4.6',
-    desc: 'OpenRouter (Claude Opus 4.6)',
   },
   openRouter_anthropic_claude_opus4_8: {
     value: 'anthropic/claude-opus-4.8',
     desc: 'OpenRouter (Claude Opus 4.8)',
   },
-  openRouter_anthropic_claude_3_7_sonnet: {
-    value: 'anthropic/claude-3.7-sonnet',
-    desc: 'OpenRouter (Claude 3.7 Sonnet)',
+  openRouter_anthropic_claude_sonnet4_6: {
+    value: 'anthropic/claude-sonnet-4.6',
+    desc: 'OpenRouter (Claude Sonnet 4.6)',
   },
   openRouter_auto: {
     value: 'openrouter/auto',
@@ -440,13 +423,53 @@ export const Models = {
     value: 'openrouter/free',
     desc: 'OpenRouter (Free Models Router)',
   },
-  openRouter_google_gemini_3_pro: {
-    value: 'google/gemini-3-pro-preview',
-    desc: 'OpenRouter (Gemini 3 Pro)',
+  openRouter_fusion: {
+    value: 'openrouter/fusion',
+    desc: 'OpenRouter (Fusion)',
+  },
+  openRouter_openai_gpt_chat_latest: {
+    value: 'openai/gpt-chat-latest',
+    desc: 'OpenRouter (GPT Chat Latest)',
+  },
+  openRouter_openai_gpt_5_5: {
+    value: 'openai/gpt-5.5',
+    desc: 'OpenRouter (GPT-5.5)',
+  },
+  openRouter_openai_gpt_5_5_pro: {
+    value: 'openai/gpt-5.5-pro',
+    desc: 'OpenRouter (GPT-5.5 Pro)',
+  },
+  openRouter_openai_gpt_5_4: {
+    value: 'openai/gpt-5.4',
+    desc: 'OpenRouter (GPT-5.4)',
+  },
+  openRouter_openai_gpt_5_4_mini: {
+    value: 'openai/gpt-5.4-mini',
+    desc: 'OpenRouter (GPT-5.4 Mini)',
+  },
+  openRouter_openai_gpt_5_4_nano: {
+    value: 'openai/gpt-5.4-nano',
+    desc: 'OpenRouter (GPT-5.4 Nano)',
+  },
+  openRouter_openai_gpt_5_2: {
+    value: 'openai/gpt-5.2',
+    desc: 'OpenRouter (GPT-5.2)',
+  },
+  openRouter_openai_gpt_5_1: {
+    value: 'openai/gpt-5.1',
+    desc: 'OpenRouter (GPT-5.1)',
+  },
+  openRouter_openai_gpt_4_1: {
+    value: 'openai/gpt-4.1',
+    desc: 'OpenRouter (GPT-4.1)',
   },
   openRouter_google_gemini_3_flash: {
     value: 'google/gemini-3-flash-preview',
     desc: 'OpenRouter (Gemini 3 Flash)',
+  },
+  openRouter_google_gemini_3_5_flash: {
+    value: 'google/gemini-3.5-flash',
+    desc: 'OpenRouter (Gemini 3.5 Flash)',
   },
   openRouter_google_gemini_3_1_pro: {
     value: 'google/gemini-3.1-pro-preview',
@@ -460,6 +483,38 @@ export const Models = {
     value: 'google/gemini-2.5-flash',
     desc: 'OpenRouter (Gemini 2.5 Flash)',
   },
+  openRouter_google_gemini_2_5_flash_lite: {
+    value: 'google/gemini-2.5-flash-lite',
+    desc: 'OpenRouter (Gemini 2.5 Flash-Lite)',
+  },
+  openRouter_moonshot_kimi_k2_5: {
+    value: 'moonshotai/kimi-k2.5',
+    desc: 'OpenRouter (Kimi K2.5)',
+  },
+  openRouter_zai_glm_5_2: {
+    value: 'z-ai/glm-5.2',
+    desc: 'OpenRouter (GLM 5.2)',
+  },
+  openRouter_zai_glm_5_1: {
+    value: 'z-ai/glm-5.1',
+    desc: 'OpenRouter (GLM 5.1)',
+  },
+  openRouter_zai_glm_5_turbo: {
+    value: 'z-ai/glm-5-turbo',
+    desc: 'OpenRouter (GLM 5 Turbo)',
+  },
+  openRouter_zai_glm_4_7: {
+    value: 'z-ai/glm-4.7',
+    desc: 'OpenRouter (GLM 4.7)',
+  },
+  openRouter_deepseek_v4_pro: {
+    value: 'deepseek/deepseek-v4-pro',
+    desc: 'OpenRouter (DeepSeek V4 Pro)',
+  },
+  openRouter_deepseek_v4_flash: {
+    value: 'deepseek/deepseek-v4-flash',
+    desc: 'OpenRouter (DeepSeek V4 Flash)',
+  },
   openRouter_openai_o3: {
     value: 'openai/o3',
     desc: 'OpenRouter (GPT-o3)',
@@ -467,6 +522,30 @@ export const Models = {
   openRouter_openai_gpt_4_1_mini: {
     value: 'openai/gpt-4.1-mini',
     desc: 'OpenRouter (GPT-4.1 Mini)',
+  },
+  aiml_openai_gpt_5_5: {
+    value: 'openai/gpt-5-5',
+    desc: 'AIML (GPT-5.5)',
+  },
+  aiml_openai_gpt_5_4: {
+    value: 'openai/gpt-5-4',
+    desc: 'AIML (GPT-5.4)',
+  },
+  aiml_openai_gpt_5_1: {
+    value: 'openai/gpt-5-1',
+    desc: 'AIML (GPT-5.1)',
+  },
+  aiml_openai_gpt_5: {
+    value: 'openai/gpt-5',
+    desc: 'AIML (GPT-5)',
+  },
+  aiml_claude_opus_4_8: {
+    value: 'anthropic/claude-opus-4-8',
+    desc: 'AIML (Claude Opus 4.8)',
+  },
+  aiml_claude_haiku_4_5: {
+    value: 'anthropic/claude-haiku-4.5',
+    desc: 'AIML (Claude Haiku 4.5)',
   },
   aiml_claude_sonnet_4_6_20260218: {
     value: 'anthropic/claude-sonnet-4-6-20260218',
@@ -476,6 +555,10 @@ export const Models = {
     value: 'openai/gpt-5-2',
     desc: 'AIML (GPT-5.2)',
   },
+  aiml_google_gemini_3_5_flash: {
+    value: 'google/gemini-3-5-flash',
+    desc: 'AIML (Gemini 3.5 Flash)',
+  },
   aiml_google_gemini_3_flash_preview: {
     value: 'google/gemini-3-flash-preview',
     desc: 'AIML (Gemini 3 Flash)',
@@ -484,9 +567,25 @@ export const Models = {
     value: 'google/gemini-3-1-pro-preview',
     desc: 'AIML (Gemini 3.1 Pro)',
   },
+  aiml_google_gemini_2_5_pro: {
+    value: 'google/gemini-2.5-pro',
+    desc: 'AIML (Gemini 2.5 Pro)',
+  },
+  aiml_google_gemini_2_5_flash: {
+    value: 'google/gemini-2.5-flash',
+    desc: 'AIML (Gemini 2.5 Flash)',
+  },
   aiml_moonshot_kimi_k2_5: {
     value: 'moonshot/kimi-k2-5',
     desc: 'AIML (Kimi K2.5)',
+  },
+  aiml_deepseek_v4_pro: {
+    value: 'deepseek/deepseek-v4-pro',
+    desc: 'AIML (DeepSeek V4 Pro)',
+  },
+  aiml_deepseek_v4_flash: {
+    value: 'deepseek/deepseek-v4-flash',
+    desc: 'AIML (DeepSeek V4 Flash)',
   },
 }
 
@@ -589,9 +688,9 @@ export const defaultConfig = {
     'ollamaModel',
     'customModel',
     'azureOpenAi',
-    'openRouter_anthropic_claude_sonnet4_5',
-    'openRouter_google_gemini_2_5_pro',
-    'openRouter_openai_o3',
+    'openRouter_openai_gpt_5_5',
+    'openRouter_anthropic_claude_sonnet4_6',
+    'openRouter_google_gemini_3_5_flash',
   ],
   customApiModes: [
     {
