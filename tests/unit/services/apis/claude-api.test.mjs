@@ -84,6 +84,84 @@ test('claude-api: sends model, max_tokens, temperature in body', async (t) => {
   assert.equal(body.stream, true)
 })
 
+test('claude-api: keeps temperature for Opus 4.6', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customClaudeApiUrl: 'https://api.anthropic.com',
+    claudeApiKey: 'sk-ant-test',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 1024,
+    temperature: 0.9,
+  })
+
+  const session = {
+    modelName: 'claudeOpus46Api',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ])
+  })
+
+  await generateAnswersWithClaudeApi(port, 'Q', session)
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(body.model, 'claude-opus-4-6')
+  assert.equal(body.max_tokens, 1024)
+  assert.equal(body.temperature, 0.9)
+  assert.equal(body.stream, true)
+})
+
+test('claude-api: omits temperature for Opus 4.7 and 4.8', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+
+  for (const [modelName, model] of [
+    ['claudeOpus47Api', 'claude-opus-4-7'],
+    ['claudeOpus48Api', 'claude-opus-4-8'],
+  ]) {
+    await t.test(modelName, async (t) => {
+      setStorage({
+        customClaudeApiUrl: 'https://api.anthropic.com',
+        claudeApiKey: 'sk-ant-test',
+        maxConversationContextLength: 3,
+        maxResponseTokenLength: 1024,
+        temperature: 0.9,
+      })
+
+      const session = {
+        modelName,
+        conversationRecords: [],
+        isRetry: false,
+      }
+      const port = createFakePort()
+
+      let capturedInit
+      t.mock.method(globalThis, 'fetch', async (_input, init) => {
+        capturedInit = init
+        return createMockSseResponse([
+          'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\n\n',
+          'data: {"type":"message_stop"}\n\n',
+        ])
+      })
+
+      await generateAnswersWithClaudeApi(port, 'Q', session)
+
+      const body = JSON.parse(capturedInit.body)
+      assert.equal(body.model, model)
+      assert.equal(body.max_tokens, 1024)
+      assert.equal(body.stream, true)
+      assert.equal(Object.hasOwn(body, 'temperature'), false)
+    })
+  }
+})
+
 test('claude-api: delta.text streams accumulate and message_stop terminates', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({

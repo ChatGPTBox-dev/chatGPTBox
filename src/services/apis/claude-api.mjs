@@ -5,6 +5,10 @@ import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 
+function shouldOmitTemperature(model) {
+  return model === 'claude-opus-4-7' || model === 'claude-opus-4-8'
+}
+
 /**
  * @param {Runtime.Port} port
  * @param {string} question
@@ -22,6 +26,16 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
   )
   prompt.push({ role: 'user', content: question })
 
+  const body = {
+    model,
+    messages: prompt,
+    stream: true,
+    max_tokens: config.maxResponseTokenLength,
+  }
+  if (!shouldOmitTemperature(model)) {
+    body.temperature = config.temperature
+  }
+
   let answer = ''
   await fetchSSE(`${apiUrl}/v1/messages`, {
     method: 'POST',
@@ -32,13 +46,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
       'x-api-key': config.anthropicApiKey,
       'anthropic-dangerous-direct-browser-access': true,
     },
-    body: JSON.stringify({
-      model,
-      messages: prompt,
-      stream: true,
-      max_tokens: config.maxResponseTokenLength,
-      temperature: config.temperature,
-    }),
+    body: JSON.stringify(body),
     onMessage(message) {
       console.debug('sse message', message)
 
