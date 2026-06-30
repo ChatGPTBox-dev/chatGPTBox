@@ -6,7 +6,11 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 
 function shouldOmitTemperature(model) {
-  return model === 'claude-opus-4-7' || model === 'claude-opus-4-8'
+  return model === 'claude-opus-4-7' || model === 'claude-opus-4-8' || model === 'claude-sonnet-5'
+}
+
+function shouldDisableDefaultThinking(model) {
+  return model === 'claude-sonnet-5'
 }
 
 /**
@@ -31,6 +35,9 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     messages: prompt,
     stream: true,
     max_tokens: config.maxResponseTokenLength,
+  }
+  if (shouldDisableDefaultThinking(model)) {
+    body.thinking = { type: 'disabled' }
   }
   if (!shouldOmitTemperature(model)) {
     body.temperature = config.temperature

@@ -119,12 +119,13 @@ test('claude-api: keeps temperature for Opus 4.6', async (t) => {
   assert.equal(body.stream, true)
 })
 
-test('claude-api: omits temperature for Opus 4.7 and 4.8', async (t) => {
+test('claude-api: omits temperature for models that reject custom sampling', async (t) => {
   t.mock.method(console, 'debug', () => {})
 
   for (const [modelName, model] of [
     ['claudeOpus47Api', 'claude-opus-4-7'],
     ['claudeOpus48Api', 'claude-opus-4-8'],
+    ['claudeSonnet5Api', 'claude-sonnet-5'],
   ]) {
     await t.test(modelName, async (t) => {
       setStorage({
@@ -158,6 +159,11 @@ test('claude-api: omits temperature for Opus 4.7 and 4.8', async (t) => {
       assert.equal(body.max_tokens, 1024)
       assert.equal(body.stream, true)
       assert.equal(Object.hasOwn(body, 'temperature'), false)
+      if (model === 'claude-sonnet-5') {
+        assert.deepEqual(body.thinking, { type: 'disabled' })
+      } else {
+        assert.equal(Object.hasOwn(body, 'thinking'), false)
+      }
     })
   }
 })

@@ -83,6 +83,7 @@ export const claudeApiModelKeys = [
   'claudeOpus48Api',
   'claudeSonnet45Api',
   'claudeSonnet46Api',
+  'claudeSonnet5Api',
   'claudeHaiku45Api',
 ]
 export const chatglmApiModelKeys = [
@@ -317,6 +318,10 @@ export const Models = {
   claudeSonnet46Api: {
     value: 'claude-sonnet-4-6',
     desc: 'Anthropic (Claude Sonnet 4.6)',
+  },
+  claudeSonnet5Api: {
+    value: 'claude-sonnet-5',
+    desc: 'Anthropic (Claude Sonnet 5)',
   },
   claudeHaiku45Api: {
     value: 'claude-haiku-4-5-20251001',
