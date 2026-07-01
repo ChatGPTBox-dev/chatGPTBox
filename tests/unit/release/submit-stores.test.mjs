@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
+import { createHmac } from 'node:crypto'
 import test from 'node:test'
 import {
   buildFirefoxReleaseNotes,
@@ -10,6 +12,23 @@ import {
   stripFirefoxExtensionId,
   updateFirefoxVersionNotes,
 } from '../../../scripts/submit-stores.mjs'
+
+function decodeTokenPart(part) {
+  return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'))
+}
+
+function verifyHs256Token(token, secret) {
+  const [header, payload, signature] = token.split('.')
+  const expectedSignature = createHmac('sha256', secret)
+    .update(`${header}.${payload}`)
+    .digest('base64url')
+
+  assert.equal(signature, expectedSignature)
+  return {
+    header: decodeTokenPart(header),
+    payload: decodeTokenPart(payload),
+  }
+}
 
 test('parseArgs detects dry run', () => {
   assert.deepEqual(parseArgs(['--dry-run']), { dryRun: true })
@@ -112,6 +131,14 @@ test('updateFirefoxVersionNotes patches release notes and compatibility for the 
     'https://addons.mozilla.org/api/v5/addons/addon/chatgptbox/versions/v2.6.1/',
   )
   assert.equal(calls[0].init.method, 'PATCH')
+
+  const authToken = calls[0].init.headers.Authorization.replace(/^JWT /, '')
+  const verifiedToken = verifyHs256Token(authToken, 'secret')
+  assert.equal(verifiedToken.header.alg, 'HS256')
+  assert.equal(verifiedToken.header.typ, 'JWT')
+  assert.equal(verifiedToken.payload.iss, 'issuer')
+  assert.equal(verifiedToken.payload.exp - verifiedToken.payload.iat, 300)
+  assert.match(verifiedToken.payload.jti, /^[0-9a-f-]{36}$/)
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     compatibility: FIREFOX_COMPATIBILITY,
     release_notes: {
