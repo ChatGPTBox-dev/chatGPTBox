@@ -1,10 +1,33 @@
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
+import { createHmac } from 'node:crypto'
 import { test } from 'node:test'
-import jwt from 'jsonwebtoken'
 
 // Module caches a single token globally; tests must use monotonically
 // increasing times so each test can force regeneration when needed.
 import { getToken } from '../../../src/utils/jwt-token-generator.mjs'
+
+function decodeTokenPart(part) {
+  return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'))
+}
+
+function decodeToken(token) {
+  const [header, payload] = token.split('.')
+  return {
+    header: decodeTokenPart(header),
+    payload: decodeTokenPart(payload),
+  }
+}
+
+function verifyHs256Token(token, secret) {
+  const [header, payload, signature] = token.split('.')
+  const expectedSignature = createHmac('sha256', secret)
+    .update(`${header}.${payload}`)
+    .digest('base64url')
+
+  assert.equal(signature, expectedSignature)
+  return decodeTokenPart(payload)
+}
 
 test('getToken generates a valid JWT with correct header and payload structure', (t) => {
   const now = 1_000_000_000_000
@@ -13,11 +36,12 @@ test('getToken generates a valid JWT with correct header and payload structure',
   const apiKey = 'my-kid.my-secret'
   const token = getToken(apiKey)
 
-  const decoded = jwt.decode(token, { complete: true })
+  const decoded = decodeToken(token)
   assert.equal(decoded.header.alg, 'HS256')
   assert.equal(decoded.header.typ, 'JWT')
   assert.equal(decoded.header.sign_type, 'SIGN')
   assert.equal(decoded.payload.api_key, 'my-kid')
+  assert.equal(decoded.payload.iat, Math.floor(now / 1000))
   assert.equal(decoded.payload.timestamp, Math.floor(now / 1000))
   assert.equal(decoded.payload.exp, Math.floor(now / 1000) + 86400)
 })
@@ -29,7 +53,7 @@ test('getToken verifies with the secret from the API key', (t) => {
   const apiKey = 'kid123.supersecret'
   const token = getToken(apiKey)
 
-  const verified = jwt.verify(token, 'supersecret')
+  const verified = verifyHs256Token(token, 'supersecret')
   assert.equal(verified.api_key, 'kid123')
 })
 
@@ -48,6 +72,19 @@ test('getToken returns cached token when not expired', (t) => {
   assert.equal(token1, token2)
 })
 
+test('getToken regenerates token when API key changes within cache window', (t) => {
+  const now = 3_500_000_000_000
+  t.mock.method(Date, 'now', () => now)
+
+  const token1 = getToken('first-kid.first-secret')
+  const token2 = getToken('second-kid.second-secret')
+
+  assert.notEqual(token1, token2)
+
+  const verified = verifyHs256Token(token2, 'second-secret')
+  assert.equal(verified.api_key, 'second-kid')
+})
+
 test('getToken regenerates token after expiration', (t) => {
   const now = 4_000_000_000_000
   let currentTime = now
@@ -62,7 +99,7 @@ test('getToken regenerates token after expiration', (t) => {
 
   assert.notEqual(token1, token2)
 
-  const decoded = jwt.decode(token2)
+  const { payload: decoded } = decodeToken(token2)
   assert.equal(decoded.timestamp, Math.floor(currentTime / 1000))
 })
 

@@ -243,7 +243,6 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
               util: path.resolve(__dirname, 'node_modules/util'),
               buffer: path.resolve(__dirname, 'node_modules/buffer'),
               stream: 'stream-browserify',
-              crypto: 'crypto-browserify',
             }),
       },
     },

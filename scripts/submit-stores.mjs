@@ -1,11 +1,11 @@
 /* global process */
 
 import fs from 'fs-extra'
-import jwt from 'jsonwebtoken'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { signHs256Jwt } from '../src/utils/hs256-jwt.mjs'
 
 const REQUIRED_ARTIFACTS = ['build/chromium.zip', 'build/firefox.zip', 'build/firefox-sources.zip']
 const AMO_BASE_URL = 'https://addons.mozilla.org'
@@ -82,7 +82,7 @@ export function stripFirefoxExtensionId(extensionId) {
 
 function createFirefoxJwt(jwtIssuer, jwtSecret) {
   const issuedAt = Math.floor(Date.now() / 1000)
-  return jwt.sign(
+  return signHs256Jwt(
     {
       iss: jwtIssuer,
       jti: randomUUID(),
@@ -90,7 +90,6 @@ function createFirefoxJwt(jwtIssuer, jwtSecret) {
       exp: issuedAt + 300,
     },
     jwtSecret,
-    { algorithm: 'HS256' },
   )
 }
 
