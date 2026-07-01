@@ -72,7 +72,7 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 
 - Anda dapat menggunakan proyek seperti https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api untuk mengkonversi API LLM ke dalam format OpenAI dan menggunakannya bersama dengan mode `Custom Model` dari ChatGPTBox
 
-- Anda juga dapat menggunakan [Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models dengan mode `Custom Model` dari ChatGPTBox
+- Anda juga dapat menggunakan [Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models / [Requesty](https://requesty.ai/) dengan mode `Custom Model` dari ChatGPTBox
 
 ## ✨ Fitur
 

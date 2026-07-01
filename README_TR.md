@@ -75,7 +75,7 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 
 - Proje olarak https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api gibi şeyleri kullanarak LLM API'larını OpenAI formatına dönüştürebilir ve bunları ChatGPTBox'ın `Custom Model` modu ile birlikte kullanabilirsiniz
 
-- ChatGPTBox'un `Custom Model` modu ile [Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models adresini de kullanabilirsiniz
+- ChatGPTBox'un `Custom Model` modu ile [Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models / [Requesty](https://requesty.ai/) adresini de kullanabilirsiniz
 
 ## ✨ Özellikler
 
