@@ -27,7 +27,10 @@ export function parseFirefoxMetadataArgs(args) {
 }
 
 export function findMissingFirefoxMetadataEnv(env = process.env) {
-  return REQUIRED_FIREFOX_METADATA_ENV.filter((name) => !env[name])
+  return REQUIRED_FIREFOX_METADATA_ENV.filter((name) => {
+    const value = env[name]
+    return typeof value !== 'string' || value.trim().length === 0
+  })
 }
 
 export async function updateFirefoxMetadata({
