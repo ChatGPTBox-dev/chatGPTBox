@@ -83,6 +83,8 @@
   "Confirm": "Konfirmasi",
   "Clear Conversation": "Bersihkan Percakapan",
   "Retry": "Coba Lagi",
+  "Replace Selection": "Ganti Teks Terpilih",
+  "Replace Failed": "Gagal Mengganti",
   "Exceeded maximum context length": "Melampaui batas maksimum panjang konteks, harap bersihkan percakapan dan coba lagi",
   "Regenerate the answer after switching model": "Hasilkan kembali jawaban setelah beralih ke model lain",
   "Pin": "Sematkan",

@@ -86,6 +86,8 @@
   "Confirm": "确认",
   "Clear Conversation": "清理对话",
   "Retry": "重试",
+  "Replace Selection": "替换选中文本",
+  "Replace Failed": "替换失败",
   "Exceeded maximum context length": "超出最大上下文长度, 请清理对话并重试",
   "Regenerate the answer after switching model": "快捷切换模型时自动重新生成回答",
   "Pin": "固定侧边",

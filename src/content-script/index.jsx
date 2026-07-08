@@ -14,6 +14,7 @@ import {
   setUserConfig,
 } from '../config/index.mjs'
 import {
+  captureEditableSelection,
   createElementAtPosition,
   cropText,
   endsWithQuestionMark,
@@ -236,7 +237,7 @@ const deleteToolbar = () => {
   }
 }
 
-const createSelectionTools = async (toolbarContainerElement, selection) => {
+const createSelectionTools = async (toolbarContainerElement, selection, capturedSelection) => {
   console.debug(
     '[content] createSelectionTools called with selection:',
     selection,
@@ -256,6 +257,7 @@ const createSelectionTools = async (toolbarContainerElement, selection) => {
         selection={selection}
         container={toolbarContainerElement}
         dockable={true}
+        capturedSelection={capturedSelection}
       />,
       toolbarContainerElement,
     )
@@ -324,8 +326,9 @@ async function prepareForSelectionTools() {
               }
             }
             console.debug('[content] Toolbar position:', position)
+            const capturedSelection = captureEditableSelection()
             toolbarContainer = createElementAtPosition(position.x, position.y)
-            await createSelectionTools(toolbarContainer, selection)
+            await createSelectionTools(toolbarContainer, selection, capturedSelection)
           } else {
             console.debug('[content] No text selected on mouseup.')
           }
@@ -410,9 +413,10 @@ async function prepareForSelectionToolsTouch() {
             .replace(/^-+|-+$/g, '')
           if (selection) {
             console.debug('[content] Text selected via touch:', selection)
+            const capturedSelection = captureEditableSelection()
             const touch = e.changedTouches[0]
             toolbarContainer = createElementAtPosition(touch.pageX + 20, touch.pageY + 20)
-            await createSelectionTools(toolbarContainer, selection)
+            await createSelectionTools(toolbarContainer, selection, capturedSelection)
           } else {
             console.debug('[content] No text selected on touchend.')
           }

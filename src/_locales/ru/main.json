@@ -91,6 +91,8 @@
   "Confirm": "Подтверждение",
   "Clear Conversation": "Очистить беседу",
   "Retry": "Повторить",
+  "Replace Selection": "Заменить выделенное",
+  "Replace Failed": "Не удалось заменить",
   "Exceeded maximum context length": "Превышена максимальная длина контекста, очистите беседу и повторите попытку",
   "Regenerate the answer after switching model": "Генерировать ответ после смены модели",
   "Pin": "Закрепить",

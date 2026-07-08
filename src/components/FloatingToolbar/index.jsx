@@ -2,7 +2,12 @@ import { cloneElement, useCallback, useEffect, useState } from 'react'
 import ConversationCard from '../ConversationCard'
 import PropTypes from 'prop-types'
 import { config as toolsConfig } from '../../content-script/selection-tools'
-import { getClientPosition, isMobile, setElementPositionInViewport } from '../../utils'
+import {
+  getClientPosition,
+  isMobile,
+  replaceCapturedSelection,
+  setElementPositionInViewport,
+} from '../../utils'
 import Draggable from 'react-draggable'
 import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
 import { useTranslation } from 'react-i18next'
@@ -106,6 +111,11 @@ function FloatingToolbar(props) {
                 dockable={props.dockable}
                 onDock={onDock}
                 onUpdate={onUpdate}
+                onReplaceContent={
+                  props.capturedSelection
+                    ? (content) => replaceCapturedSelection(props.capturedSelection, content)
+                    : null
+                }
                 waitForTrigger={prompt && !triggered && !selection}
               />
             </div>
@@ -168,6 +178,7 @@ FloatingToolbar.propTypes = {
   closeable: PropTypes.bool,
   dockable: PropTypes.bool,
   prompt: PropTypes.string,
+  capturedSelection: PropTypes.object,
 }
 
 export default FloatingToolbar

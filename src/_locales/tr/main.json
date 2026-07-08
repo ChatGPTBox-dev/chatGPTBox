@@ -83,6 +83,8 @@
   "Confirm": "Onayla",
   "Clear Conversation": "Konuşmayı Temizle",
   "Retry": "Tekrar Dene",
+  "Replace Selection": "Seçimi Değiştir",
+  "Replace Failed": "Değiştirme Başarısız",
   "Exceeded maximum context length": "Maksimum bağlam uzunluğu aşıldı",
   "Regenerate the answer after switching model": "Modeli değiştirdikten sonra cevabı yeniden oluştur",
   "Pin": "Sabitle",

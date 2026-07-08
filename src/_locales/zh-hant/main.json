@@ -86,6 +86,8 @@
   "Confirm": "確認",
   "Clear Conversation": "清除對話",
   "Retry": "重試",
+  "Replace Selection": "取代選取文字",
+  "Replace Failed": "取代失敗",
   "Exceeded maximum context length": "超出最大上下文長度，請清除對話並重試",
   "Regenerate the answer after switching model": "切換模型後自動重新產生回答",
   "Pin": "固定側邊",
