@@ -241,8 +241,10 @@ const createSelectionTools = async (toolbarContainerElement, selection, captured
   console.debug(
     '[content] createSelectionTools called with selection:',
     selection,
-    'and container:',
+    'container:',
     toolbarContainerElement,
+    'captured editable selection:',
+    capturedSelection,
   )
   try {
     toolbarContainerElement.className = 'chatgptbox-toolbar-container'
