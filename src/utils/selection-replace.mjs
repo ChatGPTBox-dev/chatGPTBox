@@ -4,20 +4,27 @@
 // Only editable targets (text fields and contenteditable regions) are
 // supported; static page content is intentionally left untouched.
 
-const TEXT_FIELD_INPUT_TYPES = ['text', 'search', 'url', 'tel', 'password']
+const TEXT_FIELD_INPUT_TYPES = ['text', 'search', 'url', 'tel']
 
 const isTextField = (element) => {
   if (!element || typeof element.tagName !== 'string') return false
+  if (element.readOnly || element.disabled) return false
   const tagName = element.tagName.toUpperCase()
   if (tagName === 'TEXTAREA') return true
   if (tagName !== 'INPUT') return false
   return TEXT_FIELD_INPUT_TYPES.includes((element.type || 'text').toLowerCase())
 }
 
+// walk up to the editing host: focus() only works on the top-most
+// contenteditable element, not on child elements of the region
 const findContentEditableElement = (node) => {
   if (!node) return null
-  const element = node.nodeType === 3 ? node.parentElement : node
-  return element && element.isContentEditable ? element : null
+  let element = node.nodeType === 3 ? node.parentElement : node
+  if (!element || !element.isContentEditable) return null
+  while (element.parentElement && element.parentElement.isContentEditable) {
+    element = element.parentElement
+  }
+  return element
 }
 
 /**
@@ -61,11 +68,12 @@ export const captureEditableSelection = (doc = globalThis.document) => {
 
 const dispatchInputEvent = (element) => {
   if (typeof element.dispatchEvent !== 'function') return
-  const InputEventConstructor = globalThis.InputEvent
-  const event = InputEventConstructor
-    ? new InputEventConstructor('input', { bubbles: true, inputType: 'insertText' })
-    : { type: 'input', bubbles: true }
-  element.dispatchEvent(event)
+  const event = globalThis.InputEvent
+    ? new globalThis.InputEvent('input', { bubbles: true, inputType: 'insertText' })
+    : globalThis.Event
+    ? new globalThis.Event('input', { bubbles: true })
+    : null
+  if (event) element.dispatchEvent(event)
 }
 
 // Set value through the prototype setter so pages using controlled inputs
@@ -83,7 +91,7 @@ const setNativeValue = (element, value) => {
 
 const replaceInTextField = (captured, text, doc) => {
   const { element, start, end, text: originalText } = captured
-  if (element.isConnected === false) return false
+  if (element.isConnected === false || element.readOnly || element.disabled) return false
   const value = element.value ?? ''
   if (value.slice(start, end) !== originalText) return false
 
@@ -131,6 +139,11 @@ const replaceInContentEditable = (captured, text, doc) => {
   range.deleteContents()
   range.insertNode(doc.createTextNode(text))
   range.collapse(false)
+  if (selection) {
+    // re-apply the collapsed range so the cursor ends up after the inserted text
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
   dispatchInputEvent(element)
   return true
 }

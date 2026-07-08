@@ -295,11 +295,17 @@ async function prepareForSelectionTools() {
       deleteToolbar()
       setTimeout(async () => {
         try {
-          const selection = window
-            .getSelection()
-            ?.toString()
-            .trim()
-            .replace(/^-+|-+$/g, '')
+          const capturedSelection = captureEditableSelection()
+          const selection =
+            window
+              .getSelection()
+              ?.toString()
+              .trim()
+              .replace(/^-+|-+$/g, '') ||
+            // Firefox does not expose text field selections via window.getSelection()
+            (capturedSelection?.kind === 'text-field'
+              ? capturedSelection.text.trim().replace(/^-+|-+$/g, '')
+              : '')
           if (selection) {
             console.debug('[content] Text selected. Length:', selection.length)
             let position
@@ -328,7 +334,6 @@ async function prepareForSelectionTools() {
               }
             }
             console.debug('[content] Toolbar position:', position)
-            const capturedSelection = captureEditableSelection()
             toolbarContainer = createElementAtPosition(position.x, position.y)
             await createSelectionTools(toolbarContainer, selection, capturedSelection)
           } else {
@@ -408,14 +413,19 @@ async function prepareForSelectionToolsTouch() {
       deleteToolbar()
       setTimeout(async () => {
         try {
-          const selection = window
-            .getSelection()
-            ?.toString()
-            .trim()
-            .replace(/^-+|-+$/g, '')
+          const capturedSelection = captureEditableSelection()
+          const selection =
+            window
+              .getSelection()
+              ?.toString()
+              .trim()
+              .replace(/^-+|-+$/g, '') ||
+            // Firefox does not expose text field selections via window.getSelection()
+            (capturedSelection?.kind === 'text-field'
+              ? capturedSelection.text.trim().replace(/^-+|-+$/g, '')
+              : '')
           if (selection) {
             console.debug('[content] Text selected via touch:', selection)
-            const capturedSelection = captureEditableSelection()
             const touch = e.changedTouches[0]
             toolbarContainer = createElementAtPosition(touch.pageX + 20, touch.pageY + 20)
             await createSelectionTools(toolbarContainer, selection, capturedSelection)

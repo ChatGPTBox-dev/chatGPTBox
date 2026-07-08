@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CheckIcon, ReplyIcon, XIcon } from '@primer/octicons-react'
 import PropTypes from 'prop-types'
 import { useTranslation } from 'react-i18next'
@@ -13,6 +13,12 @@ function ReplaceButton({ className, onReplace, size }) {
   const { t } = useTranslation()
   const [status, setStatus] = useState('idle')
   const timeoutRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [])
 
   const onClick = () => {
     setStatus(onReplace() ? 'replaced' : 'failed')

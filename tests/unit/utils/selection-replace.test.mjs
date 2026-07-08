@@ -144,6 +144,29 @@ test('captureEditableSelection ignores inputs without selection support', () => 
   assert.equal(captureEditableSelection(doc), null)
 })
 
+test('captureEditableSelection ignores password inputs', () => {
+  const element = createTextField({
+    tagName: 'INPUT',
+    type: 'password',
+    value: 'secret',
+    start: 0,
+    end: 6,
+  })
+  const doc = createDocument({ activeElement: element })
+
+  assert.equal(captureEditableSelection(doc), null)
+})
+
+test('captureEditableSelection ignores readonly and disabled fields', () => {
+  const readOnlyElement = createTextField({ value: 'hello', start: 0, end: 5 })
+  readOnlyElement.readOnly = true
+  assert.equal(captureEditableSelection(createDocument({ activeElement: readOnlyElement })), null)
+
+  const disabledElement = createTextField({ value: 'hello', start: 0, end: 5 })
+  disabledElement.disabled = true
+  assert.equal(captureEditableSelection(createDocument({ activeElement: disabledElement })), null)
+})
+
 test('captureEditableSelection ignores collapsed text field selections', () => {
   const element = createTextField({ value: 'hello', start: 2, end: 2 })
   const doc = createDocument({ activeElement: element })
@@ -173,6 +196,19 @@ test('captureEditableSelection resolves text nodes to their parent element', () 
 
   assert.equal(captured.kind, 'contenteditable')
   assert.equal(captured.element, element)
+})
+
+test('captureEditableSelection resolves nested elements to the editing host', () => {
+  const host = createContentEditableElement()
+  const child = createContentEditableElement()
+  child.parentElement = host
+  const range = createRange(child, 'selected text')
+  const doc = createDocument({ selection: createSelection(range) })
+
+  const captured = captureEditableSelection(doc)
+
+  assert.equal(captured.kind, 'contenteditable')
+  assert.equal(captured.element, host)
 })
 
 test('captureEditableSelection returns null for non-editable selections', () => {
@@ -268,6 +304,29 @@ test('replaceCapturedSelection refuses disconnected text fields', () => {
   assert.equal(replaceCapturedSelection(captured, 'hi', doc), false)
 })
 
+test('replaceCapturedSelection refuses fields that became readonly after capture', () => {
+  const element = createTextField({ value: 'hello', start: 0, end: 5 })
+  const doc = createDocument({ activeElement: element })
+  const captured = captureEditableSelection(doc)
+  element.readOnly = true
+
+  assert.equal(replaceCapturedSelection(captured, 'hi', doc), false)
+  assert.equal(element.value, 'hello')
+})
+
+test('replaceCapturedSelection dispatches a real Event instance as fallback', () => {
+  const element = createTextField({ value: 'helo', start: 0, end: 4 })
+  const doc = createDocument({ activeElement: element })
+  const captured = captureEditableSelection(doc)
+
+  const replaced = replaceCapturedSelection(captured, 'hello', doc)
+
+  assert.equal(replaced, true)
+  assert.equal(element.dispatchedEvents.length, 1)
+  assert.ok(element.dispatchedEvents[0] instanceof globalThis.Event)
+  assert.equal(element.dispatchedEvents[0].bubbles, true)
+})
+
 test('replaceCapturedSelection replaces contenteditable content via range fallback', () => {
   const element = createContentEditableElement()
   const range = createRange(element, 'old text')
@@ -283,6 +342,7 @@ test('replaceCapturedSelection replaces contenteditable content via range fallba
   assert.equal(range.insertedNodes[0].textContent, 'new text')
   assert.equal(element.dispatchedEvents.length, 1)
   assert.equal(element.dispatchedEvents[0].type, 'input')
+  assert.deepEqual(selection.ranges, [range]) // cursor re-applied after the inserted text
 })
 
 test('replaceCapturedSelection uses execCommand for contenteditable when available', () => {
