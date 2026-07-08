@@ -449,7 +449,7 @@ async function prepareForSelectionToolsTouch() {
   })
 }
 
-let menuX, menuY
+let menuX, menuY, menuCapturedSelection
 let rightClickMenuInitialized = false
 
 async function prepareForRightClickMenu() {
@@ -462,6 +462,9 @@ async function prepareForRightClickMenu() {
   document.addEventListener('contextmenu', (e) => {
     menuX = e.clientX
     menuY = e.clientY
+    // the menu click arrives asynchronously via the background script, so the
+    // editable selection has to be captured while it still exists
+    menuCapturedSelection = captureEditableSelection()
     console.debug(`[content] Context menu opened at X: ${menuX}, Y: ${menuY}`)
   })
 
@@ -471,7 +474,11 @@ async function prepareForRightClickMenu() {
       try {
         const data = message.data
         let prompt = ''
+        let capturedSelection = null
         if (data.itemId in toolsConfig) {
+          // only selection tools operate on the selected text; menu tools work
+          // on the whole page and must not offer replacing the selection
+          capturedSelection = menuCapturedSelection
           console.debug('[content] Generating prompt from toolsConfig for item:', data.itemId)
           prompt = await toolsConfig[data.itemId].genPrompt(data.selectionText)
         } else if (data.itemId in menuConfig) {
@@ -513,6 +520,7 @@ async function prepareForRightClickMenu() {
             triggered={true}
             closeable={true}
             prompt={prompt}
+            capturedSelection={capturedSelection}
           />,
           container,
         )
