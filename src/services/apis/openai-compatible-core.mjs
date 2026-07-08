@@ -142,12 +142,30 @@ export async function generateAnswersWithOpenAICompatible({
       }
     },
     async onStart() {},
-    async onEnd() {
-      if (!finished) {
-        finish()
+    async onEnd(aborted = false) {
+      try {
+        if (!finished) {
+          if (aborted) {
+            const shouldPostSession = Boolean(answer) || session.isRetry
+            if (shouldPostSession) {
+              if (answer) {
+                pushRecord(session, question, answer)
+              }
+              session.isRetry = false
+              try {
+                port.postMessage({ session })
+              } catch (e) {
+                console.warn('[openai-compatible-core] Failed to post session on abort:', e)
+              }
+            }
+          } else {
+            finish()
+          }
+        }
+      } finally {
+        port.onMessage.removeListener(messageListener)
+        port.onDisconnect.removeListener(disconnectListener)
       }
-      port.onMessage.removeListener(messageListener)
-      port.onDisconnect.removeListener(disconnectListener)
     },
     async onError(resp) {
       port.onMessage.removeListener(messageListener)

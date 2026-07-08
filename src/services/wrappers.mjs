@@ -66,9 +66,30 @@ function isAbortError(err) {
   return name === 'AbortError' || message.includes('aborted') || message.includes('aborterror')
 }
 
+function isDisconnectedPortError(err) {
+  if (!err || typeof err !== 'object') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return (
+    message.includes('disconnected port') ||
+    message.includes('port closed') ||
+    message.includes('extension context invalidated')
+  )
+}
+
 export function handlePortError(session, port, err) {
   if (isAbortError(err)) return
+  if (isDisconnectedPortError(err)) {
+    console.warn('[handlePortError] Ignoring disconnected port error:', err.message)
+    return
+  }
   console.error(err)
+  const postError = (error) => {
+    try {
+      port.postMessage({ error })
+    } catch (postError) {
+      console.warn('[handlePortError] Failed to post error:', postError)
+    }
+  }
   const message = typeof err?.message === 'string' ? err.message : ''
   if (message) {
     if (
@@ -76,35 +97,33 @@ export function handlePortError(session, port, err) {
         message.includes(m),
       )
     )
-      port.postMessage({ error: t('Exceeded maximum context length') + '\n\n' + message })
+      postError(t('Exceeded maximum context length') + '\n\n' + message)
     else if (['CaptchaChallenge', 'CAPTCHA'].some((m) => message.includes(m)))
-      port.postMessage({ error: t('Bing CaptchaChallenge') + '\n\n' + message })
+      postError(t('Bing CaptchaChallenge') + '\n\n' + message)
     else if (['exceeded your current quota'].some((m) => message.includes(m)))
-      port.postMessage({ error: t('Exceeded quota') + '\n\n' + message })
+      postError(t('Exceeded quota') + '\n\n' + message)
     else if (['Rate limit reached'].some((m) => message.includes(m)))
-      port.postMessage({ error: t('Rate limit') + '\n\n' + message })
+      postError(t('Rate limit') + '\n\n' + message)
     else if (['authentication token has expired'].some((m) => message.includes(m)))
-      port.postMessage({ error: 'UNAUTHORIZED' })
+      postError('UNAUTHORIZED')
     else if (
       isUsingClaudeWebModel(session) &&
       ['Invalid authorization', 'Session key required'].some((m) => message.includes(m))
     )
-      port.postMessage({
-        error: t('Please login at https://claude.ai first, and then click the retry button'),
-      })
+      postError(t('Please login at https://claude.ai first, and then click the retry button'))
     else if (
       isUsingBingWebModel(session) &&
       ['/turing/conversation/create: failed to parse response body.'].some((m) =>
         message.includes(m),
       )
     )
-      port.postMessage({ error: t('Please login at https://bing.com first') })
-    else port.postMessage({ error: message })
+      postError(t('Please login at https://bing.com first'))
+    else postError(message)
   } else {
     const errMsg = JSON.stringify(err) ?? 'unknown error'
     if (isUsingBingWebModel(session) && errMsg.includes('isTrusted'))
-      port.postMessage({ error: t('Please login at https://bing.com first') })
-    else port.postMessage({ error: errMsg })
+      postError(t('Please login at https://bing.com first'))
+    else postError(errMsg)
   }
 }
 

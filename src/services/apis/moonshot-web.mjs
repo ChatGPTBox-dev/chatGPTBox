@@ -426,7 +426,11 @@ export class Conversation {
         }
       },
       async onStart() {},
-      async onEnd() {
+      async onEnd(aborted = false) {
+        if (aborted) {
+          reject(new DOMException('Aborted', 'AbortError'))
+          return
+        }
         resolve({
           completion: fullResponse,
         })

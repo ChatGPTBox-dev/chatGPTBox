@@ -112,6 +112,20 @@ test('handlePortError ignores AbortError by name even when message text differs'
   assert.equal(consoleError.mock.callCount(), 0)
 })
 
+test('handlePortError ignores disconnected port errors', (t) => {
+  const consoleError = t.mock.method(console, 'error', () => {})
+  const consoleWarn = t.mock.method(console, 'warn', () => {})
+  const port = createFakePort()
+
+  handlePortError({ modelName: 'chatgptApi4oMini' }, port, {
+    message: 'Attempting to use a disconnected port object',
+  })
+
+  assert.deepEqual(port.postedMessages, [])
+  assert.equal(consoleError.mock.callCount(), 0)
+  assert.equal(consoleWarn.mock.callCount(), 1)
+})
+
 test('handlePortError reports Claude web authorization hint', (t) => {
   t.mock.method(console, 'error', () => {})
   const port = createFakePort()
@@ -196,4 +210,21 @@ test('handlePortError handles undefined thrown values without throwing again', (
 
   assert.equal(port.postedMessages.length, 1)
   assert.equal(port.postedMessages[0].error, 'unknown error')
+})
+
+test('handlePortError does not throw when the error port is closed', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const consoleWarn = t.mock.method(console, 'warn', () => {})
+  const port = {
+    postMessage() {
+      throw new Error('Port closed')
+    },
+  }
+
+  assert.doesNotThrow(() => {
+    handlePortError({ modelName: 'chatgptApi4oMini' }, port, {
+      message: 'done failed',
+    })
+  })
+  assert.equal(consoleWarn.mock.callCount(), 1)
 })

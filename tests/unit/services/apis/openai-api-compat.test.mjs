@@ -138,6 +138,120 @@ test('generateAnswersWithOpenAiApiCompat emits fallback done message when stream
   })
 })
 
+test('generateAnswersWithOpenAiApiCompat preserves partial retry answer when aborted port is closed', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  t.mock.method(console, 'warn', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    temperature: 0.25,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [{ question: 'CurrentQ', answer: 'Old answer' }],
+    isRetry: true,
+  }
+  const port = createFakePort()
+  const originalPostMessage = port.postMessage.bind(port)
+  port.postMessage = (message) => {
+    if (message?.session && !message.done) {
+      throw new Error('Port closed')
+    }
+    originalPostMessage(message)
+  }
+
+  t.mock.method(globalThis, 'fetch', async () => {
+    const encoder = new TextEncoder()
+    let readCount = 0
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      body: {
+        getReader() {
+          return {
+            async read() {
+              readCount += 1
+              if (readCount === 1) {
+                return {
+                  done: false,
+                  value: encoder.encode('data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'),
+                }
+              }
+              throw Object.assign(new Error('The operation was aborted'), {
+                name: 'AbortError',
+              })
+            },
+          }
+        },
+      },
+    }
+  })
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'Partial'),
+    true,
+  )
+  assert.deepEqual(session.conversationRecords, [{ question: 'CurrentQ', answer: 'Partial' }])
+  assert.equal(session.isRetry, false)
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
+test('generateAnswersWithOpenAiApiCompat clears retry state when aborted before first chunk', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    temperature: 0.25,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [{ question: 'CurrentQ', answer: 'Old answer' }],
+    isRetry: true,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    body: {
+      getReader() {
+        return {
+          async read() {
+            throw Object.assign(new Error('The operation was aborted'), {
+              name: 'AbortError',
+            })
+          },
+        }
+      },
+    },
+  }))
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.deepEqual(session.conversationRecords, [{ question: 'CurrentQ', answer: 'Old answer' }])
+  assert.equal(session.isRetry, false)
+  assert.deepEqual(port.postedMessages.at(-1), { session })
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
 test('generateAnswersWithOpenAiApiCompat records an empty answer when stream ends before first chunk', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({

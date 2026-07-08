@@ -110,6 +110,7 @@ function setPortProxy(port, proxyTabId) {
         console.debug('[background] Main port closed; skipping proxy message.')
         return
       }
+      if (msg.done || msg.error) port._generating = false
       try {
         port.postMessage(msg)
       } catch (e) {
@@ -156,6 +157,16 @@ function setPortProxy(port, proxyTabId) {
       const proxyRef = port.proxy
       port.proxy = null
       port._proxyTabId = null
+      if (port._generating) {
+        port._generating = false
+        if (!port._isClosed) {
+          try {
+            port.postMessage({ done: true })
+          } catch (e) {
+            console.warn('[background] Error posting done on proxy disconnect:', e)
+          }
+        }
+      }
       if (port._reconnectTimerId) {
         clearTimeout(port._reconnectTimerId)
         port._reconnectTimerId = null
@@ -401,6 +412,7 @@ async function executeApi(session, port, config) {
           console.debug('[background] Posting message to proxy tab:', { session: redactedSession })
           try {
             port.proxy.postMessage({ session })
+            port._generating = true
           } catch (e) {
             console.warn(
               '[background] Error posting message to existing proxy tab in executeApi (ChatGPT Web Model):',
@@ -413,6 +425,7 @@ async function executeApi(session, port, config) {
               console.debug('[background] Proxy re-established. Attempting to post message again.')
               try {
                 port.proxy.postMessage({ session })
+                port._generating = true
                 console.info('[background] Successfully posted session after proxy reconnection.')
               } catch (e2) {
                 console.error(

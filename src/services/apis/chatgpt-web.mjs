@@ -377,9 +377,14 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       async onStart() {
         // sendModerations(accessToken, question, session.conversationId, session.messageId)
       },
-      async onEnd() {
-        port.postMessage({ done: true })
-        cleanController()
+      async onEnd(aborted) {
+        try {
+          if (!aborted) {
+            port.postMessage({ done: true })
+          }
+        } finally {
+          cleanController()
+        }
       },
       async onError(resp) {
         cleanController()

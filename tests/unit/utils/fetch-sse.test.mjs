@@ -112,3 +112,20 @@ test('fetchSSE forwards fetch rejection errors to onError', async (t) => {
   assert.equal(errors.length, 1)
   assert.equal(errors[0].message, 'network down')
 })
+
+test('fetchSSE propagates onEnd errors on normal completion', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  t.mock.method(globalThis, 'fetch', async () => createMockSseResponse(['data: {"delta":"A"}\n\n']))
+
+  await assert.rejects(
+    fetchSSE('https://example.com/sse', {
+      onStart: async () => {},
+      onMessage: () => {},
+      onEnd: async () => {
+        throw new Error('done failed')
+      },
+      onError: async () => {},
+    }),
+    /done failed/,
+  )
+})
