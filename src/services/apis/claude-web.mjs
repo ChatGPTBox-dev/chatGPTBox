@@ -9,9 +9,19 @@ import { getModelValue } from '../../utils/model-name-convert.mjs'
  * @param {string} sessionKey
  */
 export async function generateAnswersWithClaudeWebApi(port, question, session, sessionKey) {
-  const bot = new Claude({ sessionKey })
-  await bot.init()
   const { controller, cleanController } = setAbortController(port)
+  let bot
+  try {
+    bot = new Claude({ sessionKey })
+    await bot.init()
+  } catch (error) {
+    cleanController()
+    throw error
+  }
+  if (controller.signal.aborted) {
+    cleanController()
+    return
+  }
   const model = getModelValue(session)
 
   let answer = ''

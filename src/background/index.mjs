@@ -48,6 +48,28 @@ import { generateAnswersWithClaudeWebApi } from '../services/apis/claude-web.mjs
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
 import { redactSensitiveFields } from './redact.mjs'
+import {
+  clearProxyReconnectErrorSuppression,
+  consumeProxyReconnectErrorSuppression,
+  forwardProxyMessage,
+  interruptProxyGeneration,
+  isCurrentProxyGenerationMessage,
+  markProxyGenerationFinished,
+  markProxyGenerationFinishedFromMessage,
+  markProxyGenerationStarted,
+  shouldSkipProxyReconnect,
+  tagProxyRequestGeneration,
+} from './proxy-generation-state.mjs'
+
+function postProxySession(port, session, requestGenerationId) {
+  const proxyGenerationId = (port._proxyGenerationId ?? 0) + 1
+  port.proxy.postMessage({
+    session,
+    proxyGenerationId,
+    ...(requestGenerationId === undefined ? {} : { requestGenerationId }),
+  })
+  markProxyGenerationStarted(port, proxyGenerationId, requestGenerationId)
+}
 
 const RECONNECT_CONFIG = {
   MAX_ATTEMPTS: 5,
@@ -111,6 +133,11 @@ function setPortProxy(port, proxyTabId) {
         console.debug('[background] Main port closed; skipping proxy message.')
         return
       }
+      if (!isCurrentProxyGenerationMessage(port, msg)) {
+        console.debug('[background] Ignoring a message from a superseded proxy generation.')
+        return
+      }
+      markProxyGenerationFinishedFromMessage(port, msg)
       try {
         port.postMessage(msg)
       } catch (e) {
@@ -126,27 +153,30 @@ function setPortProxy(port, proxyTabId) {
       console.debug('[background] Message to proxy tab (redacted):', redactedMsg)
       if (port.proxy) {
         try {
-          port.proxy.postMessage(msg)
+          forwardProxyMessage(port, msg)
         } catch (e) {
           console.error(
             '[background] Error posting message to proxy tab in _portOnMessage:',
             e,
             redactedMsg,
           )
-          try {
-            // Attempt to notify the original sender about the failure
-            port.postMessage({
-              error:
-                'Failed to forward message to target tab. Tab might be closed or an extension error occurred.',
-            })
-          } catch (notifyError) {
-            console.error(
-              '[background] Error sending forwarding failure notification back to original sender:',
-              notifyError,
-            )
+          if (!msg?.stop) {
+            try {
+              // Attempt to notify the original sender about the failure
+              port.postMessage({
+                error:
+                  'Failed to forward message to target tab. Tab might be closed or an extension error occurred.',
+              })
+            } catch (notifyError) {
+              console.error(
+                '[background] Error sending forwarding failure notification back to original sender:',
+                notifyError,
+              )
+            }
           }
         }
       } else {
+        if (msg?.stop) interruptProxyGeneration(port)
         console.warn('[background] Port proxy not available to send message:', redactedMsg)
       }
     }
@@ -157,6 +187,17 @@ function setPortProxy(port, proxyTabId) {
       const proxyRef = port.proxy
       port.proxy = null
       port._proxyTabId = null
+      if (interruptProxyGeneration(port)) {
+        if (!port._isClosed) {
+          try {
+            port.postMessage(
+              tagProxyRequestGeneration(port, { done: true, proxyDisconnected: true }),
+            )
+          } catch (e) {
+            console.warn('[background] Error posting done on proxy disconnect:', e)
+          }
+        }
+      }
       if (port._reconnectTimerId) {
         clearTimeout(port._reconnectTimerId)
         port._reconnectTimerId = null
@@ -208,12 +249,20 @@ function setPortProxy(port, proxyTabId) {
             console.warn('[background] Error removing _portOnDisconnect on max retries:', e)
           }
         }
-        try {
-          port.postMessage({
-            error: `Connection to ChatGPT tab lost after ${RECONNECT_CONFIG.MAX_ATTEMPTS} attempts. Please refresh the page.`,
-          })
-        } catch (e) {
-          console.warn('[background] Error sending final error message on max retries:', e)
+        if (consumeProxyReconnectErrorSuppression(port)) {
+          console.debug(
+            '[background] Skipping reconnect error because the interrupted generation was already completed.',
+          )
+        } else {
+          try {
+            port.postMessage(
+              tagProxyRequestGeneration(port, {
+                error: `Connection to ChatGPT tab lost after ${RECONNECT_CONFIG.MAX_ATTEMPTS} attempts. Please refresh the page.`,
+              }),
+            )
+          } catch (e) {
+            console.warn('[background] Error sending final error message on max retries:', e)
+          }
         }
         return
       }
@@ -242,6 +291,10 @@ function setPortProxy(port, proxyTabId) {
           )
           return
         }
+        if (shouldSkipProxyReconnect(port)) {
+          console.debug('[background] Proxy already replaced; skipping stale reconnect callback.')
+          return
+        }
         console.debug(
           `[background] Retrying connection to tab ${proxyTabId}, attempt ${port._reconnectAttempts}.`,
         )
@@ -258,6 +311,7 @@ function setPortProxy(port, proxyTabId) {
         '[background] Main port disconnected (e.g. popup/sidebar closed). Cleaning up proxy connections and listeners.',
       )
       port._isClosed = true
+      markProxyGenerationFinished(port)
       if (port._reconnectTimerId) {
         clearTimeout(port._reconnectTimerId)
         port._reconnectTimerId = null
@@ -330,6 +384,7 @@ function setPortProxy(port, proxyTabId) {
         port._reconnectAttempts = 0
         console.debug('[background] Reset reconnect attempts after stable proxy connection.')
       }
+      clearProxyReconnectErrorSuppression(port)
     }, RECONNECT_CONFIG.STABLE_CONNECT_RESET_DELAY_MS)
   } catch (error) {
     console.error(`[background] Error in setPortProxy for tab ${proxyTabId}:`, error)
@@ -351,7 +406,14 @@ function isUsingOpenAICompatibleApiSession(session) {
   )
 }
 
-async function executeApi(session, port, config) {
+async function executeApi(
+  session,
+  port,
+  config,
+  isLatestSessionRequest = () => true,
+  requestGenerationId,
+  connectionPort = port,
+) {
   console.log(
     `[background] executeApi called for model: ${session.modelName}, apiMode: ${session.apiMode}`,
   )
@@ -384,25 +446,30 @@ async function executeApi(session, port, config) {
         }
       }
       if (tabId) {
+        const proxyPort = connectionPort
+        if (!isLatestSessionRequest()) {
+          console.debug('[background] Skipping a superseded ChatGPT Web session request.')
+          return
+        }
         console.debug(`[background] ChatGPT Tab ID ${tabId} found.`)
-        const hasMatchingProxy = Boolean(port.proxy && port._proxyTabId === tabId)
+        const hasMatchingProxy = Boolean(proxyPort.proxy && proxyPort._proxyTabId === tabId)
         if (!hasMatchingProxy) {
-          if (port.proxy) {
+          if (proxyPort.proxy) {
             console.debug(
-              `[background] Existing proxy tab ${port._proxyTabId} does not match ${tabId}; reconnecting.`,
+              `[background] Existing proxy tab ${proxyPort._proxyTabId} does not match ${tabId}; reconnecting.`,
             )
           } else {
             console.debug('[background] port.proxy not found, calling setPortProxy.')
           }
-          setPortProxy(port, tabId)
+          setPortProxy(proxyPort, tabId)
         }
-        if (port.proxy && port._proxyTabId === tabId) {
+        if (proxyPort.proxy && proxyPort._proxyTabId === tabId) {
           if (hasMatchingProxy) {
             console.debug('[background] Proxy already established; forwarding session.')
           }
           console.debug('[background] Posting message to proxy tab:', { session: redactedSession })
           try {
-            port.proxy.postMessage({ session })
+            postProxySession(proxyPort, session, requestGenerationId)
           } catch (e) {
             console.warn(
               '[background] Error posting message to existing proxy tab in executeApi (ChatGPT Web Model):',
@@ -410,11 +477,11 @@ async function executeApi(session, port, config) {
               '. Attempting to reconnect.',
               { session: redactedSession },
             )
-            setPortProxy(port, tabId)
-            if (port.proxy) {
+            setPortProxy(proxyPort, tabId)
+            if (proxyPort.proxy) {
               console.debug('[background] Proxy re-established. Attempting to post message again.')
               try {
-                port.proxy.postMessage({ session })
+                postProxySession(proxyPort, session, requestGenerationId)
                 console.info('[background] Successfully posted session after proxy reconnection.')
               } catch (e2) {
                 console.error(
@@ -469,11 +536,16 @@ async function executeApi(session, port, config) {
       } else {
         console.debug('[background] No valid ChatGPT Tab ID found. Using direct API call.')
         const accessToken = await getChatGptAccessToken()
+        if (!isLatestSessionRequest()) {
+          console.debug('[background] Skipping a superseded direct ChatGPT Web session request.')
+          return
+        }
         await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
       }
     } else if (isUsingClaudeWebModel(session)) {
       console.debug('[background] Using Claude Web Model')
       const sessionKey = await getClaudeSessionKey()
+      if (!isLatestSessionRequest()) return
       await generateAnswersWithClaudeWebApi(port, session.question, session, sessionKey)
     } else if (isUsingMoonshotWebModel(session)) {
       console.debug('[background] Using Moonshot Web Model')
@@ -481,6 +553,7 @@ async function executeApi(session, port, config) {
     } else if (isUsingBingWebModel(session)) {
       console.debug('[background] Using Bing Web Model')
       const accessToken = await getBingAccessToken()
+      if (!isLatestSessionRequest()) return
       if (isUsingModelName('bingFreeSydney', session)) {
         console.debug('[background] Using Bing Free Sydney model')
         await generateAnswersWithBingWebApi(port, session.question, session, accessToken, true)
@@ -490,7 +563,14 @@ async function executeApi(session, port, config) {
     } else if (isUsingGeminiWebModel(session)) {
       console.debug('[background] Using Gemini Web Model')
       const cookies = await getBardCookies()
-      await generateAnswersWithBardWebApi(port, session.question, session, cookies)
+      if (!isLatestSessionRequest()) return
+      await generateAnswersWithBardWebApi(
+        port,
+        session.question,
+        session,
+        cookies,
+        isLatestSessionRequest,
+      )
     } else if (isUsingOpenAICompatibleApiSession(session)) {
       console.debug('[background] Using OpenAI-compatible API provider')
       await generateAnswersWithOpenAICompatibleApi(port, session.question, session, config)
@@ -935,12 +1015,21 @@ try {
 }
 
 try {
-  registerPortListener(async (session, port, config) => {
-    console.debug(
-      `[background] Port listener triggered for session: ${session.modelName}, port: ${port.name}`,
-    )
-    await executeApi(session, port, config)
-  })
+  registerPortListener(
+    async (session, port, config, isLatestSessionRequest, requestGenerationId, connectionPort) => {
+      console.debug(
+        `[background] Port listener triggered for session: ${session.modelName}, port: ${port.name}`,
+      )
+      await executeApi(
+        session,
+        port,
+        config,
+        isLatestSessionRequest,
+        requestGenerationId,
+        connectionPort,
+      )
+    },
+  )
   console.log('[background] Port listener registered successfully.')
 } catch (error) {
   console.error('[background] Error registering port listener:', error)

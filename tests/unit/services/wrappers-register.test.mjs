@@ -222,6 +222,116 @@ test('registerPortListener ignores messages without session', async (t) => {
   assert.deepEqual(port.postedMessages, [])
 })
 
+test('registerPortListener tags responses with proxy and request generation ids', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({ modelName: 'chatgptApi4oMini' })
+
+  let resolveExec
+  const execDone = new Promise((resolve) => {
+    resolveExec = resolve
+  })
+  const executor = t.mock.fn(async (_session, requestPort) => {
+    requestPort.postMessage({ done: true })
+    resolveExec()
+  })
+
+  registerPortListener(executor)
+  const port = createFakePort()
+  triggerConnect(port)
+
+  port.emitMessage({
+    session: { conversationRecords: [] },
+    proxyGenerationId: 7,
+    requestGenerationId: 11,
+  })
+  await execDone
+
+  assert.equal(port.postedMessages.length, 2)
+  assert.equal(
+    port.postedMessages.every(
+      (message) => message.proxyGenerationId === 7 && message.requestGenerationId === 11,
+    ),
+    true,
+  )
+})
+
+test('registerPortListener drops responses from a superseded session request', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({ modelName: 'chatgptApi4oMini' })
+
+  const requestPorts = []
+  const connectionPorts = []
+  let resolveRequest
+  const requestReady = () =>
+    new Promise((resolve) => {
+      resolveRequest = resolve
+    })
+  let ready = requestReady()
+  const executor = t.mock.fn(
+    async (
+      _session,
+      requestPort,
+      _config,
+      _isLatestSessionRequest,
+      _requestGenerationId,
+      connectionPort,
+    ) => {
+      requestPorts.push(requestPort)
+      connectionPorts.push(connectionPort)
+      resolveRequest()
+    },
+  )
+
+  registerPortListener(executor)
+  const port = createFakePort()
+  triggerConnect(port)
+
+  port.emitMessage({ session: { conversationRecords: [] } })
+  await ready
+  ready = requestReady()
+  port.emitMessage({ session: { conversationRecords: [] } })
+  await ready
+
+  assert.notEqual(requestPorts[0], requestPorts[1])
+  assert.deepEqual(connectionPorts, [port, port])
+
+  requestPorts[0].postMessage({ done: true })
+  assert.equal(port.postedMessages.length, 2)
+  requestPorts[1].postMessage({ done: true })
+
+  assert.equal(port.postedMessages.length, 3)
+  assert.deepEqual(port.postedMessages.at(-1), { done: true })
+})
+
+test('registerPortListener allows a stopped request to post before its replacement starts', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({ modelName: 'chatgptApi4oMini' })
+
+  let requestPort
+  let resolveExec
+  const execReady = new Promise((resolve) => {
+    resolveExec = resolve
+  })
+  const executor = t.mock.fn(async (_session, currentRequestPort) => {
+    requestPort = currentRequestPort
+    resolveExec()
+  })
+
+  registerPortListener(executor)
+  const port = createFakePort()
+  triggerConnect(port)
+
+  port.emitMessage({ session: { conversationRecords: [] } })
+  await execReady
+  port.emitMessage({ stop: true })
+  requestPort.postMessage({ session: { conversationRecords: [] } })
+
+  assert.deepEqual(port.postedMessages.slice(-2), [
+    { done: true },
+    { session: { conversationRecords: [] } },
+  ])
+})
+
 test('registerPortListener catches executor errors and calls handlePortError', async (t) => {
   t.mock.method(console, 'debug', () => {})
   t.mock.method(console, 'error', () => {})

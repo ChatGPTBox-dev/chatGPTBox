@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { pushRecord, setAbortController } from '../../../../src/services/apis/shared.mjs'
+import {
+  acknowledgePortStop,
+  pushRecord,
+  setAbortController,
+} from '../../../../src/services/apis/shared.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
 
 test('pushRecord appends a new record in normal mode', () => {
@@ -56,6 +60,34 @@ test('setAbortController aborts and cleans listeners on stop message', (t) => {
   assert.equal(onStopCalled, 1)
   assert.deepEqual(port.postedMessages, [{ done: true }])
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 1 })
+})
+
+test('setAbortController echoes a retry stop generation id', (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const port = createFakePort()
+  const { getStopGenerationId } = setAbortController(port)
+
+  port.emitMessage({ stop: true, stopGenerationId: 7 })
+
+  assert.deepEqual(port.postedMessages, [{ done: true, stoppedGenerationId: 7 }])
+  assert.equal(getStopGenerationId(), 7)
+})
+
+test('acknowledgePortStop posts only once for the current session request', () => {
+  const port = createFakePort()
+  const message = { stop: true, stopGenerationId: 7 }
+
+  assert.equal(acknowledgePortStop(port, message), true)
+  assert.equal(acknowledgePortStop(port, message), false)
+  assert.equal(message.stopAcknowledged, true)
+  assert.deepEqual(port.postedMessages, [{ done: true, stoppedGenerationId: 7 }])
+})
+
+test('acknowledgePortStop respects an acknowledgement from an upstream port', () => {
+  const port = createFakePort()
+
+  assert.equal(acknowledgePortStop(port, { stop: true, stopAcknowledged: true }), false)
+  assert.deepEqual(port.postedMessages, [])
 })
 
 test('setAbortController aborts on disconnect and removes disconnect listener', (t) => {

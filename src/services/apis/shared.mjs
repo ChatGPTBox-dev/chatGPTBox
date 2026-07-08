@@ -15,13 +15,33 @@ export const getCustomApiPromptBase = async () => {
   return `I am a helpful, creative, clever, and very friendly assistant. I am familiar with various languages in the world.`
 }
 
+export function acknowledgePortStop(port, message) {
+  if (message.stopAcknowledged || port._stopAcknowledged) return false
+  try {
+    port.postMessage({
+      done: true,
+      ...(message.stopGenerationId === undefined
+        ? {}
+        : { stoppedGenerationId: message.stopGenerationId }),
+    })
+  } catch (e) {
+    return false
+  }
+  port._stopAcknowledged = true
+  message.stopAcknowledged = true
+  return true
+}
+
 export function setAbortController(port, onStop, onDisconnect) {
   const controller = new AbortController()
+  const sessionRequestGeneration = port._sessionRequestGeneration
+  let stopGenerationId
   const messageListener = (msg) => {
     if (msg.stop) {
+      stopGenerationId = msg.stopGenerationId
       port.onMessage.removeListener(messageListener)
       console.debug('stop generating')
-      port.postMessage({ done: true })
+      acknowledgePortStop(port, msg)
       controller.abort()
       if (onStop) onStop()
     }
@@ -45,7 +65,14 @@ export function setAbortController(port, onStop, onDisconnect) {
     }
   }
 
-  return { controller, cleanController, messageListener, disconnectListener }
+  return {
+    controller,
+    cleanController,
+    messageListener,
+    disconnectListener,
+    getStopGenerationId: () => stopGenerationId,
+    isCurrentSessionRequest: () => port._sessionRequestGeneration === sessionRequestGeneration,
+  }
 }
 
 export function pushRecord(session, question, answer) {

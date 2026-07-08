@@ -60,7 +60,13 @@ export async function generateAnswersWithOpenAICompatible({
   extraHeaders = {},
   allowLegacyResponseField = false,
 }) {
-  const { controller, messageListener, disconnectListener } = setAbortController(port)
+  const {
+    controller,
+    messageListener,
+    disconnectListener,
+    getStopGenerationId,
+    isCurrentSessionRequest,
+  } = setAbortController(port)
 
   let requestBody
   const conversationRecords = Array.isArray(session.conversationRecords)
@@ -142,12 +148,34 @@ export async function generateAnswersWithOpenAICompatible({
       }
     },
     async onStart() {},
-    async onEnd() {
-      if (!finished) {
-        finish()
+    async onEnd(aborted = false) {
+      try {
+        if (!finished) {
+          if (aborted) {
+            const shouldPostSession = Boolean(answer) || session.isRetry
+            if (shouldPostSession && isCurrentSessionRequest()) {
+              if (answer) {
+                pushRecord(session, question, answer)
+              }
+              session.isRetry = false
+              try {
+                const stoppedGenerationId = getStopGenerationId()
+                port.postMessage({
+                  session,
+                  ...(stoppedGenerationId === undefined ? {} : { stoppedGenerationId }),
+                })
+              } catch (e) {
+                console.warn('[openai-compatible-core] Failed to post session on abort:', e)
+              }
+            }
+          } else {
+            finish()
+          }
+        }
+      } finally {
+        port.onMessage.removeListener(messageListener)
+        port.onDisconnect.removeListener(disconnectListener)
       }
-      port.onMessage.removeListener(messageListener)
-      port.onDisconnect.removeListener(disconnectListener)
     },
     async onError(resp) {
       port.onMessage.removeListener(messageListener)

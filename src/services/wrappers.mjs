@@ -12,6 +12,7 @@ import {
   modelNameToDesc,
   normalizeApiMode,
 } from '../utils/model-name-convert.mjs'
+import { acknowledgePortStop } from './apis/shared.mjs'
 
 export async function getChatGptAccessToken() {
   await clearOldAccessToken()
@@ -66,9 +67,31 @@ function isAbortError(err) {
   return name === 'AbortError' || message.includes('aborted') || message.includes('aborterror')
 }
 
+function isDisconnectedPortError(err) {
+  if (!err || typeof err !== 'object') return false
+  const message =
+    typeof err.message === 'string' ? err.message.trim().toLowerCase().replace(/\.$/, '') : ''
+  return (
+    message === 'attempting to use a disconnected port object' ||
+    message === 'attempt to postmessage on disconnected port' ||
+    message === 'extension context invalidated'
+  )
+}
+
 export function handlePortError(session, port, err) {
   if (isAbortError(err)) return
+  if (isDisconnectedPortError(err)) {
+    console.warn('[handlePortError] Ignoring disconnected port error:', err.message)
+    return
+  }
   console.error(err)
+  const postError = (error) => {
+    try {
+      port.postMessage({ error })
+    } catch (postErr) {
+      console.warn('[handlePortError] Failed to post error:', postErr)
+    }
+  }
   const message = typeof err?.message === 'string' ? err.message : ''
   if (message) {
     if (
@@ -76,36 +99,65 @@ export function handlePortError(session, port, err) {
         message.includes(m),
       )
     )
-      port.postMessage({ error: t('Exceeded maximum context length') + '\n\n' + message })
+      postError(t('Exceeded maximum context length') + '\n\n' + message)
     else if (['CaptchaChallenge', 'CAPTCHA'].some((m) => message.includes(m)))
-      port.postMessage({ error: t('Bing CaptchaChallenge') + '\n\n' + message })
+      postError(t('Bing CaptchaChallenge') + '\n\n' + message)
     else if (['exceeded your current quota'].some((m) => message.includes(m)))
-      port.postMessage({ error: t('Exceeded quota') + '\n\n' + message })
+      postError(t('Exceeded quota') + '\n\n' + message)
     else if (['Rate limit reached'].some((m) => message.includes(m)))
-      port.postMessage({ error: t('Rate limit') + '\n\n' + message })
+      postError(t('Rate limit') + '\n\n' + message)
     else if (['authentication token has expired'].some((m) => message.includes(m)))
-      port.postMessage({ error: 'UNAUTHORIZED' })
+      postError('UNAUTHORIZED')
     else if (
       isUsingClaudeWebModel(session) &&
       ['Invalid authorization', 'Session key required'].some((m) => message.includes(m))
     )
-      port.postMessage({
-        error: t('Please login at https://claude.ai first, and then click the retry button'),
-      })
+      postError(t('Please login at https://claude.ai first, and then click the retry button'))
     else if (
       isUsingBingWebModel(session) &&
       ['/turing/conversation/create: failed to parse response body.'].some((m) =>
         message.includes(m),
       )
     )
-      port.postMessage({ error: t('Please login at https://bing.com first') })
-    else port.postMessage({ error: message })
+      postError(t('Please login at https://bing.com first'))
+    else postError(message)
   } else {
     const errMsg = JSON.stringify(err) ?? 'unknown error'
     if (isUsingBingWebModel(session) && errMsg.includes('isTrusted'))
-      port.postMessage({ error: t('Please login at https://bing.com first') })
-    else port.postMessage({ error: errMsg })
+      postError(t('Please login at https://bing.com first'))
+    else postError(errMsg)
   }
+}
+
+export function claimLatestPortSessionRequest(port) {
+  const requestId = (port._latestSessionRequestId ?? 0) + 1
+  port._latestSessionRequestId = requestId
+  port._sessionRequestGeneration = (port._sessionRequestGeneration ?? 0) + 1
+  port._stopAcknowledged = false
+  return () => port._latestSessionRequestId === requestId
+}
+
+export function invalidateLatestPortSessionRequest(port) {
+  port._latestSessionRequestId = (port._latestSessionRequestId ?? 0) + 1
+}
+
+function createSessionRequestPort(port, proxyGenerationId, requestGenerationId) {
+  const sessionRequestGeneration = port._sessionRequestGeneration
+  return new Proxy(port, {
+    get(target, property, receiver) {
+      if (property === 'postMessage') {
+        return (message) => {
+          if (target._sessionRequestGeneration !== sessionRequestGeneration) return
+          target.postMessage({
+            ...message,
+            ...(proxyGenerationId === undefined ? {} : { proxyGenerationId }),
+            ...(requestGenerationId === undefined ? {} : { requestGenerationId }),
+          })
+        }
+      }
+      return Reflect.get(target, property, receiver)
+    },
+  })
 }
 
 export function registerPortListener(executor) {
@@ -113,9 +165,21 @@ export function registerPortListener(executor) {
     console.debug('connected')
     const onMessage = async (msg) => {
       console.debug('received msg', msg)
+      if (msg.stop) {
+        invalidateLatestPortSessionRequest(port)
+        acknowledgePortStop(port, msg)
+        return
+      }
       const session = msg.session
       if (!session) return
+      const isLatestSessionRequest = claimLatestPortSessionRequest(port)
+      const requestPort = createSessionRequestPort(
+        port,
+        msg.proxyGenerationId,
+        msg.requestGenerationId,
+      )
       const config = await getUserConfig()
+      if (!isLatestSessionRequest()) return
       if (!session.modelName) session.modelName = config.modelName
       if (!session.apiMode && session.modelName !== 'customModel') session.apiMode = config.apiMode
       if (session.apiMode) session.apiMode = normalizeApiMode(session.apiMode)
@@ -125,11 +189,18 @@ export function registerPortListener(executor) {
           t,
           config.customModelName,
         )
-      port.postMessage({ session })
+      requestPort.postMessage({ session })
       try {
-        await executor(session, port, config)
+        await executor(
+          session,
+          requestPort,
+          config,
+          isLatestSessionRequest,
+          msg.requestGenerationId,
+          port,
+        )
       } catch (err) {
-        handlePortError(session, port, err)
+        if (isLatestSessionRequest()) handlePortError(session, requestPort, err)
       }
     }
 

@@ -1,8 +1,32 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { t as translate } from 'i18next'
-import { handlePortError } from '../../../src/services/wrappers.mjs'
+import {
+  claimLatestPortSessionRequest,
+  handlePortError,
+  invalidateLatestPortSessionRequest,
+} from '../../../src/services/wrappers.mjs'
 import { createFakePort } from '../helpers/port.mjs'
+
+test('claimLatestPortSessionRequest supersedes pending requests on the same port', () => {
+  const port = {}
+  const isFirstRequestLatest = claimLatestPortSessionRequest(port)
+  const isSecondRequestLatest = claimLatestPortSessionRequest(port)
+
+  assert.equal(isFirstRequestLatest(), false)
+  assert.equal(isSecondRequestLatest(), true)
+  assert.equal(port._sessionRequestGeneration, 2)
+})
+
+test('invalidateLatestPortSessionRequest cancels a pending request', () => {
+  const port = {}
+  const isRequestLatest = claimLatestPortSessionRequest(port)
+
+  invalidateLatestPortSessionRequest(port)
+
+  assert.equal(isRequestLatest(), false)
+  assert.equal(port._sessionRequestGeneration, 1)
+})
 
 test('handlePortError reports exceeded maximum context length', (t) => {
   t.mock.method(console, 'error', () => {})
@@ -112,6 +136,37 @@ test('handlePortError ignores AbortError by name even when message text differs'
   assert.equal(consoleError.mock.callCount(), 0)
 })
 
+test('handlePortError ignores disconnected port errors', (t) => {
+  const consoleError = t.mock.method(console, 'error', () => {})
+  const consoleWarn = t.mock.method(console, 'warn', () => {})
+
+  for (const message of [
+    'Attempting to use a disconnected port object',
+    'Attempt to postMessage on disconnected port',
+  ]) {
+    const port = createFakePort()
+
+    handlePortError({ modelName: 'chatgptApi4oMini' }, port, { message })
+
+    assert.deepEqual(port.postedMessages, [])
+  }
+  assert.equal(consoleError.mock.callCount(), 0)
+  assert.equal(consoleWarn.mock.callCount(), 2)
+})
+
+test('handlePortError reports upstream errors that mention a closed port', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+
+  handlePortError({ modelName: 'chatgptApi4oMini' }, port, {
+    message: 'Upstream reset the request because its port closed',
+  })
+
+  assert.deepEqual(port.postedMessages, [
+    { error: 'Upstream reset the request because its port closed' },
+  ])
+})
+
 test('handlePortError reports Claude web authorization hint', (t) => {
   t.mock.method(console, 'error', () => {})
   const port = createFakePort()
@@ -196,4 +251,21 @@ test('handlePortError handles undefined thrown values without throwing again', (
 
   assert.equal(port.postedMessages.length, 1)
   assert.equal(port.postedMessages[0].error, 'unknown error')
+})
+
+test('handlePortError does not throw when the error port is closed', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const consoleWarn = t.mock.method(console, 'warn', () => {})
+  const port = {
+    postMessage() {
+      throw new Error('Port closed')
+    },
+  }
+
+  assert.doesNotThrow(() => {
+    handlePortError({ modelName: 'chatgptApi4oMini' }, port, {
+      message: 'done failed',
+    })
+  })
+  assert.equal(consoleWarn.mock.callCount(), 1)
 })

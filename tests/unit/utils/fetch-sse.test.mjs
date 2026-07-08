@@ -112,3 +112,93 @@ test('fetchSSE forwards fetch rejection errors to onError', async (t) => {
   assert.equal(errors.length, 1)
   assert.equal(errors[0].message, 'network down')
 })
+
+test('fetchSSE treats an AbortError before streaming as cancelled completion', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const consoleWarn = t.mock.method(console, 'warn', () => {})
+  const errors = []
+  let aborted = false
+
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw Object.assign(new Error('The operation was aborted'), {
+      name: 'AbortError',
+    })
+  })
+
+  await fetchSSE('https://example.com/abort', {
+    onStart: async () => {},
+    onMessage: () => {},
+    onEnd: async (wasAborted) => {
+      aborted = wasAborted
+      throw new Error('cleanup failed')
+    },
+    onError: async (error) => {
+      errors.push(error)
+    },
+  })
+
+  assert.equal(aborted, true)
+  assert.deepEqual(errors, [])
+  assert.equal(consoleWarn.mock.callCount(), 1)
+})
+
+test('fetchSSE propagates onEnd errors on normal completion', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  t.mock.method(globalThis, 'fetch', async () => createMockSseResponse(['data: {"delta":"A"}\n\n']))
+
+  await assert.rejects(
+    fetchSSE('https://example.com/sse', {
+      onStart: async () => {},
+      onMessage: () => {},
+      onEnd: async () => {
+        throw new Error('done failed')
+      },
+      onError: async () => {},
+    }),
+    /done failed/,
+  )
+})
+
+test('fetchSSE propagates onStart errors', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  t.mock.method(globalThis, 'fetch', async () => createMockSseResponse(['data: {"delta":"A"}\n\n']))
+  const errors = []
+
+  await assert.rejects(
+    fetchSSE('https://example.com/sse', {
+      onStart: async () => {
+        throw new Error('start failed')
+      },
+      onMessage: () => {},
+      onEnd: async () => {},
+      onError: async (error) => {
+        errors.push(error)
+      },
+    }),
+    /start failed/,
+  )
+  assert.equal(errors.length, 1)
+  assert.equal(errors[0].message, 'start failed')
+})
+
+test('fetchSSE propagates onMessage errors', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  t.mock.method(globalThis, 'fetch', async () => createMockSseResponse(['data: {"delta":"A"}\n\n']))
+  const errors = []
+
+  await assert.rejects(
+    fetchSSE('https://example.com/sse', {
+      onStart: async () => {},
+      onMessage: () => {
+        throw new Error('message failed')
+      },
+      onEnd: async () => {},
+      onError: async (error) => {
+        errors.push(error)
+      },
+    }),
+    /message failed/,
+  )
+  assert.equal(errors.length, 1)
+  assert.equal(errors[0].message, 'message failed')
+})

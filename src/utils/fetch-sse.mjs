@@ -1,11 +1,28 @@
 import { createParser } from './eventsource-parser.mjs'
 
+function isAbortError(err) {
+  if (!err || typeof err !== 'object') return false
+  const name = typeof err.name === 'string' ? err.name : ''
+  return name === 'AbortError'
+}
+
 export async function fetchSSE(resource, options) {
   const { onMessage, onStart, onEnd, onError, ...fetchOptions } = options
-  const resp = await fetch(resource, fetchOptions).catch(async (err) => {
+  let resp
+  try {
+    resp = await fetch(resource, fetchOptions)
+  } catch (err) {
+    if (isAbortError(err)) {
+      try {
+        await onEnd(true)
+      } catch (e) {
+        console.warn('[fetch-sse] onEnd threw during abort:', e)
+      }
+      return
+    }
     await onError(err)
-  })
-  if (!resp) return
+    return
+  }
   if (!resp.ok) {
     await onError(resp)
     return
@@ -15,15 +32,42 @@ export async function fetchSSE(resource, options) {
       onMessage(event.data)
     }
   })
+  const handleCallbackError = async (err) => {
+    await onError(err)
+    throw err
+  }
   let hasStarted = false
   const reader = resp.body.getReader()
   let result
-  while (!(result = await reader.read()).done) {
+  let done = false
+  while (!done) {
+    try {
+      result = await reader.read()
+    } catch (err) {
+      if (isAbortError(err)) {
+        try {
+          await onEnd(true)
+        } catch (e) {
+          console.warn('[fetch-sse] onEnd threw during abort:', e)
+        }
+        return
+      }
+      await onError(err)
+      return
+    }
+
+    done = result.done
+    if (done) break
+
     const chunk = result.value
     if (!hasStarted) {
       const str = new TextDecoder().decode(chunk)
       hasStarted = true
-      await onStart(str)
+      try {
+        await onStart(str)
+      } catch (err) {
+        await handleCallbackError(err)
+      }
 
       let fakeSseData
       try {
@@ -33,11 +77,19 @@ export async function fetchSSE(resource, options) {
         console.debug('not common response', error)
       }
       if (fakeSseData) {
-        parser.feed(new TextEncoder().encode(fakeSseData))
+        try {
+          parser.feed(new TextEncoder().encode(fakeSseData))
+        } catch (err) {
+          await handleCallbackError(err)
+        }
         break
       }
     }
-    parser.feed(chunk)
+    try {
+      parser.feed(chunk)
+    } catch (err) {
+      await handleCallbackError(err)
+    }
   }
   await onEnd()
 }
