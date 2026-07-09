@@ -243,8 +243,8 @@ const createSelectionTools = async (toolbarContainerElement, selection, captured
     selection,
     'container:',
     toolbarContainerElement,
-    'captured editable selection:',
-    capturedSelection,
+    'captured editable selection kind:',
+    capturedSelection?.kind,
   )
   try {
     toolbarContainerElement.className = 'chatgptbox-toolbar-container'
@@ -484,11 +484,11 @@ async function prepareForRightClickMenu() {
       try {
         const data = message.data
         let prompt = ''
-        let capturedSelection = null
+        // only selection tools operate on the selected text; menu tools work
+        // on the whole page and must not offer replacing the selection
+        const capturedSelection = data.itemId in toolsConfig ? menuCapturedSelection : null
+        menuCapturedSelection = null
         if (data.itemId in toolsConfig) {
-          // only selection tools operate on the selected text; menu tools work
-          // on the whole page and must not offer replacing the selection
-          capturedSelection = menuCapturedSelection
           console.debug('[content] Generating prompt from toolsConfig for item:', data.itemId)
           prompt = await toolsConfig[data.itemId].genPrompt(data.selectionText)
         } else if (data.itemId in menuConfig) {

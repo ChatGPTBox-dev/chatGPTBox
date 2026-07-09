@@ -295,6 +295,16 @@ test('replaceCapturedSelection refuses stale text field content', () => {
   assert.equal(element.value, 'changed content')
 })
 
+test('replaceCapturedSelection refuses shifted offsets even when the substring still matches', () => {
+  const element = createTextField({ value: 'aaaa', start: 0, end: 2 })
+  const doc = createDocument({ activeElement: element })
+  const captured = captureEditableSelection(doc)
+  element.value = 'aaaaaa' // text inserted before the selection keeps slice(0, 2) === 'aa'
+
+  assert.equal(replaceCapturedSelection(captured, 'bb', doc), false)
+  assert.equal(element.value, 'aaaaaa')
+})
+
 test('replaceCapturedSelection refuses disconnected text fields', () => {
   const element = createTextField({ value: 'hello', start: 0, end: 5 })
   const doc = createDocument({ activeElement: element })

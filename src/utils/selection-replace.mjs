@@ -46,6 +46,9 @@ export const captureEditableSelection = (doc = globalThis.document) => {
         start,
         end,
         text: activeElement.value.slice(start, end),
+        // the full value is kept so edits elsewhere in the field (which may
+        // shift the selection offsets) reliably invalidate the capture
+        fieldValue: activeElement.value,
       }
     }
 
@@ -93,7 +96,7 @@ const replaceInTextField = (captured, text, doc) => {
   const { element, start, end, text: originalText } = captured
   if (element.isConnected === false || element.readOnly || element.disabled) return false
   const value = element.value ?? ''
-  if (value.slice(start, end) !== originalText) return false
+  if (value !== captured.fieldValue) return false
 
   if (typeof element.focus === 'function') element.focus()
   let replaced = false
