@@ -516,6 +516,10 @@ test('modelNameToDesc returns desc for GPT-5 stable presets', () => {
   assert.equal(modelNameToDesc('chatgptApi5_4Mini'), 'OpenAI (GPT-5.4 mini)')
   assert.equal(modelNameToDesc('chatgptApi5_4Nano'), 'OpenAI (GPT-5.4 nano)')
   assert.equal(modelNameToDesc('chatgptApi5_5'), 'OpenAI (GPT-5.5)')
+  assert.equal(modelNameToDesc('chatgptApi5_6'), 'OpenAI (GPT-5.6)')
+  assert.equal(modelNameToDesc('chatgptApi5_6Sol'), 'OpenAI (GPT-5.6 Sol)')
+  assert.equal(modelNameToDesc('chatgptApi5_6Terra'), 'OpenAI (GPT-5.6 Terra)')
+  assert.equal(modelNameToDesc('chatgptApi5_6Luna'), 'OpenAI (GPT-5.6 Luna)')
 })
 
 test('modelNameToDesc appends extraCustomModelName for customModel', () => {

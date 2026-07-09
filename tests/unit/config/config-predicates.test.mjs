@@ -43,6 +43,10 @@ const representativeChatgptApiModelNames = [
   'chatgptApi5_4Mini',
   'chatgptApi5_4Nano',
   'chatgptApi5_5',
+  'chatgptApi5_6',
+  'chatgptApi5_6Sol',
+  'chatgptApi5_6Terra',
+  'chatgptApi5_6Luna',
 ]
 const representativeGptCompletionApiModelNames = ['gptApiInstruct']
 const representativeClaudeApiModelNames = ['claudeOpus48Api', 'claudeSonnet46Api']
