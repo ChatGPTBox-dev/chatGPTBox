@@ -1,0 +1,32 @@
+tests/unit/config/config-predicates.test.mjs
+  s_ccac9063119366::t_0fc98382e56a06 46
+  s_ccac9063119366::t_da3d7fa69ac3ce 47-49
+src/config/index.mjs
+  s_ccac9063119366::t_0fc98382e56a06 70,292
+  s_ccac9063119366::t_da3d7fa69ac3ce 71-73,293-295
+tests/unit/utils/model-name-convert.test.mjs
+  s_ccac9063119366::t_da3d7fa69ac3ce 520-522
+  s_ccac9063119366::t_0fc98382e56a06 519
+tests/unit/services/apis/openai-token-params.test.mjs
+  s_ccac9063119366::t_da3d7fa69ac3ce 35-37
+  s_ccac9063119366::t_0fc98382e56a06 34
+src/_locales/en/main.json
+  s_ccac9063119366::t_da3d7fa69ac3ce 214-216
+  s_ccac9063119366::t_0fc98382e56a06 213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "76187e2e09a02904e0d68fa57b5872d235e6e560",
+  "prompts": {},
+  "sessions": {
+    "s_ccac9063119366": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f481d-6744-7990-8783-180168d481a2",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
