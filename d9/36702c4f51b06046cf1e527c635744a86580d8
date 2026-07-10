@@ -1,0 +1,57 @@
+src/_locales/fr/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/en/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/components/ConversationCard/index.jsx
+  s_f4dc8b22d71a33::t_31d952c05dc551 575
+src/components/InputBox/index.jsx
+  s_f4dc8b22d71a33::t_31d952c05dc551 3,6-13,20-24,27,31,33,35-36,39,43-46,49-52,56-71,73-76,78-86,108-110,112-143,145,147-148,152-153,156-161,163-175,177-178,181,186
+  s_f4dc8b22d71a33::t_1d0fda121fa678 72
+  s_f4dc8b22d71a33::t_801bc93af4636a 1,144,146,149-151
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 77,111,162
+src/components/InputBox/resize.mjs
+  s_f4dc8b22d71a33::t_31d952c05dc551 1-32
+src/_locales/zh-hans/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/pt/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+tests/unit/components/input-box-resize.test.mjs
+  s_f4dc8b22d71a33::t_31d952c05dc551 1-42
+src/_locales/zh-hant/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/ja/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/es/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/ru/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/tr/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/in/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/it/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/de/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/_locales/ko/main.json
+  s_f4dc8b22d71a33::t_a93f04dc0fce0f 23
+src/content-script/styles.scss
+  s_f4dc8b22d71a33::t_801bc93af4636a 1373-1376
+  s_f4dc8b22d71a33::t_31d952c05dc551 1353-1372,1377-1386
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "d936702c4f51b06046cf1e527c635744a86580d8",
+  "prompts": {},
+  "sessions": {
+    "s_f4dc8b22d71a33": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4db1-2b73-7d20-926c-4e8a2ece4782",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
