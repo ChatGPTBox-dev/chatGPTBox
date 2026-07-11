@@ -700,15 +700,19 @@ export const defaultConfig = {
   // It allows the content of activeApiModes to change with version updates when the user has not customized ApiModes.
   // If it were directly written into customApiModes, the value would become fixed, even if the user has not made any customizations.
   activeApiModes: [
-    'chatgptFree35',
     'claude2WebFree',
     'moonshotWebFree',
     'ollamaModel',
     'customModel',
     'azureOpenAi',
-    'openRouter_openai_gpt_5_5',
-    'openRouter_anthropic_claude_sonnet4_6',
-    'openRouter_google_gemini_3_5_flash',
+    'chatgptApi5_6Sol',
+    'chatgptApi5_6Terra',
+    'chatgptApi5_6Luna',
+    'claudeOpus48Api',
+    'claudeSonnet5Api',
+    'claudeHaiku45Api',
+    'openRouter_auto',
+    'openRouter_free',
   ],
   customApiModes: [
     {
