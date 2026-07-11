@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { useLayoutEffect, useRef, useState } from 'react'
 import FileSaver from 'file-saver'
-import { isApiModeSelected, getApiModesFromConfig } from '../../utils/index.mjs'
+import { getApiModesFromConfig, modelNameToDesc } from '../../utils/index.mjs'
 import {
   isUsingAzureOpenAiApiModel,
   isUsingClaudeApiModel,
@@ -21,7 +21,11 @@ import { config as menuConfig } from '../../content-script/menu-tools'
 import { PencilIcon } from '@primer/octicons-react'
 import { importDataIntoStorage } from './import-data-cleanup.mjs'
 import { resolveOpenAICompatibleRequest } from '../../services/apis/provider-registry.mjs'
-import { getApiModeDisplayLabel } from './api-modes-provider-utils.mjs'
+import {
+  getApiModeDisplayLabel,
+  getSelectedApiModeOptionValue,
+  UNMATCHED_API_MODE_VALUE,
+} from './api-modes-provider-utils.mjs'
 import {
   buildProviderOverrideFinalConfigUpdate,
   createProviderApiKeyDraftSelectionSignature,
@@ -107,6 +111,14 @@ export function GeneralPart({
     config.apiMode && typeof config.apiMode === 'object'
       ? { apiMode: config.apiMode }
       : { modelName: config.modelName }
+  const selectedApiModeValue = getSelectedApiModeOptionValue(apiModes, config)
+  const currentApiModeLabel = config.apiMode
+    ? getApiModeDisplayLabel(
+        config.apiMode,
+        t,
+        Array.isArray(config.customOpenAIProviders) ? config.customOpenAIProviders : [],
+      ) || t(Models.customModel.desc)
+    : modelNameToDesc(config.modelName, t, config.customModelName)
   const selectedProviderRequest = resolveOpenAICompatibleRequest(config, selectedProviderSession)
   const selectedProviderId = selectedProviderRequest?.providerId || ''
   const selectedProviderSecretTargetId = resolveProviderSecretTargetId(selectedProviderRequest)
@@ -480,15 +492,26 @@ export function GeneralPart({
                 : undefined
             }
             required
+            value={selectedApiModeValue}
             onChange={(e) => {
+              if (e.target.value === UNMATCHED_API_MODE_VALUE) return
               if (e.target.value === '-1') {
                 updateConfig({ modelName: 'customModel', apiMode: null })
                 return
               }
-              const apiMode = apiModes[e.target.value]
-              updateConfig({ apiMode: apiMode })
+              const apiMode = apiModes[Number(e.target.value)]
+              if (!apiMode) {
+                e.currentTarget.value = selectedApiModeValue
+                return
+              }
+              updateConfig({ apiMode })
             }}
           >
+            {selectedApiModeValue === UNMATCHED_API_MODE_VALUE && (
+              <option value={UNMATCHED_API_MODE_VALUE} disabled>
+                {currentApiModeLabel}
+              </option>
+            )}
             {apiModes.map((apiMode, index) => {
               const desc = getApiModeDisplayLabel(
                 apiMode,
@@ -497,15 +520,13 @@ export function GeneralPart({
               )
               if (desc) {
                 return (
-                  <option value={index} key={index} selected={isApiModeSelected(apiMode, config)}>
+                  <option value={index} key={index}>
                     {desc}
                   </option>
                 )
               }
             })}
-            <option value={-1} selected={!config.apiMode && config.modelName === 'customModel'}>
-              {t(Models.customModel.desc)}
-            </option>
+            <option value={-1}>{t(Models.customModel.desc)}</option>
           </select>
           {isUsingMultiModeModel(config) && (
             <select

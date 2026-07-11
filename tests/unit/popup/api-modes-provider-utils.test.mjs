@@ -8,6 +8,7 @@ import {
   createProviderId,
   getConversationAiName,
   getApiModeDisplayLabel,
+  getSelectedApiModeOptionValue,
   getConfiguredCustomApiModesForSessionRecovery,
   getProviderDeleteDisabledReasonKey,
   isProviderEndpointRewriteBlockedBySavedConversations,
@@ -29,8 +30,93 @@ import {
   shouldIncludeSelectedApiModeInReferenceCheck,
   shouldPersistDeletedProviderChanges,
   shouldPersistPendingProviderChanges,
+  UNMATCHED_API_MODE_VALUE,
   validateProviderEndpointDraft,
 } from '../../../src/popup/sections/api-modes-provider-utils.mjs'
+
+test('getSelectedApiModeOptionValue returns the selected active mode index', () => {
+  const apiModes = [
+    {
+      groupName: 'claudeWebModelKeys',
+      itemName: 'claude2WebFree',
+      active: true,
+    },
+    {
+      groupName: 'openRouterApiModelKeys',
+      itemName: 'openRouter_auto',
+      active: true,
+    },
+  ]
+
+  assert.equal(getSelectedApiModeOptionValue(apiModes, { apiMode: { ...apiModes[1] } }), '1')
+})
+
+test('getSelectedApiModeOptionValue preserves an unmatched modelName', () => {
+  const apiModes = [
+    {
+      groupName: 'claudeWebModelKeys',
+      itemName: 'claude2WebFree',
+      active: true,
+    },
+  ]
+
+  assert.equal(
+    getSelectedApiModeOptionValue(apiModes, { modelName: 'chatgptFree35', apiMode: null }),
+    UNMATCHED_API_MODE_VALUE,
+  )
+})
+
+test('getSelectedApiModeOptionValue preserves an unmatched apiMode', () => {
+  const apiModes = [
+    {
+      groupName: 'openRouterApiModelKeys',
+      itemName: 'openRouter_auto',
+      active: true,
+    },
+  ]
+  const selectedApiMode = {
+    groupName: 'openRouterApiModelKeys',
+    itemName: 'openRouter_openai_gpt_5_5',
+    active: true,
+  }
+
+  assert.equal(
+    getSelectedApiModeOptionValue(apiModes, { apiMode: selectedApiMode }),
+    UNMATCHED_API_MODE_VALUE,
+  )
+})
+
+test('getSelectedApiModeOptionValue preserves a selection when no modes are active', () => {
+  const selectedApiMode = {
+    groupName: 'openRouterApiModelKeys',
+    itemName: 'openRouter_openai_gpt_5_5',
+    active: true,
+  }
+
+  assert.equal(
+    getSelectedApiModeOptionValue([], { apiMode: selectedApiMode }),
+    UNMATCHED_API_MODE_VALUE,
+  )
+})
+
+test('getSelectedApiModeOptionValue preserves an ambiguous selection', () => {
+  const duplicateApiMode = {
+    groupName: 'openRouterApiModelKeys',
+    itemName: 'openRouter_auto',
+    active: true,
+  }
+
+  assert.equal(
+    getSelectedApiModeOptionValue([{ ...duplicateApiMode }, { ...duplicateApiMode }], {
+      apiMode: duplicateApiMode,
+    }),
+    UNMATCHED_API_MODE_VALUE,
+  )
+})
+
+test('getSelectedApiModeOptionValue keeps the custom model option selected', () => {
+  assert.equal(getSelectedApiModeOptionValue([], { modelName: 'customModel', apiMode: null }), '-1')
+})
 
 test('createProviderId avoids reserved and existing ids', () => {
   const existingProviders = [{ id: 'foo' }, { id: 'foo-2' }]
@@ -1971,6 +2057,19 @@ test('getApiModeDisplayLabel falls back for legacy custom provider', () => {
     isCustom: true,
     customName: 'deepseek-v3.2',
     providerId: 'legacy-custom-default',
+  }
+  const t = (value) => value
+
+  assert.equal(getApiModeDisplayLabel(apiMode, t, []), 'Custom Model (deepseek-v3.2)')
+})
+
+test('getApiModeDisplayLabel falls back when a custom provider is missing', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'deepseek-v3.2',
+    providerId: 'missing-provider',
   }
   const t = (value) => value
 

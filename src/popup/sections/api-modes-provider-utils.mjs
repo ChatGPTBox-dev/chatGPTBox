@@ -1,5 +1,18 @@
 import { AlwaysCustomGroups } from '../../config/index.mjs'
-import { apiModeToModelName, modelNameToDesc } from '../../utils/model-name-convert.mjs'
+import {
+  apiModeToModelName,
+  getUniquelySelectedApiModeIndex,
+  modelNameToDesc,
+} from '../../utils/model-name-convert.mjs'
+
+export const UNMATCHED_API_MODE_VALUE = '__current-api-mode__'
+
+export function getSelectedApiModeOptionValue(apiModes, configOrSession) {
+  const selectedIndex = getUniquelySelectedApiModeIndex(apiModes, configOrSession)
+  if (selectedIndex !== -1) return String(selectedIndex)
+  if (!configOrSession?.apiMode && configOrSession?.modelName === 'customModel') return '-1'
+  return UNMATCHED_API_MODE_VALUE
+}
 
 function normalizeText(value) {
   return String(value || '').trim()
