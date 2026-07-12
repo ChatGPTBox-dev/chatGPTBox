@@ -1,0 +1,21 @@
+src/config/index.mjs
+  s_c3346d326f41c8::t_b1c28c08e50e06 182-189,264-267,620-643,712,751-752,910-913
+src/services/apis/provider-registry.mjs
+  s_c3346d326f41c8::t_b6b71126e21478 73-80,122-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "e478abe5761d7fb0c0128b05933285e33207d897",
+  "prompts": {},
+  "sessions": {
+    "s_c3346d326f41c8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5686-d0c0-7830-b9de-303cf01cb25d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
