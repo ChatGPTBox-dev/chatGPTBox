@@ -19,6 +19,7 @@ import {
   mergeConfigUpdate,
   queueConfigWrite,
 } from './popup-config-utils.mjs'
+import { expandApiModeListConfigUpdate } from './api-mode-config-utils.mjs'
 import { GeneralPart } from './sections/GeneralPart'
 import { FeaturePages } from './sections/FeaturePages'
 import { AdvancedPart } from './sections/AdvancedPart'
@@ -87,7 +88,8 @@ function Popup() {
   // Most popup field edits are fire-and-forget. Callers that must abort
   // follow-up work on persist failure opt into propagateError.
   const updateConfig = async (value, options = {}) => {
-    const nextValue = value && typeof value === 'object' ? value : {}
+    const rawValue = value && typeof value === 'object' ? value : {}
+    const nextValue = expandApiModeListConfigUpdate(latestConfigRef.current, rawValue)
     const { propagateError = false } = options && typeof options === 'object' ? options : {}
     const requestId = ++updateConfigRequestIdRef.current
     for (const key of Object.keys(nextValue)) {

@@ -2,9 +2,11 @@ import { defaults } from 'lodash-es'
 import Browser from 'webextension-polyfill'
 import { isMobile } from '../utils/is-mobile.mjs'
 import {
+  getApiModesFromConfig,
   isInApiModeGroup,
   isUsingModelName,
   modelNameToDesc,
+  reconcileMaterializedApiModeDefaults,
 } from '../utils/model-name-convert.mjs'
 import { t } from 'i18next'
 import {
@@ -734,6 +736,27 @@ for (const modelName in Models) {
 /**
  * @typedef {typeof defaultConfig} UserConfig
  */
+export const defaultApiModeIds = [
+  'claude2WebFree',
+  'moonshotWebFree',
+  'ollamaModel',
+  'customModel',
+  'azureOpenAi',
+  'chatgptApi5_6Sol',
+  'chatgptApi5_6Terra',
+  'chatgptApi5_6Luna',
+  'xaiGrok4_5',
+  'claudeOpus48Api',
+  'claudeSonnet5Api',
+  'claudeHaiku45Api',
+  'googleGemini3_1Pro',
+  'googleGemini3_5Flash',
+  'mistralMediumLatest',
+  'openRouter_auto',
+  'openRouter_free',
+  'nvidiaNim_nemotron_3_super',
+]
+
 export const defaultConfig = {
   // general
 
@@ -812,30 +835,9 @@ export const defaultConfig = {
   // others
 
   alwaysCreateNewConversationWindow: false,
-  // The handling of activeApiModes and customApiModes is somewhat complex.
-  // It does not directly convert activeApiModes into customApiModes, which is for compatibility considerations.
-  // It allows the content of activeApiModes to change with version updates when the user has not customized ApiModes.
-  // If it were directly written into customApiModes, the value would become fixed, even if the user has not made any customizations.
-  activeApiModes: [
-    'claude2WebFree',
-    'moonshotWebFree',
-    'ollamaModel',
-    'customModel',
-    'azureOpenAi',
-    'chatgptApi5_6Sol',
-    'chatgptApi5_6Terra',
-    'chatgptApi5_6Luna',
-    'xaiGrok4_5',
-    'claudeOpus48Api',
-    'claudeSonnet5Api',
-    'claudeHaiku45Api',
-    'googleGemini3_1Pro',
-    'googleGemini3_5Flash',
-    'mistralMediumLatest',
-    'openRouter_auto',
-    'openRouter_free',
-    'nvidiaNim_nemotron_3_super',
-  ],
+  // Untouched profiles read this live default list. Customized profiles materialize the
+  // visible rows in customApiModes and use knownApiModeDefaultIds to append future defaults.
+  activeApiModes: [...defaultApiModeIds],
   customApiModes: [
     {
       groupName: '',
@@ -848,9 +850,10 @@ export const defaultConfig = {
       active: false,
     },
   ],
+  knownApiModeDefaultIds: [],
   customOpenAIProviders: [],
   providerSecrets: {},
-  configSchemaVersion: 1,
+  configSchemaVersion: 2,
   activeSelectionTools: ['translate', 'translateToEn', 'summary', 'polish', 'code', 'ask'],
   customSelectionTools: [
     {
@@ -1039,7 +1042,7 @@ export async function getPreferredLanguageKey() {
   return config.preferredLanguage
 }
 
-const CONFIG_SCHEMA_VERSION = 1
+const CONFIG_SCHEMA_VERSION = 2
 
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : ''
@@ -1120,6 +1123,7 @@ function normalizeCustomProviderForStorage(provider, index, providerIdSet) {
 function migrateUserConfig(options) {
   const migrated = { ...options }
   let dirty = false
+  const storageKeysToRemove = []
 
   if (migrated.customChatGptWebApiUrl === 'https://chat.openai.com') {
     migrated.customChatGptWebApiUrl = 'https://chatgpt.com'
@@ -1132,7 +1136,18 @@ function migrateUserConfig(options) {
     dirty = true
   }
 
-  const canonicalActiveApiModes = canonicalizeModelKeyArray(migrated.activeApiModes)
+  const activeApiModesForCanonicalization =
+    Array.isArray(migrated.activeApiModes) &&
+    migrated.activeApiModes.some(
+      (modelName) =>
+        typeof modelName !== 'string' || !modelName.trim() || modelName !== modelName.trim(),
+    )
+      ? migrated.activeApiModes
+          .filter((modelName) => typeof modelName === 'string')
+          .map((modelName) => modelName.trim())
+          .filter(Boolean)
+      : migrated.activeApiModes
+  const canonicalActiveApiModes = canonicalizeModelKeyArray(activeApiModesForCanonicalization)
   if (canonicalActiveApiModes !== migrated.activeApiModes) {
     migrated.activeApiModes = canonicalActiveApiModes
     dirty = true
@@ -1286,7 +1301,7 @@ function migrateUserConfig(options) {
     }
   }
 
-  const customApiModes = Array.isArray(migrated.customApiModes)
+  let customApiModes = Array.isArray(migrated.customApiModes)
     ? migrated.customApiModes.map((apiMode) => canonicalizeApiMode({ ...apiMode }))
     : []
   if (!Array.isArray(migrated.customApiModes)) dirty = true
@@ -1650,6 +1665,101 @@ function migrateUserConfig(options) {
     }
   }
 
+  const currentDefaultIds = canonicalizeModelKeyArray([...defaultApiModeIds])
+  const migrationConfig = {
+    ...defaultConfig,
+    ...migrated,
+    customApiModes,
+    customOpenAIProviders,
+    providerSecrets,
+  }
+  const configuredCustomApiModes = getApiModesFromConfig(
+    {
+      ...migrationConfig,
+      activeApiModes: [],
+    },
+    false,
+  )
+  const hasStoredActiveApiModes = Array.isArray(migrated.activeApiModes)
+  const rawKnownApiModeDefaultIds = migrated.knownApiModeDefaultIds
+  const hasCurrentBaseline =
+    Number(migrated.configSchemaVersion) >= 2 &&
+    Array.isArray(rawKnownApiModeDefaultIds) &&
+    (currentDefaultIds.length === 0 || rawKnownApiModeDefaultIds.length > 0) &&
+    rawKnownApiModeDefaultIds.every(
+      (modelName) => typeof modelName === 'string' && Boolean(modelName.trim()),
+    )
+  const isLiveDefaultProfile =
+    !hasStoredActiveApiModes && !hasCurrentBaseline && configuredCustomApiModes.length === 0
+
+  if (isLiveDefaultProfile) {
+    if (Object.hasOwn(options, 'activeApiModes')) {
+      delete migrated.activeApiModes
+      storageKeysToRemove.push('activeApiModes')
+      dirty = true
+    }
+    if (Object.hasOwn(options, 'knownApiModeDefaultIds')) {
+      delete migrated.knownApiModeDefaultIds
+      storageKeysToRemove.push('knownApiModeDefaultIds')
+      dirty = true
+    }
+  } else {
+    const activeApiModesForMaterialization = hasStoredActiveApiModes
+      ? migrated.activeApiModes
+      : hasCurrentBaseline
+      ? []
+      : [...currentDefaultIds]
+
+    if (!hasStoredActiveApiModes && hasCurrentBaseline) {
+      migrated.activeApiModes = []
+      dirty = true
+    }
+
+    if (!hasCurrentBaseline || activeApiModesForMaterialization.length > 0) {
+      customApiModes = getApiModesFromConfig(
+        {
+          ...migrationConfig,
+          activeApiModes: activeApiModesForMaterialization,
+          customApiModes,
+        },
+        false,
+      )
+      migrated.activeApiModes = []
+      dirty = true
+    }
+
+    let knownApiModeDefaultIds = hasCurrentBaseline
+      ? canonicalizeModelKeyArray(
+          migrated.knownApiModeDefaultIds
+            .filter((modelName) => typeof modelName === 'string')
+            .map((modelName) => modelName.trim())
+            .filter(Boolean),
+        )
+      : currentDefaultIds
+
+    if (hasCurrentBaseline) {
+      const reconciled = reconcileMaterializedApiModeDefaults(
+        {
+          ...migrationConfig,
+          activeApiModes: [],
+          customApiModes,
+        },
+        currentDefaultIds,
+        knownApiModeDefaultIds,
+      )
+      customApiModes = reconciled.customApiModes
+      knownApiModeDefaultIds = reconciled.knownApiModeDefaultIds
+      if (reconciled.changed) dirty = true
+    }
+
+    if (
+      JSON.stringify(migrated.knownApiModeDefaultIds) !== JSON.stringify(knownApiModeDefaultIds)
+    ) {
+      dirty = true
+    }
+    migrated.knownApiModeDefaultIds = knownApiModeDefaultIds
+  }
+
   if (customProvidersDirty) dirty = true
   if (customApiModesDirty) dirty = true
 
@@ -1676,7 +1786,7 @@ function migrateUserConfig(options) {
     }
   }
 
-  return { migrated, dirty }
+  return { migrated, dirty, storageKeysToRemove }
 }
 
 /**
@@ -1721,7 +1831,7 @@ export async function getUserConfig() {
     }
   }
 
-  const { migrated, dirty } = migrateUserConfig(options)
+  const { migrated, dirty, storageKeysToRemove } = migrateUserConfig(options)
   if (dirty) {
     const payload = {}
     if (JSON.stringify(options.customApiModes) !== JSON.stringify(migrated.customApiModes)) {
@@ -1730,8 +1840,18 @@ export async function getUserConfig() {
     if (options.modelName !== migrated.modelName) {
       payload.modelName = migrated.modelName
     }
-    if (JSON.stringify(options.activeApiModes) !== JSON.stringify(migrated.activeApiModes)) {
+    if (
+      Object.hasOwn(migrated, 'activeApiModes') &&
+      JSON.stringify(options.activeApiModes) !== JSON.stringify(migrated.activeApiModes)
+    ) {
       payload.activeApiModes = migrated.activeApiModes
+    }
+    if (
+      Object.hasOwn(migrated, 'knownApiModeDefaultIds') &&
+      JSON.stringify(options.knownApiModeDefaultIds) !==
+        JSON.stringify(migrated.knownApiModeDefaultIds)
+    ) {
+      payload.knownApiModeDefaultIds = migrated.knownApiModeDefaultIds
     }
     if (
       JSON.stringify(options.customOpenAIProviders) !==
@@ -1762,8 +1882,19 @@ export async function getUserConfig() {
         }
       }
     }
+    let payloadPersisted = true
     if (Object.keys(payload).length > 0) {
-      await Browser.storage.local.set(payload).catch(() => {})
+      payloadPersisted = await Browser.storage.local
+        .set(payload)
+        .then(() => true)
+        .catch(() => false)
+    }
+    if (payloadPersisted && storageKeysToRemove.length > 0) {
+      try {
+        await Browser.storage.local.remove(storageKeysToRemove)
+      } catch {
+        // Invalid live-default sentinels remain non-authoritative and are retried on the next read.
+      }
     }
   }
   return defaults(migrated, defaultConfig)

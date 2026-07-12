@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
-import { getUserConfig } from '../../../src/config/index.mjs'
+import Browser from 'webextension-polyfill'
+import { defaultApiModeIds, getUserConfig } from '../../../src/config/index.mjs'
+import {
+  getApiModesFromConfig,
+  modelNameToApiMode,
+} from '../../../src/utils/model-name-convert.mjs'
 
 function createCustomApiMode(overrides = {}) {
   return {
@@ -85,19 +90,25 @@ test('getUserConfig migrates legacy model keys in selected config fields', async
 
   assert.equal(config.modelName, 'chatgptFree4oMini')
   assert.equal(storage.modelName, 'chatgptFree4oMini')
-  assert.deepEqual(config.activeApiModes, [
-    'chatgptFree4oMini',
-    'claudeSonnet46Api',
-    'moonshot_k2_5',
-    'openRouter_deepseek_v4_flash',
-  ])
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(
+    config.customApiModes.map((apiMode) => apiMode.itemName),
+    [
+      'chatgptFree4oMini',
+      'claudeSonnet46Api',
+      'moonshot_k2_5',
+      'openRouter_deepseek_v4_flash',
+      'aiml_openai_gpt_5_5',
+    ],
+  )
   assert.deepEqual(storage.activeApiModes, config.activeApiModes)
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
   assert.equal(config.apiMode.groupName, 'claudeApiModelKeys')
   assert.equal(config.apiMode.itemName, 'claudeSonnet46Api')
   assert.equal(storage.apiMode.itemName, 'claudeSonnet46Api')
-  assert.equal(config.customApiModes[0].groupName, 'aimlModelKeys')
-  assert.equal(config.customApiModes[0].itemName, 'aiml_openai_gpt_5_5')
-  assert.equal(storage.customApiModes[0].itemName, 'aiml_openai_gpt_5_5')
+  assert.equal(config.customApiModes.at(-1).groupName, 'aimlModelKeys')
+  assert.equal(config.customApiModes.at(-1).itemName, 'aiml_openai_gpt_5_5')
+  assert.equal(storage.customApiModes.at(-1).itemName, 'aiml_openai_gpt_5_5')
 })
 
 test('getUserConfig reuses custom mode key promoted earlier in the same migration pass', async () => {
@@ -927,8 +938,311 @@ test('getUserConfig writes current config schema version during migration', asyn
   const config = await getUserConfig()
   const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
 
-  assert.equal(config.configSchemaVersion, 1)
-  assert.equal(storage.configSchemaVersion, 1)
+  assert.equal(config.configSchemaVersion, 2)
+  assert.equal(storage.configSchemaVersion, 2)
+})
+
+test('getUserConfig keeps untouched profiles on live defaults without persisting a baseline', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+  })
+
+  const config = await getUserConfig()
+  await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(config.activeApiModes, defaultApiModeIds)
+  assert.deepEqual(config.knownApiModeDefaultIds, [])
+  assert.equal(Object.hasOwn(storage, 'activeApiModes'), false)
+  assert.equal(Object.hasOwn(storage, 'knownApiModeDefaultIds'), false)
+})
+
+test('getUserConfig treats imported null sentinels as an untouched live-default profile', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: null,
+    customApiModes: null,
+    knownApiModeDefaultIds: null,
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(config.activeApiModes, defaultApiModeIds)
+  assert.deepEqual(config.customApiModes, [])
+  assert.deepEqual(config.knownApiModeDefaultIds, [])
+  assert.equal(Object.hasOwn(storage, 'activeApiModes'), false)
+  assert.equal(Object.hasOwn(storage, 'knownApiModeDefaultIds'), false)
+})
+
+test('getUserConfig retries live-default sentinel cleanup after remove failure', async (t) => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: null,
+    customApiModes: null,
+    knownApiModeDefaultIds: null,
+  })
+
+  const originalRemove = Browser.storage.local.remove
+  let removeCalls = 0
+  t.mock.method(Browser.storage.local, 'remove', async (keys) => {
+    removeCalls += 1
+    if (removeCalls === 1) throw new Error('remove failed')
+    return originalRemove.call(Browser.storage.local, keys)
+  })
+
+  const firstConfig = await getUserConfig()
+  const storageAfterFailure = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+  const secondConfig = await getUserConfig()
+  const storageAfterRetry = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(firstConfig.activeApiModes, defaultApiModeIds)
+  assert.deepEqual(secondConfig.activeApiModes, defaultApiModeIds)
+  assert.equal(storageAfterFailure.activeApiModes, null)
+  assert.equal(storageAfterFailure.knownApiModeDefaultIds, null)
+  assert.equal(Object.hasOwn(storageAfterRetry, 'activeApiModes'), false)
+  assert.equal(Object.hasOwn(storageAfterRetry, 'knownApiModeDefaultIds'), false)
+  assert.equal(removeCalls, 2)
+})
+
+test('getUserConfig establishes a baseline for old snapshots without backfilling missing defaults', async () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    activeApiModes: [],
+    customApiModes: [existingMode],
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(config.customApiModes, [existingMode])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig materializes a legacy active-only profile', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    activeApiModes: ['chatgptFree35'],
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(
+    config.customApiModes.map((apiMode) => apiMode.itemName),
+    ['chatgptFree35'],
+  )
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.notEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig sanitizes malformed legacy active API mode ids before materializing', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    activeApiModes: [null, 1, '', ' chatgptFree35 '],
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(
+    config.customApiModes.map((apiMode) => apiMode.itemName),
+    ['chatgptFree35'],
+  )
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.deepEqual(storage.activeApiModes, [])
+  assert.deepEqual(
+    storage.customApiModes.map((apiMode) => apiMode.itemName),
+    ['chatgptFree35'],
+  )
+  assert.deepEqual(storage.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig sanitizes malformed active ids without rematerializing a current baseline', async () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [null, 1, ''],
+    customApiModes: [existingMode],
+    knownApiModeDefaultIds: defaultApiModeIds,
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(config.customApiModes, [existingMode])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.deepEqual(storage.activeApiModes, [])
+  assert.deepEqual(storage.customApiModes, [existingMode])
+  assert.deepEqual(storage.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig keeps unresolved built-in defaults in the effective materialized list', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    activeApiModes: defaultApiModeIds,
+    azureDeploymentName: '',
+    ollamaModelName: '',
+  })
+
+  const config = await getUserConfig()
+  const effectiveApiModes = getApiModesFromConfig(config, false)
+
+  assert.equal(
+    effectiveApiModes.some((apiMode) => apiMode.itemName === 'azureOpenAi'),
+    true,
+  )
+  assert.equal(
+    effectiveApiModes.some((apiMode) => apiMode.itemName === 'ollamaModel'),
+    true,
+  )
+})
+
+test('getUserConfig materializes live defaults before a legacy custom-only row', async () => {
+  const customMode = createCustomApiMode({ customName: 'legacy-custom-only' })
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    customApiModes: [customMode],
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.equal(config.customApiModes.at(-1).customName, 'legacy-custom-only')
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig treats a valid baseline as materialized when active modes are missing', async () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    customApiModes: [existingMode],
+    knownApiModeDefaultIds: defaultApiModeIds,
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(config.customApiModes, [existingMode])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.deepEqual(globalThis.__TEST_BROWSER_SHIM__.getStorage().activeApiModes, [])
+})
+
+test('getUserConfig does not restore removed defaults when only a valid baseline remains', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    customApiModes: [],
+    knownApiModeDefaultIds: defaultApiModeIds,
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(config.customApiModes, [])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig replaces a malformed baseline without backfilling the snapshot', async () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [existingMode],
+    knownApiModeDefaultIds: [null],
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.customApiModes, [existingMode])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig appends defaults added after the stored baseline', async () => {
+  const newDefaultId = defaultApiModeIds.at(-1)
+  const previousDefaultIds = defaultApiModeIds.slice(0, -1)
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [existingMode],
+    knownApiModeDefaultIds: previousDefaultIds,
+  })
+
+  const firstConfig = await getUserConfig()
+  const secondConfig = await getUserConfig()
+
+  assert.equal(firstConfig.customApiModes.at(-1).itemName, newDefaultId)
+  assert.deepEqual(firstConfig.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.deepEqual(secondConfig.customApiModes, firstConfig.customApiModes)
+})
+
+test('getUserConfig retries future-default reconciliation deterministically after write failure', async (t) => {
+  const newDefaultId = defaultApiModeIds.at(-1)
+  const storedConfig = {
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [modelNameToApiMode('chatgptFree35')],
+    knownApiModeDefaultIds: defaultApiModeIds.slice(0, -1),
+  }
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage(storedConfig)
+  t.mock.method(Browser.storage.local, 'set', async () => {
+    throw new Error('write failed')
+  })
+
+  const firstConfig = await getUserConfig()
+  const secondConfig = await getUserConfig()
+
+  assert.equal(firstConfig.customApiModes.at(-1).itemName, newDefaultId)
+  assert.deepEqual(secondConfig.customApiModes, firstConfig.customApiModes)
+  assert.deepEqual(globalThis.__TEST_BROWSER_SHIM__.getStorage(), storedConfig)
+})
+
+test('getUserConfig does not reactivate an equivalent inactive row for a new default', async () => {
+  const newDefaultId = defaultApiModeIds.at(-1)
+  const inactiveMode = { ...modelNameToApiMode(newDefaultId), active: false }
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [inactiveMode],
+    knownApiModeDefaultIds: defaultApiModeIds.slice(0, -1),
+  })
+
+  const config = await getUserConfig()
+
+  assert.equal(config.customApiModes.length, 1)
+  assert.equal(config.customApiModes[0].active, false)
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig does not restore a removed default whose id is already known', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [],
+    knownApiModeDefaultIds: defaultApiModeIds,
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.customApiModes, [])
+})
+
+test('getUserConfig canonicalizes legacy ids while preserving the cumulative baseline', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [],
+    knownApiModeDefaultIds: [...defaultApiModeIds, 'chatgptFree4o'],
+  })
+
+  const config = await getUserConfig()
+
+  assert.equal(config.knownApiModeDefaultIds.includes('chatgptFree4o'), false)
+  assert.equal(config.knownApiModeDefaultIds.includes('chatgptFree4oMini'), true)
+  assert.deepEqual(config.customApiModes, [])
 })
 
 test('getUserConfig creates separate providers when same URL has different API keys', async () => {
@@ -1050,7 +1364,7 @@ test('getUserConfig reverse-syncs providerSecrets to legacy fields for backward 
 
 test('getUserConfig converges missing provider migration keys when schema version is current', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
-    configSchemaVersion: 1,
+    configSchemaVersion: 2,
   })
 
   await getUserConfig()
@@ -1069,7 +1383,7 @@ test('getUserConfig converges missing provider migration keys when schema versio
 
 test('getUserConfig persists generated custom provider ids when schema version is current', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
-    configSchemaVersion: 1,
+    configSchemaVersion: 2,
     providerSecrets: {},
     customApiModes: [],
     customOpenAIProviders: [

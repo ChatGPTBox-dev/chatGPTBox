@@ -1,15 +1,14 @@
 import { useTranslation } from 'react-i18next'
 import PropTypes from 'prop-types'
 import Browser from 'webextension-polyfill'
-import {
-  apiModeToModelName,
-  getApiModesFromConfig,
-  isApiModeSelected,
-  modelNameToDesc,
-} from '../../utils/index.mjs'
+import { getApiModesFromConfig, isApiModeSelected, modelNameToDesc } from '../../utils/index.mjs'
 import { PencilIcon, TrashIcon } from '@primer/octicons-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AlwaysCustomGroups, ModelGroups } from '../../config/index.mjs'
+import {
+  buildApiModeListConfigUpdate,
+  getSelectionPatchWhenApiModeDisabled,
+} from '../api-mode-config-utils.mjs'
 import {
   getCustomOpenAIProviders,
   OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID,
@@ -78,7 +77,6 @@ export function ApiModes({ config, updateConfig }) {
   const [editingApiMode, setEditingApiMode] = useState(defaultApiMode)
   const [editingIndex, setEditingIndex] = useState(-1)
   const [apiModes, setApiModes] = useState([])
-  const [apiModeStringArray, setApiModeStringArray] = useState([])
   const [customProviders, setCustomProviders] = useState([])
   const [pendingNewProvider, setPendingNewProvider] = useState(null)
   const [pendingEditedProvidersById, setPendingEditedProvidersById] = useState({})
@@ -101,7 +99,6 @@ export function ApiModes({ config, updateConfig }) {
   useLayoutEffect(() => {
     const nextApiModes = getApiModesFromConfig(config)
     setApiModes(nextApiModes)
-    setApiModeStringArray(nextApiModes.map(apiModeToModelName))
     setCustomProviders(getCustomOpenAIProviders(config))
   }, [
     config.activeApiModes,
@@ -141,18 +138,6 @@ export function ApiModes({ config, updateConfig }) {
       Browser.storage.onChanged.removeListener(listener)
     }
   }, [])
-
-  const updateWhenApiModeDisabled = (apiMode) => {
-    if (isApiModeSelected(apiMode, config))
-      updateConfig({
-        modelName:
-          apiModeStringArray.includes(config.modelName) &&
-          config.modelName !== apiModeToModelName(apiMode)
-            ? config.modelName
-            : 'customModel',
-        apiMode: null,
-      })
-  }
 
   const shouldEditProvider = editingApiMode.groupName === 'customApiModelKeys'
   const effectiveProviders = useMemo(
@@ -232,13 +217,15 @@ export function ApiModes({ config, updateConfig }) {
   }
 
   const persistApiMode = async (nextApiMode) => {
-    const payload = {
-      activeApiModes: [],
-      customApiModes:
-        editingIndex === -1
-          ? [...apiModes, nextApiMode]
-          : apiModes.map((apiMode, index) => (index === editingIndex ? nextApiMode : apiMode)),
-    }
+    const nextApiModes =
+      editingIndex === -1
+        ? [...apiModes, nextApiMode]
+        : apiModes.map((apiMode, index) => (index === editingIndex ? nextApiMode : apiMode))
+    const selectionPatch =
+      editingIndex !== -1 && isApiModeSelected(apiModes[editingIndex], config)
+        ? { apiMode: nextApiMode }
+        : {}
+    const payload = buildApiModeListConfigUpdate(config, nextApiModes, { selectionPatch })
     if (
       shouldPersistPendingProviderChanges(hasPendingProviderChanges) ||
       shouldPersistDeletedProviderChanges(pendingDeletedProviderIds)
@@ -250,9 +237,6 @@ export function ApiModes({ config, updateConfig }) {
           pendingDeletedProviderSecretIds,
         )
       }
-    }
-    if (editingIndex !== -1 && isApiModeSelected(apiModes[editingIndex], config)) {
-      payload.apiMode = nextApiMode
     }
     await persistApiModeConfigUpdate(updateConfig, payload, clearPendingProviderChanges)
   }
@@ -632,10 +616,14 @@ export function ApiModes({ config, updateConfig }) {
                 type="checkbox"
                 checked={apiMode.active}
                 onChange={(e) => {
-                  if (!e.target.checked) updateWhenApiModeDisabled(apiMode)
                   const customApiModes = [...apiModes]
                   customApiModes[index] = { ...apiMode, active: e.target.checked }
-                  updateConfig({ activeApiModes: [], customApiModes })
+                  const selectionPatch = e.target.checked
+                    ? {}
+                    : getSelectionPatchWhenApiModeDisabled(apiMode, apiModes, config)
+                  updateConfig(
+                    buildApiModeListConfigUpdate(config, customApiModes, { selectionPatch }),
+                  )
                 }}
               />
               {getApiModeDisplayLabel(apiMode, t, effectiveProviders)}
@@ -675,10 +663,17 @@ export function ApiModes({ config, updateConfig }) {
                   style={{ cursor: 'pointer' }}
                   onClick={(e) => {
                     e.preventDefault()
-                    updateWhenApiModeDisabled(apiMode)
                     const customApiModes = [...apiModes]
                     customApiModes.splice(index, 1)
-                    updateConfig({ activeApiModes: [], customApiModes })
+                    updateConfig(
+                      buildApiModeListConfigUpdate(config, customApiModes, {
+                        selectionPatch: getSelectionPatchWhenApiModeDisabled(
+                          apiMode,
+                          apiModes,
+                          config,
+                        ),
+                      }),
+                    )
                   }}
                 >
                   <TrashIcon />

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import Browser from 'webextension-polyfill'
+import { defaultApiModeIds, defaultConfig, getUserConfig } from '../../../src/config/index.mjs'
 import {
   importDataIntoStorage,
   prepareImportData,
@@ -119,6 +121,7 @@ test('prepareImportData migrates legacy model keys in imported config and sessio
 
   assert.equal(normalizedData.modelName, 'chatgptFree4oMini')
   assert.deepEqual(normalizedData.activeApiModes, ['chatgptFree4oMini', 'moonshot_k2_5'])
+  assert.equal(normalizedData.knownApiModeDefaultIds, null)
   assert.equal(normalizedData.apiMode.itemName, 'openRouter_deepseek_v4_flash')
   assert.equal(normalizedData.customApiModes[0].groupName, 'aimlModelKeys')
   assert.equal(normalizedData.customApiModes[0].itemName, 'aiml_openai_gpt_5_5')
@@ -128,6 +131,29 @@ test('prepareImportData migrates legacy model keys in imported config and sessio
     { role: 'assistant', answer: 'legacy' },
   ])
   assert.deepEqual(keysToRemove, [])
+})
+
+test('prepareImportData atomically clears stale API mode fields missing from an old backup', () => {
+  const { normalizedData, keysToRemove } = prepareImportData({
+    customApiModes: [],
+  })
+
+  assert.deepEqual(normalizedData, {
+    activeApiModes: null,
+    customApiModes: [],
+    knownApiModeDefaultIds: null,
+  })
+  assert.deepEqual(keysToRemove, ['modelName', 'apiMode'])
+})
+
+test('prepareImportData canonicalizes a stored API mode default baseline', () => {
+  const { normalizedData } = prepareImportData({
+    activeApiModes: [],
+    customApiModes: [],
+    knownApiModeDefaultIds: [null, ' chatgptFree4o ', 'chatgptFree4oMini'],
+  })
+
+  assert.deepEqual(normalizedData.knownApiModeDefaultIds, ['chatgptFree4oMini'])
 })
 
 test('importDataIntoStorage writes normalized data before removing legacy keys', async () => {
@@ -149,6 +175,36 @@ test('importDataIntoStorage writes normalized data before removing legacy keys',
     ['set', { claudeApiKey: 'legacy-key', anthropicApiKey: 'legacy-key' }],
     ['remove', ['claudeApiKey']],
   ])
+})
+
+test('importDataIntoStorage replaces stale API mode state before legacy migration', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [{ itemName: 'stale-mode' }],
+    knownApiModeDefaultIds: ['stale-default'],
+    modelName: 'stale-model',
+    apiMode: { itemName: 'stale-mode' },
+  })
+
+  await importDataIntoStorage(Browser.storage.local, {
+    configSchemaVersion: 1,
+    customApiModes: [],
+  })
+  const importedStorage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+  assert.equal(importedStorage.activeApiModes, null)
+  assert.equal(importedStorage.knownApiModeDefaultIds, null)
+  assert.equal(Object.hasOwn(importedStorage, 'modelName'), false)
+  assert.equal(Object.hasOwn(importedStorage, 'apiMode'), false)
+
+  const config = await getUserConfig()
+  const migratedStorage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(config.activeApiModes, defaultApiModeIds)
+  assert.equal(config.modelName, defaultConfig.modelName)
+  assert.equal(config.apiMode, null)
+  assert.equal(Object.hasOwn(migratedStorage, 'activeApiModes'), false)
+  assert.equal(Object.hasOwn(migratedStorage, 'knownApiModeDefaultIds'), false)
 })
 
 test('importDataIntoStorage does not remove existing keys when set fails', async () => {

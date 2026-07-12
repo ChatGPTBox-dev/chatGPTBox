@@ -89,12 +89,21 @@ export function normalizeApiMode(apiMode) {
     groupName: apiMode.groupName || '',
     itemName: apiMode.itemName || '',
     isCustom: Boolean(apiMode.isCustom),
-    customName: apiMode.customName || '',
+    customName: typeof apiMode.customName === 'string' ? apiMode.customName : '',
     customUrl: apiMode.customUrl || '',
     apiKey: apiMode.apiKey || '',
     providerId: typeof apiMode.providerId === 'string' ? apiMode.providerId.trim() : '',
     active: apiMode.active !== false,
   }
+}
+
+const alwaysCustomPresetItemNames = {
+  azureOpenAiApiModelKeys: 'azureOpenAi',
+  ollamaApiModelKeys: 'ollamaModel',
+}
+
+function isBuiltInAlwaysCustomPreset(apiMode) {
+  return !apiMode.isCustom && alwaysCustomPresetItemNames[apiMode.groupName] === apiMode.itemName
 }
 
 export function apiModeToModelName(apiMode) {
@@ -136,7 +145,9 @@ export function getApiModesFromConfig(config, onlyActive) {
     .filter((apiMode) => {
       if (!apiMode || !apiMode.groupName) return false
       if (AlwaysCustomGroups.includes(apiMode.groupName)) {
-        return Boolean(apiMode.customName && apiMode.customName.trim())
+        return Boolean(
+          (apiMode.customName && apiMode.customName.trim()) || isBuiltInAlwaysCustomPreset(apiMode),
+        )
       }
       return Boolean(apiMode.itemName)
     })
@@ -217,6 +228,69 @@ export function getApiModesFromConfig(config, onlyActive) {
     ...originalApiModes,
     ...mergedCustomApiModes.filter((apiMode) => (onlyActive ? apiMode.active : true)),
   ]
+}
+
+function getApiModeDefaultIdentity(apiMode) {
+  const normalized = normalizeApiMode(apiMode)
+  if (!normalized) return ''
+  const customName = normalized.customName.trim()
+  const presetItemName = alwaysCustomPresetItemNames[normalized.groupName] || ''
+  const itemName = customName && presetItemName ? presetItemName : normalized.itemName
+  const isNamedAlwaysCustomPreset =
+    Boolean(customName) && Boolean(presetItemName) && itemName === presetItemName
+  return JSON.stringify({
+    groupName: normalized.groupName,
+    itemName,
+    isCustom: isNamedAlwaysCustomPreset ? true : normalized.isCustom,
+    customName,
+    providerId: normalized.providerId,
+  })
+}
+
+export function reconcileMaterializedApiModeDefaults(config, defaultIds, knownDefaultIds) {
+  const currentModes = Array.isArray(config.customApiModes)
+    ? config.customApiModes.map((apiMode) => ({ ...apiMode }))
+    : []
+  const knownIds = Array.isArray(knownDefaultIds) ? [...knownDefaultIds] : []
+  const knownIdSet = new Set(knownIds)
+  let changed = false
+
+  for (const defaultId of Array.isArray(defaultIds) ? defaultIds : []) {
+    if (knownIdSet.has(defaultId)) continue
+
+    if (defaultId === 'customModel') {
+      knownIds.push(defaultId)
+      knownIdSet.add(defaultId)
+      changed = true
+      continue
+    }
+
+    const materializedModes = getApiModesFromConfig(
+      {
+        ...config,
+        activeApiModes: [defaultId],
+        customApiModes: [],
+      },
+      false,
+    )
+    const materializedMode = materializedModes[0]
+    if (!materializedMode) continue
+
+    const identity = getApiModeDefaultIdentity(materializedMode)
+    const alreadyExists = currentModes.some(
+      (apiMode) => getApiModeDefaultIdentity(apiMode) === identity,
+    )
+    if (!alreadyExists) currentModes.push({ ...materializedMode, active: true })
+    knownIds.push(defaultId)
+    knownIdSet.add(defaultId)
+    changed = true
+  }
+
+  return {
+    customApiModes: currentModes,
+    knownApiModeDefaultIds: knownIds,
+    changed,
+  }
 }
 
 export function getApiModesStringArrayFromConfig(config, onlyActive) {
