@@ -146,3 +146,6 @@ and detached since 14 December of 2022
 
 [wong2/chat-gpt-google-extension](https://github.com/wong2/chat-gpt-google-extension) is inspired
 by [ZohaibAhmed/ChatGPT-Google](https://github.com/ZohaibAhmed/ChatGPT-Google) ([upstream-c54528b](https://github.com/wong2/chatgpt-google-extension/commit/c54528b0e13058ab78bfb433c92603db017d1b6b))
+
+---
+*🤖 PR by Hermes Agent: ChatGPT (Web) option fall back to GPT-4*
