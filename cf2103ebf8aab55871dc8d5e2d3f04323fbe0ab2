@@ -1,0 +1,35 @@
+src/popup/sections/api-modes-provider-utils.mjs
+  s_0aa0e5f5723a68::t_3b11ab60b132ff 2-15
+tests/unit/popup/api-modes-provider-utils.test.mjs
+  s_0aa0e5f5723a68::t_af0d2db07dc850 51,118
+  s_0aa0e5f5723a68::t_776d6043355397 57
+  s_0aa0e5f5723a68::t_07a40ea437011c 110-112
+  s_0aa0e5f5723a68::t_379a06826db53d 40,85-109
+  s_0aa0e5f5723a68::t_bb5d1908231976 120
+  s_0aa0e5f5723a68::t_b7460622bdb7b6 2066-2078
+  s_0aa0e5f5723a68::t_3b11ab60b132ff 11,33,37-39,41-50,52-56,58-84,113-117,119
+src/popup/sections/GeneralPart.jsx
+  s_0aa0e5f5723a68::t_2c04e5d3e4762e 121
+  s_0aa0e5f5723a68::t_18fa8af4a04d8e 24
+  s_0aa0e5f5723a68::t_98d47f6adeb20c 502,507
+  s_0aa0e5f5723a68::t_3b11ab60b132ff 25-28,114,495,497,510-511,513-514,523,529
+  s_0aa0e5f5723a68::t_77efc477105a2c 503-506
+  s_0aa0e5f5723a68::t_b7460622bdb7b6 4,117-119,512
+  s_0aa0e5f5723a68::t_8dd39faa0aef3f 115-116,120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "cf2103ebf8aab55871dc8d5e2d3f04323fbe0ab2",
+  "prompts": {},
+  "sessions": {
+    "s_0aa0e5f5723a68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f513b-21e1-7db1-83ae-4f5a1262b342",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

@@ -1,0 +1,31 @@
+src/popup/sections/api-modes-provider-utils.mjs
+  s_0aa0e5f5723a68::t_3b11ab60b132ff 2-15
+tests/unit/popup/api-modes-provider-utils.test.mjs
+  s_0aa0e5f5723a68::t_bb5d1908231976 120
+  s_0aa0e5f5723a68::t_af0d2db07dc850 51,118
+  s_0aa0e5f5723a68::t_776d6043355397 57
+  s_0aa0e5f5723a68::t_b7460622bdb7b6 2066-2078
+  s_0aa0e5f5723a68::t_3b11ab60b132ff 11,33,37-39,41-50,52-56,58-84,113-117,119
+  s_0aa0e5f5723a68::t_379a06826db53d 40,85-109
+  s_0aa0e5f5723a68::t_07a40ea437011c 110-112
+src/popup/sections/GeneralPart.jsx
+  s_0aa0e5f5723a68::t_18fa8af4a04d8e 24
+  s_0aa0e5f5723a68::t_3b11ab60b132ff 25-28,114,495,497,506-507,509-510,519,525
+  s_0aa0e5f5723a68::t_b7460622bdb7b6 4,115-121,508
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "52888cc37a84e06dd885bf03aafe8298db771f77",
+  "prompts": {},
+  "sessions": {
+    "s_0aa0e5f5723a68": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f513b-21e1-7db1-83ae-4f5a1262b342",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
