@@ -1,0 +1,20 @@
+.github/workflows/scripts/verify-search-engine-configs.mjs
+  s_e285c9a8f32543::t_ca6b12f2d6c11a 100-103
+  s_e285c9a8f32543::t_6866d4985e796f 120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "48e44ec180b186ad1b26559c7ff66820d7eaa39b",
+  "prompts": {},
+  "sessions": {
+    "s_e285c9a8f32543": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5cfa-2ca3-7793-9383-1351d55c3bea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
