@@ -1,0 +1,19 @@
+src/popup/sections/ApiModes.jsx
+  s_385f5ccd48ad5a::t_e8c3b7389369f3 648,651,657,663
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "b65211cb45758564aeb99a8b802fbc3824900874",
+  "prompts": {},
+  "sessions": {
+    "s_385f5ccd48ad5a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5b50-ed18-7e71-9aeb-4c21ca13a176",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
