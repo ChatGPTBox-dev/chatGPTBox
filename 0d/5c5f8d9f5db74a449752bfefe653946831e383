@@ -1,0 +1,55 @@
+src/components/InputBox/index.jsx
+  s_f4dc8b22d71a33::t_b0c6266af403ef 52,56-86,108-155,158-177,179-180,183,188-191
+  s_f4dc8b22d71a33::t_489a095af1f1d5 1,3,6-13,20-24,27,31,33,35-36,39,43-46
+  s_f4dc8b22d71a33::t_73e78827ec6b0a 49-51
+src/_locales/de/main.json
+  s_f4dc8b22d71a33::t_d574c0aba0c0d4 23
+src/_locales/en/main.json
+  s_f4dc8b22d71a33::t_9c15a081ac2292 23
+src/_locales/es/main.json
+  s_f4dc8b22d71a33::t_8433294a6d92cb 23
+src/_locales/fr/main.json
+  s_f4dc8b22d71a33::t_26dd52eafcc8ee 23
+src/_locales/in/main.json
+  s_f4dc8b22d71a33::t_211c27f166e600 23
+src/_locales/it/main.json
+  s_f4dc8b22d71a33::t_1244fc1f9526c4 23
+src/_locales/ja/main.json
+  s_f4dc8b22d71a33::t_19b8473d438167 23
+src/_locales/ko/main.json
+  s_f4dc8b22d71a33::t_1b23e5f0c3579f 23
+src/_locales/pt/main.json
+  s_f4dc8b22d71a33::t_db630e11ffeb3b 23
+src/_locales/ru/main.json
+  s_f4dc8b22d71a33::t_ca4b28bfc3c116 23
+src/_locales/tr/main.json
+  s_f4dc8b22d71a33::t_efa7042cbf1741 23
+src/_locales/zh-hans/main.json
+  s_f4dc8b22d71a33::t_51fa981b8dac2b 23
+src/_locales/zh-hant/main.json
+  s_f4dc8b22d71a33::t_3c3f1c5442faab 23
+src/components/ConversationCard/index.jsx
+  s_f4dc8b22d71a33::t_3c4d9f38061c69 575
+src/components/InputBox/resize.mjs
+  s_f4dc8b22d71a33::t_cf6c616c21ef4c 1-32
+src/content-script/styles.scss
+  s_f4dc8b22d71a33::t_ed84f98b26a957 1353-1386
+tests/unit/components/input-box-resize.test.mjs
+  s_f4dc8b22d71a33::t_9757ffa033d9ba 1-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "0d5c5f8d9f5db74a449752bfefe653946831e383",
+  "prompts": {},
+  "sessions": {
+    "s_f4dc8b22d71a33": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4db1-2b73-7d20-926c-4e8a2ece4782",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
