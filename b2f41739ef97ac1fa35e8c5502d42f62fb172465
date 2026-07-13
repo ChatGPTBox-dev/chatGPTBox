@@ -1,0 +1,21 @@
+src/services/apis/provider-registry.mjs
+  s_4d7defef6f9a8b::t_f5f5dabc4d66a8 73-80,122
+tests/unit/services/apis/provider-registry.test.mjs
+  s_4d7defef6f9a8b::t_cf22aa8fb601e7 9,44-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "b2f41739ef97ac1fa35e8c5502d42f62fb172465",
+  "prompts": {},
+  "sessions": {
+    "s_4d7defef6f9a8b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f568b-dd48-7dd1-a14e-29046990ba63",
+        "model": "unknown"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
