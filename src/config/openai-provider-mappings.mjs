@@ -6,6 +6,7 @@ export const LEGACY_API_KEY_FIELD_BY_PROVIDER_ID = {
   aiml: 'aimlApiKey',
   chatglm: 'chatglmApiKey',
   ollama: 'ollamaApiKey',
+  google: 'googleApiKey',
   'legacy-custom-default': 'customApiKey',
 }
 
@@ -26,5 +27,6 @@ export const OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID = {
   aimlApiModelKeys: 'aiml',
   chatglmApiModelKeys: 'chatglm',
   ollamaApiModelKeys: 'ollama',
+  googleApiModelKeys: 'google',
   customApiModelKeys: 'legacy-custom-default',
 }

@@ -30,6 +30,7 @@ import {
   isUsingOpenRouterApiModel,
   isUsingAimlApiModel,
   isUsingDeepSeekApiModel,
+  isUsingGoogleApiModel,
 } from '../config/index.mjs'
 import '../_locales/i18n'
 import { openUrl } from '../utils/open-url'
@@ -345,6 +346,7 @@ function isUsingOpenAICompatibleApiSession(session) {
     isUsingOllamaApiModel(session) ||
     isUsingOpenRouterApiModel(session) ||
     isUsingAimlApiModel(session) ||
+    isUsingGoogleApiModel(session) ||
     isUsingGptCompletionApiModel(session)
   )
 }

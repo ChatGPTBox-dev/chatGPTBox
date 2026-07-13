@@ -6,6 +6,7 @@ import {
   getProviderById,
   resolveEndpointTypeForSession,
   resolveOpenAICompatibleRequest,
+  resolveProviderIdForSession,
 } from '../../../../src/services/apis/provider-registry.mjs'
 
 test('resolveEndpointTypeForSession prefers apiMode when present', () => {
@@ -38,6 +39,15 @@ test('resolveEndpointTypeForSession falls back to legacy modelName when apiMode 
   }
 
   assert.equal(resolveEndpointTypeForSession(session), 'completion')
+})
+
+test('resolveProviderIdForSession resolves legacy Google preset keys', () => {
+  assert.equal(resolveProviderIdForSession({ modelName: 'googleGemini2_5Flash' }), 'google')
+  assert.equal(resolveProviderIdForSession({ modelName: 'googleApiModelKeys-custom' }), 'google')
+})
+
+test('resolveProviderIdForSession does not treat raw Gemini model IDs as legacy presets', () => {
+  assert.equal(resolveProviderIdForSession({ modelName: 'gemini-2.5-flash' }), null)
 })
 
 test('resolveOpenAICompatibleRequest resolves custom provider from normalized session provider id', () => {

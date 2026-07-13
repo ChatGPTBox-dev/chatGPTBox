@@ -179,6 +179,14 @@ export const aimlApiModelKeys = [
   'aiml_deepseek_v4_pro',
   'aiml_deepseek_v4_flash',
 ]
+export const googleApiModelKeys = [
+  'googleGemini3_1Pro',
+  'googleGemini3_5Flash',
+  'googleGemini3Flash',
+  'googleGemini2_5Pro',
+  'googleGemini2_5Flash',
+  'googleGemini2_5FlashLite',
+]
 
 export const AlwaysCustomGroups = [
   'ollamaApiModelKeys',
@@ -252,6 +260,10 @@ export const ModelGroups = {
   aimlModelKeys: {
     value: aimlApiModelKeys,
     desc: 'AI/ML (API)',
+  },
+  googleApiModelKeys: {
+    value: googleApiModelKeys,
+    desc: 'Google (API)',
   },
   customApiModelKeys: {
     value: customApiModelKeys,
@@ -605,6 +617,30 @@ export const Models = {
     value: 'deepseek/deepseek-v4-flash',
     desc: 'AIML (DeepSeek V4 Flash)',
   },
+  googleGemini3_1Pro: {
+    value: 'gemini-3.1-pro-preview',
+    desc: 'Google (Gemini 3.1 Pro Preview)',
+  },
+  googleGemini3_5Flash: {
+    value: 'gemini-3.5-flash',
+    desc: 'Google (Gemini 3.5 Flash)',
+  },
+  googleGemini3Flash: {
+    value: 'gemini-3-flash-preview',
+    desc: 'Google (Gemini 3 Flash Preview)',
+  },
+  googleGemini2_5Pro: {
+    value: 'gemini-2.5-pro',
+    desc: 'Google (Gemini 2.5 Pro)',
+  },
+  googleGemini2_5Flash: {
+    value: 'gemini-2.5-flash',
+    desc: 'Google (Gemini 2.5 Flash)',
+  },
+  googleGemini2_5FlashLite: {
+    value: 'gemini-2.5-flash-lite',
+    desc: 'Google (Gemini 2.5 Flash-Lite)',
+  },
 }
 
 for (const modelName in Models) {
@@ -673,6 +709,7 @@ export const defaultConfig = {
 
   openRouterApiKey: '',
   aimlApiKey: '',
+  googleApiKey: '',
 
   // advanced
 
@@ -711,6 +748,8 @@ export const defaultConfig = {
     'claudeOpus48Api',
     'claudeSonnet5Api',
     'claudeHaiku45Api',
+    'googleGemini3_1Pro',
+    'googleGemini3_5Flash',
     'openRouter_auto',
     'openRouter_free',
   ],
@@ -866,6 +905,10 @@ export function isUsingOpenRouterApiModel(configOrSession) {
 
 export function isUsingAimlApiModel(configOrSession) {
   return isInApiModeGroup(aimlApiModelKeys, configOrSession)
+}
+
+export function isUsingGoogleApiModel(configOrSession) {
+  return isInApiModeGroup(googleApiModelKeys, configOrSession)
 }
 
 export function isUsingChatGLMApiModel(configOrSession) {

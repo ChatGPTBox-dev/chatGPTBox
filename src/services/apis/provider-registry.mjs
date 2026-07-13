@@ -71,6 +71,14 @@ const BUILTIN_PROVIDER_TEMPLATE = [
     enabled: true,
   },
   {
+    id: 'google',
+    name: 'Google',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    chatCompletionsPath: '/chat/completions',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'legacy-custom-default',
     name: 'Custom Model (Legacy)',
     chatCompletionsPath: '/chat/completions',
@@ -111,6 +119,7 @@ function resolveProviderIdFromLegacyModelName(modelName) {
     return 'ollama'
   }
   if (preset.startsWith('chatglm') || preset === 'chatglmApiModelKeys') return 'chatglm'
+  if (preset.startsWith('googleGemini') || preset === 'googleApiModelKeys') return 'google'
   if (preset === 'customApiModelKeys') return 'legacy-custom-default'
 
   return null
