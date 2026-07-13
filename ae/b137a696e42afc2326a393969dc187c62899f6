@@ -1,0 +1,19 @@
+src/components/InputBox/index.jsx
+  s_f4dc8b22d71a33::t_998677eba864d4 90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "aeb137a696e42afc2326a393969dc187c62899f6",
+  "prompts": {},
+  "sessions": {
+    "s_f4dc8b22d71a33": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4db1-2b73-7d20-926c-4e8a2ece4782",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
