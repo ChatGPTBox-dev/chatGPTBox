@@ -87,7 +87,7 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
   useEffect(() => {
     if (enabled)
       getUserConfig().then((config) => {
-        if (config.focusAfterAnswer) inputRef.current.focus()
+        if (config.focusAfterAnswer) inputRef.current?.focus()
       })
   }, [enabled])
 
