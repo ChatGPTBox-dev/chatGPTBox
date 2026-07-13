@@ -20,6 +20,7 @@
   "Custom Site Regex": "Custom Site Regex",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "Exclusively use Custom Site Regex for website matching, ignoring built-in rules",
   "Input Query": "Input Query",
+  "Resize input box": "Resize input box",
   "Append Query": "Append Query",
   "Prepend Query": "Prepend Query",
   "Wechat Pay": "Wechat Pay",

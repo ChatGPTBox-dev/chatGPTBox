@@ -20,6 +20,7 @@
   "Custom Site Regex": "사용자 정의 사이트 Regex",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "사이트 일치에 독점적으로 사용자 정의 사이트 Regex를 사용하며, 내장 규칙을 무시합니다.",
   "Input Query": "입력 쿼리 선택기",
+  "Resize input box": "입력 상자 크기 조절",
   "Append Query": "끝에 추가할 쿼리 선택기",
   "Prepend Query": "앞에 추가할 쿼리 선택기",
   "Wechat Pay": "위챗 페이",

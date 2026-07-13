@@ -20,6 +20,7 @@
   "Custom Site Regex": "カスタムサイトの正規表現",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "内蔵ルールを無視して、カスタムサイト用の正規表現のみを使用",
   "Input Query": "入力クエリ",
+  "Resize input box": "入力欄のサイズを変更",
   "Append Query": "末尾に追加するクエリ",
   "Prepend Query": "先頭に挿入するクエリ",
   "Wechat Pay": "Wechatペイ",

@@ -20,6 +20,7 @@
   "Custom Site Regex": "自訂網站正規表達式",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "僅使用自訂網站正規表達式進行網站配對，忽略內建規則",
   "Input Query": "輸入查詢選擇器",
+  "Resize input box": "調整輸入框大小",
   "Append Query": "附加查詢選擇器",
   "Prepend Query": "插入查詢選擇器",
   "Wechat Pay": "微信支付贊助",

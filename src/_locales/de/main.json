@@ -20,6 +20,7 @@
   "Custom Site Regex": "Benutzerdefinierter Website-Regex",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "Nur benutzerdefinierten Website-Regex verwenden, um Website-Übereinstimmungen zu finden und interne Regeln ignorieren",
   "Input Query": "Eingabeaufforderung",
+  "Resize input box": "Größe des Eingabefelds ändern",
   "Append Query": "Am Ende anhängen",
   "Prepend Query": "Am Anfang hinzufügen",
   "Wechat Pay": "WeChat-Pay",

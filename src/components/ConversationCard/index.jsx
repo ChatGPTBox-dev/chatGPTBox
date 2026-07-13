@@ -572,7 +572,7 @@ function ConversationCard(props) {
         className="markdown-body"
         style={
           props.notClampSize
-            ? { flexGrow: 1 }
+            ? { flexGrow: 1, minHeight: 0 }
             : { maxHeight: windowSize[1] * 0.55 + 'px', resize: 'vertical' }
         }
       >

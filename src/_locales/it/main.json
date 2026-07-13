@@ -20,6 +20,7 @@
   "Custom Site Regex": "Espressione regolare del sito personalizzata",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "Usa esclusivamente l'espressione regolare del sito personalizzata per la corrispondenza dei siti Web, ignorando le regole incorporate",
   "Input Query": "Query di input",
+  "Resize input box": "Ridimensiona la casella di input",
   "Append Query": "Query di appendice",
   "Prepend Query": "Query di aggiunta in testa",
   "Wechat Pay": "Paga con Wechat",

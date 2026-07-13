@@ -20,6 +20,7 @@
   "Custom Site Regex": "Regex Situs Kustom",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "Gunakan secara eksklusif Regex Situs Kustom untuk pencocokan situs web, mengabaikan aturan bawaan",
   "Input Query": "Query Masukan",
+  "Resize input box": "Ubah ukuran kotak input",
   "Append Query": "Tambahkan Query",
   "Prepend Query": "Tambahkan Query di Awal",
   "Wechat Pay": "Pembayaran Wechat",

@@ -1,50 +1,88 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
-import { isFirefox, isMobile, isSafari, updateRefHeight } from '../../utils'
+import { isMobile, updateRefHeight } from '../../utils'
 import { useTranslation } from 'react-i18next'
 import { getUserConfig } from '../../config/index.mjs'
+import {
+  clampInputHeight,
+  DEFAULT_INPUT_HEIGHT,
+  getKeyboardInputHeight,
+  getPointerInputHeight,
+  MIN_CONVERSATION_HEIGHT,
+  MIN_INPUT_HEIGHT,
+} from './resize.mjs'
 
 export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
   const { t } = useTranslation()
   const [value, setValue] = useState('')
-  const reverseDivRef = useRef(null)
   const inputRef = useRef(null)
   const resizedRef = useRef(false)
-  const [internalReverseResizeDir, setInternalReverseResizeDir] = useState(reverseResizeDir)
-
-  useEffect(() => {
-    setInternalReverseResizeDir(
-      !isSafari() && !isFirefox() && !isMobile() ? internalReverseResizeDir : false,
-    )
-  }, [])
-
-  const virtualInputRef = internalReverseResizeDir ? reverseDivRef : inputRef
+  const resizeHandleRef = useRef(null)
+  const resizeStartRef = useRef(null)
+  const hasTopResizeHandle = Boolean(reverseResizeDir && !isMobile())
+  const [inputHeight, setInputHeight] = useState(DEFAULT_INPUT_HEIGHT)
+  const [maxInputHeight, setMaxInputHeight] = useState(DEFAULT_INPUT_HEIGHT)
 
   useEffect(() => {
     inputRef.current.focus()
-
-    const onResizeY = () => {
-      if (virtualInputRef.current.h !== virtualInputRef.current.offsetHeight) {
-        virtualInputRef.current.h = virtualInputRef.current.offsetHeight
-        if (!resizedRef.current) {
-          resizedRef.current = true
-          virtualInputRef.current.style.maxHeight = ''
-        }
-      }
-    }
-    virtualInputRef.current.h = virtualInputRef.current.offsetHeight
-    virtualInputRef.current.addEventListener('mousemove', onResizeY)
   }, [])
 
   useEffect(() => {
-    if (!resizedRef.current) {
-      if (!internalReverseResizeDir) {
-        updateRefHeight(inputRef)
-        virtualInputRef.current.h = virtualInputRef.current.offsetHeight
-        virtualInputRef.current.style.maxHeight = '160px'
+    if (hasTopResizeHandle) return
+
+    const input = inputRef.current
+    const onResizeY = () => {
+      if (input.h !== input.offsetHeight) {
+        input.h = input.offsetHeight
+        if (!resizedRef.current) {
+          resizedRef.current = true
+          input.style.maxHeight = ''
+        }
       }
     }
+    input.h = input.offsetHeight
+    input.addEventListener('mousemove', onResizeY)
+    return () => input.removeEventListener('mousemove', onResizeY)
+  }, [hasTopResizeHandle])
+
+  useEffect(() => {
+    if (!resizedRef.current && !hasTopResizeHandle) {
+      updateRefHeight(inputRef)
+      inputRef.current.h = inputRef.current.offsetHeight
+      inputRef.current.style.maxHeight = `${DEFAULT_INPUT_HEIGHT}px`
+    }
   })
+
+  const getMaxInputHeight = () => {
+    const container = inputRef.current?.closest('.gpt-inner')
+    const conversation = container?.querySelector('.markdown-body')
+    const resizeHandle = resizeHandleRef.current
+
+    if (!container || !conversation || !resizeHandle) return DEFAULT_INPUT_HEIGHT
+
+    return Math.max(
+      MIN_INPUT_HEIGHT,
+      container.clientHeight -
+        conversation.offsetTop -
+        resizeHandle.offsetHeight -
+        MIN_CONVERSATION_HEIGHT,
+    )
+  }
+
+  useLayoutEffect(() => {
+    if (!hasTopResizeHandle) return
+
+    const updateResizeBounds = () => {
+      const maxHeight = getMaxInputHeight()
+      if (resizeStartRef.current) resizeStartRef.current.maxHeight = maxHeight
+      setMaxInputHeight(maxHeight)
+      setInputHeight((height) => clampInputHeight(height, maxHeight))
+    }
+
+    updateResizeBounds()
+    window.addEventListener('resize', updateResizeBounds)
+    return () => window.removeEventListener('resize', updateResizeBounds)
+  }, [hasTopResizeHandle])
 
   useEffect(() => {
     if (enabled)
@@ -67,29 +105,90 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
     }
   }
 
+  const handleResizePointerDown = (e) => {
+    if (!e.isPrimary || e.button !== 0) return
+
+    e.currentTarget.focus()
+    e.preventDefault()
+    const maxHeight = getMaxInputHeight()
+    setMaxInputHeight(maxHeight)
+    resizeStartRef.current = {
+      pointerId: e.pointerId,
+      height: inputRef.current.offsetHeight,
+      y: e.clientY,
+      maxHeight,
+    }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const handleResizePointerMove = (e) => {
+    const resizeStart = resizeStartRef.current
+    if (!resizeStart || resizeStart.pointerId !== e.pointerId) return
+
+    e.preventDefault()
+    setInputHeight(
+      getPointerInputHeight(resizeStart.height, resizeStart.y, e.clientY, resizeStart.maxHeight),
+    )
+  }
+
+  const stopResizing = (e) => {
+    if (resizeStartRef.current?.pointerId !== e.pointerId) return
+
+    const restoreInputFocus = document.activeElement === e.currentTarget
+    resizeStartRef.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
+    if (restoreInputFocus) inputRef.current.focus()
+  }
+
+  const handleResizeKeyDown = (e) => {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return
+
+    const maxHeight = getMaxInputHeight()
+    e.preventDefault()
+    setMaxInputHeight(maxHeight)
+    setInputHeight(
+      (height) => getKeyboardInputHeight(height, e.key, maxHeight, e.shiftKey) ?? height,
+    )
+  }
+
   return (
     <div className="input-box">
+      {hasTopResizeHandle && (
+        <div
+          ref={resizeHandleRef}
+          className="input-resize-handle"
+          role="separator"
+          aria-controls="chatgptbox-independent-input"
+          aria-label={t('Resize input box')}
+          aria-orientation="horizontal"
+          aria-valuemax={maxInputHeight}
+          aria-valuemin={MIN_INPUT_HEIGHT}
+          aria-valuenow={inputHeight}
+          tabIndex={0}
+          onKeyDown={handleResizeKeyDown}
+          onLostPointerCapture={stopResizing}
+          onPointerCancel={stopResizing}
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={stopResizing}
+        />
+      )}
       <div
-        ref={reverseDivRef}
-        style={
-          internalReverseResizeDir && {
-            transform: 'rotateX(180deg)',
-            resize: 'vertical',
-            overflow: 'hidden',
-            minHeight: '160px',
-          }
-        }
+        className={hasTopResizeHandle ? 'input-resize-content' : undefined}
+        style={hasTopResizeHandle ? { height: `${inputHeight}px` } : undefined}
       >
         <textarea
+          id={hasTopResizeHandle ? 'chatgptbox-independent-input' : undefined}
           dir="auto"
           ref={inputRef}
           disabled={false}
           className="interact-input"
-          style={
-            internalReverseResizeDir
-              ? { transform: 'rotateX(180deg)', resize: 'none' }
-              : { resize: 'vertical', minHeight: '70px' }
-          }
+          style={{
+            resize: hasTopResizeHandle ? 'none' : 'vertical',
+            minHeight: `${MIN_INPUT_HEIGHT}px`,
+          }}
           placeholder={
             enabled
               ? t('Type your question here\nEnter to send, shift + enter to break line')

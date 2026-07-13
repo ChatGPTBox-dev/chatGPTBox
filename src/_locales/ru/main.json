@@ -20,6 +20,7 @@
   "Custom Site Regex": "Пользовательское регулярное выражение сайта",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "Использовать только пользовательское регулярное выражение сайта для сопоставления сайта, игнорируя встроенные правила.",
   "Input Query": "Входной запрос",
+  "Resize input box": "Изменить размер поля ввода",
   "Append Query": "Добавить запрос",
   "Prepend Query": "Вставить запрос",
   "Wechat Pay": "Wechat-платеж",

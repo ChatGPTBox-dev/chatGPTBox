@@ -20,6 +20,7 @@
   "Custom Site Regex": "自定义站点正则匹配",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "只使用自定义站点正则匹配, 忽略内置站点规则",
   "Input Query": "输入的查询选择器",
+  "Resize input box": "调整输入框大小",
   "Append Query": "挂载到末尾的查询选择器",
   "Prepend Query": "插入到开头的查询选择器",
   "Wechat Pay": "微信打赏",

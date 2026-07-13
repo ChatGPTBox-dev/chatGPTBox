@@ -20,6 +20,7 @@
   "Custom Site Regex": "Özel Site Regex'i",
   "Exclusively use Custom Site Regex for website matching, ignoring built-in rules": "Yerleşik kuralları yok sayarak web sitesi eşleştirme için yalnızca Özel Site Regex'i kullan",
   "Input Query": "Girdi Sorgusu",
+  "Resize input box": "Giriş kutusunu yeniden boyutlandır",
   "Append Query": "Sorgu Ekle",
   "Prepend Query": "Sorgu Ön Eki",
   "Wechat Pay": "Wechat Pay",
