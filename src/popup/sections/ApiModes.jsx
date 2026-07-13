@@ -645,21 +645,22 @@ export function ApiModes({ config, updateConfig }) {
             </div>
           )}
           <div style={{ display: 'flex', gap: '12px' }}>
-            <button type="button" onClick={closeProviderEditor}>
+            <button type="button" onClick={closeProviderEditor} style={{ flex: 1 }}>
               {t('Cancel')}
             </button>
-            <button type="button" onClick={onSaveProviderEditing}>
+            <button type="button" onClick={onSaveProviderEditing} style={{ flex: 1 }}>
               {t('Save')}
             </button>
             {providerEditingId && (
               <span
                 title={providerDeleteDisabledReasonKey ? t(providerDeleteDisabledReasonKey) : ''}
-                style={{ display: 'inline-block' }}
+                style={{ display: 'flex', flex: 1 }}
               >
                 <button
                   type="button"
                   onClick={onDeleteProviderEditing}
                   disabled={isDeleteProviderDisabled}
+                  style={{ flex: 1 }}
                 >
                   {t('Delete')}
                 </button>
