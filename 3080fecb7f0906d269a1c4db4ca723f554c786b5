@@ -1,0 +1,19 @@
+src/popup/sections/ApiModes.jsx
+  s_385f5ccd48ad5a::t_1c3e0276d8e10c 648,651,657
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "3080fecb7f0906d269a1c4db4ca723f554c786b5",
+  "prompts": {},
+  "sessions": {
+    "s_385f5ccd48ad5a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5b50-ed18-7e71-9aeb-4c21ca13a176",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
