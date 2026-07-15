@@ -644,7 +644,13 @@ export function ApiModes({ config, updateConfig }) {
               )}
             </div>
           )}
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${providerEditingId ? 3 : 2}, minmax(0, 1fr))`,
+              gap: '12px',
+            }}
+          >
             <button type="button" onClick={closeProviderEditor}>
               {t('Cancel')}
             </button>
@@ -654,7 +660,7 @@ export function ApiModes({ config, updateConfig }) {
             {providerEditingId && (
               <span
                 title={providerDeleteDisabledReasonKey ? t(providerDeleteDisabledReasonKey) : ''}
-                style={{ display: 'inline-block' }}
+                style={{ display: 'grid' }}
               >
                 <button
                   type="button"
