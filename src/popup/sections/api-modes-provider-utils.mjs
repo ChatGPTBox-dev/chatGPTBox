@@ -478,28 +478,6 @@ function getProvidersMatchingSessionProviderId(providers = [], providerId = '') 
   )
 }
 
-function isProviderReferencedBySessionsViaProviderId(providerId, sessions = [], providers = []) {
-  const normalizedTargetProviderId = normalizeText(providerId)
-  if (!normalizedTargetProviderId || normalizedTargetProviderId === 'legacy-custom-default') {
-    return false
-  }
-
-  for (const session of Array.isArray(sessions) ? sessions : []) {
-    if (normalizeText(session?.apiMode?.groupName) !== 'customApiModelKeys') continue
-
-    const sessionProviderId = normalizeText(session?.apiMode?.providerId)
-    if (!sessionProviderId || sessionProviderId === 'legacy-custom-default') continue
-
-    const matchedByProviderId = getProvidersMatchingSessionProviderId(providers, sessionProviderId)
-    const matchesTargetProvider = matchedByProviderId.some(
-      (provider) => normalizeText(provider?.id) === normalizedTargetProviderId,
-    )
-    if (matchesTargetProvider) return true
-  }
-
-  return false
-}
-
 function getProviderIdsMatchingSessionLabel(session = null, providers = [], apiModes = []) {
   if (normalizeText(session?.apiMode?.groupName) !== 'customApiModelKeys') return []
 
@@ -539,42 +517,6 @@ function getProviderIdsMatchingSessionLabel(session = null, providers = [], apiM
         (provider) => provider?.enabled !== false && normalizeText(provider?.id) === providerId,
       ),
     )
-}
-
-function canSessionRecoverViaLegacyLabelFallback(session = null, apiModes = []) {
-  if (normalizeText(session?.apiMode?.groupName) !== 'customApiModelKeys') return false
-
-  const normalizedSessionLabel = {
-    groupName: normalizeText(session?.apiMode?.groupName),
-    itemName: normalizeText(session?.apiMode?.itemName),
-    isCustom: Boolean(session?.apiMode?.isCustom),
-    customName: normalizeText(session?.apiMode?.customName),
-  }
-  if (!normalizedSessionLabel.customName) return false
-
-  const allCandidates = (Array.isArray(apiModes) ? apiModes : []).filter((apiMode) => {
-    if (!apiMode || typeof apiMode !== 'object') return false
-    return (
-      normalizeText(apiMode.groupName) === normalizedSessionLabel.groupName &&
-      normalizeText(apiMode.customName) === normalizedSessionLabel.customName
-    )
-  })
-  const exactCandidates = allCandidates.filter(
-    (apiMode) =>
-      normalizeText(apiMode?.itemName) === normalizedSessionLabel.itemName &&
-      Boolean(apiMode?.isCustom) === normalizedSessionLabel.isCustom,
-  )
-  const matchedApiModes = exactCandidates.length === 1 ? exactCandidates : []
-  const isLegacyCustomShape = !normalizedSessionLabel.itemName
-  const fallbackApiModes =
-    matchedApiModes.length === 0 && isLegacyCustomShape && allCandidates.length === 1
-      ? allCandidates
-      : matchedApiModes
-
-  return fallbackApiModes
-    .map((apiMode) => normalizeProviderId(apiMode?.providerId))
-    .filter((providerId, index, providerIds) => providerIds.indexOf(providerId) === index)
-    .includes('legacy-custom-default')
 }
 
 export function getReferencedCustomProviderIdsFromSessions(
@@ -625,114 +567,6 @@ export function getReferencedCustomProviderIdsFromSessions(
     }
   }
   return Array.from(referencedProviderIds)
-}
-
-export function isProviderReferencedBySessionsViaUrl(
-  providerId,
-  sessions = [],
-  providers = [],
-  apiModes = [],
-  providerSecrets = {},
-) {
-  const normalizedTargetProviderId = normalizeText(providerId)
-  if (!normalizedTargetProviderId || normalizedTargetProviderId === 'legacy-custom-default') {
-    return false
-  }
-
-  for (const session of Array.isArray(sessions) ? sessions : []) {
-    if (normalizeText(session?.apiMode?.groupName) !== 'customApiModelKeys') continue
-
-    const matchedByProviderId = getProvidersMatchingSessionProviderId(
-      providers,
-      session?.apiMode?.providerId,
-    )
-    if (matchedByProviderId.length > 0) continue
-
-    const matchedByCustomUrl = getProvidersMatchingLegacySessionUrl(providers, session)
-    const matchesTargetByCustomUrl = matchedByCustomUrl.some(
-      (provider) => normalizeText(provider?.id) === normalizedTargetProviderId,
-    )
-    if (!matchesTargetByCustomUrl) continue
-    const sessionApiKey =
-      session?.apiMode &&
-      typeof session.apiMode === 'object' &&
-      typeof session.apiMode.apiKey === 'string'
-        ? session.apiMode.apiKey.trim()
-        : ''
-    if (matchedByCustomUrl.length > 1 && sessionApiKey) {
-      const matchedBySessionKey = matchedByCustomUrl.filter((provider) => {
-        if (!provider || typeof provider !== 'object') return false
-        const providerSecretValue =
-          providerSecrets && typeof providerSecrets === 'object' ? providerSecrets[provider.id] : ''
-        return String(providerSecretValue || '').trim() === sessionApiKey
-      })
-      if (
-        matchedBySessionKey.length === 1 &&
-        normalizeText(matchedBySessionKey[0]?.id) !== normalizedTargetProviderId
-      ) {
-        continue
-      }
-    }
-
-    const matchedByLabel = getProviderIdsMatchingSessionLabel(session, providers, apiModes)
-    if (matchedByLabel.length > 0) continue
-    if (canSessionRecoverViaLegacyLabelFallback(session, apiModes)) continue
-
-    return true
-  }
-
-  return false
-}
-
-export function isProviderEndpointRewriteBlockedBySavedConversations(
-  providerId,
-  sessionsLoaded = true,
-  sessions = [],
-  providers = [],
-  apiModes = [],
-  providerSecrets = {},
-) {
-  if (!sessionsLoaded) return true
-
-  const normalizedTargetProviderId = normalizeProviderId(providerId)
-  const isProviderReferencedBySessionsViaLabel = () => {
-    if (!normalizedTargetProviderId || normalizedTargetProviderId === 'legacy-custom-default') {
-      return false
-    }
-
-    for (const session of Array.isArray(sessions) ? sessions : []) {
-      if (normalizeText(session?.apiMode?.groupName) !== 'customApiModelKeys') continue
-      if (
-        getProvidersMatchingSessionProviderId(providers, session?.apiMode?.providerId).length > 0
-      ) {
-        continue
-      }
-      if (getProvidersMatchingLegacySessionUrl(providers, session).length > 0) {
-        continue
-      }
-      if (
-        getProviderIdsMatchingSessionLabel(session, providers, apiModes).includes(
-          normalizedTargetProviderId,
-        )
-      ) {
-        return true
-      }
-    }
-
-    return false
-  }
-
-  return (
-    isProviderReferencedBySessionsViaProviderId(providerId, sessions, providers) ||
-    isProviderReferencedBySessionsViaUrl(
-      providerId,
-      sessions,
-      providers,
-      apiModes,
-      providerSecrets,
-    ) ||
-    isProviderReferencedBySessionsViaLabel()
-  )
 }
 
 export function getApiModeDisplayLabel(apiMode, t, providers = []) {

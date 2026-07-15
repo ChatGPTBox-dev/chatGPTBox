@@ -26,7 +26,6 @@ import {
   getProviderReferenceCheckApiModes,
   getReferencedCustomProviderIdsFromSessions,
   getSelectableProviders,
-  isProviderEndpointRewriteBlockedBySavedConversations,
   isProviderDeleteDisabled,
   isProviderReferencedByApiModes,
   loadSavedConversationState,
@@ -71,7 +70,6 @@ const defaultProviderDraft = {
 const defaultProviderDraftValidation = {
   name: false,
   apiUrl: false,
-  savedConversations: false,
 }
 
 export function ApiModes({ config, updateConfig }) {
@@ -203,27 +201,6 @@ export function ApiModes({ config, updateConfig }) {
     return getConfiguredCustomApiModesForSessionRecovery(recoveryApiModes, recoverySelectedApiMode)
   }, [apiModes, config.apiMode, editing, editingApiMode, editingIndex])
 
-  const configuredCustomApiModesForSaveGuard = useMemo(() => {
-    let nextApiModes = apiModes
-    if (editing && editingIndex !== -1) {
-      nextApiModes = apiModes.map((apiMode, index) =>
-        index === editingIndex ? editingApiMode : apiMode,
-      )
-    } else if (
-      editing &&
-      editingIndex === -1 &&
-      editingApiMode.groupName === 'customApiModelKeys'
-    ) {
-      nextApiModes = [...apiModes, editingApiMode]
-    }
-    const nextSelectedApiMode =
-      editing && editingIndex !== -1 && isApiModeSelected(apiModes[editingIndex], config)
-        ? editingApiMode
-        : config.apiMode
-
-    return getConfiguredCustomApiModesForSessionRecovery(nextApiModes, nextSelectedApiMode)
-  }, [apiModes, config, editing, editingApiMode, editingIndex])
-
   const sessionReferencedProviderIds = useMemo(
     () =>
       getReferencedCustomProviderIdsFromSessions(
@@ -314,37 +291,13 @@ export function ApiModes({ config, updateConfig }) {
       pendingNewProvider && pendingNewProvider.id === providerEditingId
         ? pendingNewProvider
         : selectedCustomProvider || {}
-    const persistedProvider = customProviders.find((provider) => provider.id === providerEditingId)
     const endpointDraft = validateProviderEndpointDraft(providerDraft.apiUrl)
     const parsedEndpoint = endpointDraft.parsedEndpoint
-    const providerEndpointChanged =
-      Boolean(providerEditingId) &&
-      Boolean(persistedProvider) &&
-      parsedEndpoint.valid &&
-      parsedEndpoint.chatCompletionsUrl !== resolveProviderChatEndpointUrl(persistedProvider)
-    const effectiveProviderSecrets =
-      pendingDeletedProviderSecretIds.length > 0
-        ? applyDeletedProviderSecrets(config.providerSecrets, pendingDeletedProviderSecretIds)
-        : config.providerSecrets
     const nextProviderDraftValidation = {
       name: !providerName,
       apiUrl: !endpointDraft.valid,
-      savedConversations:
-        providerEndpointChanged &&
-        isProviderEndpointRewriteBlockedBySavedConversations(
-          providerEditingId,
-          sessionsLoaded,
-          sessions,
-          effectiveProviders,
-          configuredCustomApiModesForSaveGuard,
-          effectiveProviderSecrets,
-        ),
     }
-    if (
-      nextProviderDraftValidation.name ||
-      nextProviderDraftValidation.apiUrl ||
-      nextProviderDraftValidation.savedConversations
-    ) {
+    if (nextProviderDraftValidation.name || nextProviderDraftValidation.apiUrl) {
       setProviderDraftValidation(nextProviderDraftValidation)
       if (nextProviderDraftValidation.name) {
         providerNameInputRef.current?.focus()
@@ -602,11 +555,10 @@ export function ApiModes({ config, updateConfig }) {
             placeholder={t('Provider')}
             onChange={(e) => {
               setProviderDraft({ ...providerDraft, name: e.target.value })
-              if (providerDraftValidation.name || providerDraftValidation.savedConversations) {
+              if (providerDraftValidation.name) {
                 setProviderDraftValidation({
                   ...providerDraftValidation,
                   name: false,
-                  savedConversations: false,
                 })
               }
             }}
@@ -621,11 +573,10 @@ export function ApiModes({ config, updateConfig }) {
             title={t('API Url')}
             onChange={(e) => {
               setProviderDraft({ ...providerDraft, apiUrl: e.target.value })
-              if (providerDraftValidation.apiUrl || providerDraftValidation.savedConversations) {
+              if (providerDraftValidation.apiUrl) {
                 setProviderDraftValidation({
                   ...providerDraftValidation,
                   apiUrl: false,
-                  savedConversations: false,
                 })
               }
             }}
@@ -634,15 +585,6 @@ export function ApiModes({ config, updateConfig }) {
           />
           {providerDraftValidation.apiUrl && (
             <div style={{ color: 'red' }}>{t('Please enter a full Chat Completions URL')}</div>
-          )}
-          {providerDraftValidation.savedConversations && (
-            <div style={{ color: 'red' }}>
-              {t(
-                sessionsLoaded
-                  ? 'This provider endpoint is still needed by saved conversations'
-                  : 'Loading saved conversations…',
-              )}
-            </div>
           )}
           <div
             style={{
