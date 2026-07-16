@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
 import { generateAnswersWithCustomApi } from '../../../../src/services/apis/custom-api.mjs'
+import { FETCH_REQUEST_FAILED } from '../../../../src/utils/fetch-sse.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
 
@@ -433,7 +434,12 @@ test('throws on network error', async (t) => {
         'key',
         'model',
       ),
-    /Failed to fetch/,
+    (error) => {
+      assert.equal(error.message, 'Failed to fetch')
+      assert.equal(error.code, FETCH_REQUEST_FAILED)
+      assert.equal(error.requestOrigin, 'https://custom.api')
+      return true
+    },
   )
 
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })

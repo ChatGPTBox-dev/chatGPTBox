@@ -30,6 +30,7 @@ import { initSession } from '../services/init-session.mjs'
 import { getChatGptAccessToken, registerPortListener } from '../services/wrappers.mjs'
 import { generateAnswersWithChatgptWebApi } from '../services/apis/chatgpt-web.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
+import { getPortErrorMessage, shouldDelegatePortError } from './port-error.mjs'
 
 /**
  * @param {string} siteName
@@ -904,10 +905,11 @@ function ensureChatGptPortListenerRegistered() {
           console.debug('[content] Ignoring an error from a superseded session request.')
           return
         }
+        if (shouldDelegatePortError(e)) throw e
         console.error('[content] Error in port listener callback:', e, 'Session:', session)
         try {
           port.postMessage({
-            error: e.message || 'An unexpected error occurred in content script port listener.',
+            error: getPortErrorMessage(e),
           })
         } catch (postError) {
           console.error('[content] Error sending error message back via port:', postError)

@@ -161,5 +161,11 @@
   "This provider is still used by other API modes or saved conversations": "Penyedia ini masih digunakan oleh mode API lain atau percakapan yang tersimpan",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "Kunci API ini ditetapkan pada mode kustom yang dipilih. Mengeditnya di sini akan membuat penyedia khusus untuk mode tersebut.",
   "Use shared key": "Gunakan kunci bersama",
-  "This provider endpoint is still needed by saved conversations": "Endpoint penyedia ini masih diperlukan oleh percakapan yang tersimpan"
+  "This provider endpoint is still needed by saved conversations": "Endpoint penyedia ini masih diperlukan oleh percakapan yang tersimpan",
+  "The browser could not complete the request to the API endpoint.": "Browser tidak dapat menyelesaikan permintaan ke endpoint API.",
+  "The configured API endpoint URL is invalid.": "URL endpoint API yang dikonfigurasi tidak valid.",
+  "The response stream from the API endpoint was interrupted.": "Aliran respons dari endpoint API terputus.",
+  "Check the API endpoint URL and service availability, then try again.": "Periksa URL endpoint API dan ketersediaan layanan, lalu coba lagi.",
+  "API endpoint: %s": "Endpoint API: %s",
+  "Browser message: %s": "Pesan browser: %s"
 }

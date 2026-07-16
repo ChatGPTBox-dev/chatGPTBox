@@ -40,6 +40,7 @@ import {
   getApiModeDisplayLabel,
   getConversationAiName,
 } from '../../popup/sections/api-modes-provider-utils.mjs'
+import { getDisplayErrorText } from '../../utils/error-text.mjs'
 import {
   createConversationPortMessage,
   createRetrySession,
@@ -251,17 +252,23 @@ function ConversationCard(props) {
             } catch (e) {
               /* empty */
             }
+          const displayError = getDisplayErrorText(formattedError, t)
 
-          let lastItem
-          if (conversationItemData.length > 0)
-            lastItem = conversationItemData[conversationItemData.length - 1]
-          if (lastItem && (lastItem.content.includes('gpt-loading') || lastItem.type === 'error'))
-            updateAnswer(t(formattedError), false, 'error')
-          else
-            setConversationItemData([
-              ...conversationItemData,
-              new ConversationItemData('error', t(formattedError)),
-            ])
+          setConversationItemData((currentItems) => {
+            const lastItem = currentItems[currentItems.length - 1]
+            if (
+              lastItem &&
+              (lastItem.content.includes('gpt-loading') || lastItem.type === 'error')
+            ) {
+              const updatedItems = [...currentItems]
+              updatedItems[updatedItems.length - 1] = new ConversationItemData(
+                'error',
+                displayError,
+              )
+              return updatedItems
+            }
+            return [...currentItems, new ConversationItemData('error', displayError)]
+          })
           break
         }
       }
@@ -315,7 +322,7 @@ function ConversationCard(props) {
             )
           else await generateAnswersWithBingWebApi(fakePort, session.question, session, bingToken)
         } catch (err) {
-          handlePortError(session, fakePort, err)
+          handlePortError(session, fakePort, err, t)
         }
       }
     } else {

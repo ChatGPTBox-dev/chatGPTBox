@@ -161,5 +161,11 @@
   "This provider is still used by other API modes or saved conversations": "このプロバイダーは他の API モードまたは保存済みの会話でまだ使用されています",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "この API キーは選択中のカスタムモードに設定されています。ここで編集すると、そのモード専用のプロバイダーが作成されます。",
   "Use shared key": "共有キーを使用",
-  "This provider endpoint is still needed by saved conversations": "このプロバイダーのエンドポイントは保存済みの会話でまだ必要です"
+  "This provider endpoint is still needed by saved conversations": "このプロバイダーのエンドポイントは保存済みの会話でまだ必要です",
+  "The browser could not complete the request to the API endpoint.": "ブラウザーは API エンドポイントへのリクエストを完了できませんでした。",
+  "The configured API endpoint URL is invalid.": "設定された API エンドポイントの URL が無効です。",
+  "The response stream from the API endpoint was interrupted.": "API エンドポイントからの応答ストリームが中断されました。",
+  "Check the API endpoint URL and service availability, then try again.": "API エンドポイントの URL とサービスの稼働状況を確認してから、もう一度お試しください。",
+  "API endpoint: %s": "API エンドポイント：%s",
+  "Browser message: %s": "ブラウザーのメッセージ：%s"
 }

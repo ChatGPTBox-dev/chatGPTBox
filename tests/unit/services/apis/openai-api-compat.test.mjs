@@ -7,6 +7,7 @@ import {
   generateAnswersWithOpenAICompatibleApi,
 } from '../../../../src/services/apis/openai-api.mjs'
 import { claimLatestPortSessionRequest } from '../../../../src/services/wrappers.mjs'
+import { FETCH_REQUEST_FAILED } from '../../../../src/utils/fetch-sse.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
 
@@ -2076,15 +2077,23 @@ test('generateAnswersWithOpenAiApiCompat throws on network error', async (t) => 
     throw new TypeError('Failed to fetch')
   })
 
-  await assert.rejects(async () => {
-    await generateAnswersWithOpenAiApiCompat(
-      'https://api.example.com/v1',
-      port,
-      'CurrentQ',
-      session,
-      'sk-invalid',
-    )
-  }, /Failed to fetch/)
+  await assert.rejects(
+    async () => {
+      await generateAnswersWithOpenAiApiCompat(
+        'https://api.example.com/v1',
+        port,
+        'CurrentQ',
+        session,
+        'sk-invalid',
+      )
+    },
+    (error) => {
+      assert.equal(error.message, 'Failed to fetch')
+      assert.equal(error.code, FETCH_REQUEST_FAILED)
+      assert.equal(error.requestOrigin, 'https://api.example.com')
+      return true
+    },
+  )
 
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })

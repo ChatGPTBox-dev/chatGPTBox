@@ -173,5 +173,11 @@
   "This provider is still used by other API modes or saved conversations": "Этот провайдер всё ещё используется другими режимами API или сохранёнными диалогами",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "Этот API-ключ задан в выбранном пользовательском режиме. Если изменить его здесь, будет создан отдельный провайдер для этого режима.",
   "Use shared key": "Использовать общий ключ",
-  "This provider endpoint is still needed by saved conversations": "Сохранённым диалогам всё ещё нужен этот endpoint провайдера"
+  "This provider endpoint is still needed by saved conversations": "Сохранённым диалогам всё ещё нужен этот endpoint провайдера",
+  "The browser could not complete the request to the API endpoint.": "Браузеру не удалось выполнить запрос к конечной точке API.",
+  "The configured API endpoint URL is invalid.": "Настроенный URL конечной точки API недействителен.",
+  "The response stream from the API endpoint was interrupted.": "Поток ответа от конечной точки API был прерван.",
+  "Check the API endpoint URL and service availability, then try again.": "Проверьте URL конечной точки API и доступность сервиса, затем повторите попытку.",
+  "API endpoint: %s": "Конечная точка API: %s",
+  "Browser message: %s": "Сообщение браузера: %s"
 }

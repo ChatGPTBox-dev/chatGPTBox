@@ -6,6 +6,12 @@ import {
   handlePortError,
   invalidateLatestPortSessionRequest,
 } from '../../../src/services/wrappers.mjs'
+import {
+  FETCH_REQUEST_FAILED,
+  FETCH_RESPONSE_STREAM_FAILED,
+  INVALID_API_ENDPOINT,
+} from '../../../src/utils/fetch-sse.mjs'
+import { formatErrorMessage, formatErrorText } from '../../../src/utils/error-text.mjs'
 import { createFakePort } from '../helpers/port.mjs'
 
 test('claimLatestPortSessionRequest supersedes pending requests on the same port', () => {
@@ -26,6 +32,209 @@ test('invalidateLatestPortSessionRequest cancels a pending request', () => {
 
   assert.equal(isRequestLatest(), false)
   assert.equal(port._sessionRequestGeneration, 1)
+})
+
+function translateOrFallback(key) {
+  return translate(key) ?? key
+}
+
+function formatDetail(key, value) {
+  return translateOrFallback(key).replace('%s', `\n\n${formatErrorText(value)}`)
+}
+
+test('handlePortError adds a neutral summary to Chromium fetch failures', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new TypeError('Failed to fetch'), {
+      code: FETCH_REQUEST_FAILED,
+      requestOrigin: 'https://api.example.com:8443',
+    }),
+  )
+
+  assert.deepEqual(port.postedMessages, [
+    {
+      error: [
+        translate('The browser could not complete the request to the API endpoint.'),
+        translate('Check the API endpoint URL and service availability, then try again.'),
+        formatDetail('API endpoint: %s', 'https://api.example.com:8443'),
+        formatDetail('Browser message: %s', 'Failed to fetch'),
+      ].join('\n\n'),
+    },
+  ])
+})
+
+test('handlePortError uses the same summary for Firefox fetch failures', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+  const message = 'NetworkError when attempting to fetch resource.'
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new TypeError(message), {
+      code: FETCH_REQUEST_FAILED,
+      requestOrigin: 'https://api.example.com',
+    }),
+  )
+
+  assert.equal(
+    port.postedMessages[0].error,
+    [
+      translate('The browser could not complete the request to the API endpoint.'),
+      translate('Check the API endpoint URL and service availability, then try again.'),
+      formatDetail('API endpoint: %s', 'https://api.example.com'),
+      formatDetail('Browser message: %s', message),
+    ].join('\n\n'),
+  )
+})
+
+test('handlePortError reports an invalid API endpoint without exposing the malformed URL', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new TypeError(), {
+      code: INVALID_API_ENDPOINT,
+    }),
+  )
+
+  assert.equal(
+    port.postedMessages[0].error,
+    [
+      translate('The configured API endpoint URL is invalid.'),
+      translate('Check the API endpoint URL and service availability, then try again.'),
+    ].join('\n\n'),
+  )
+})
+
+test('handlePortError distinguishes an interrupted API response stream', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+  const message = 'The upstream aborted the response stream.'
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new TypeError(message), {
+      code: FETCH_RESPONSE_STREAM_FAILED,
+      requestOrigin: 'https://api.example.com',
+    }),
+  )
+
+  assert.equal(
+    port.postedMessages[0].error,
+    [
+      translate('The response stream from the API endpoint was interrupted.'),
+      translate('Check the API endpoint URL and service availability, then try again.'),
+      formatDetail('API endpoint: %s', 'https://api.example.com'),
+      formatDetail('Browser message: %s', message),
+    ].join('\n\n'),
+  )
+})
+
+test('handlePortError formats HTML as fenced code in fetch failure details', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new TypeError('Failed <img src=x onerror=alert(1)> & retry'), {
+      code: FETCH_REQUEST_FAILED,
+      requestOrigin: 'https://api.example.com/<unsafe>',
+    }),
+  )
+
+  const error = port.postedMessages[0].error
+  assert.equal(error.includes(formatErrorText('Failed <img src=x onerror=alert(1)> & retry')), true)
+  assert.equal(error.includes(formatErrorText('https://api.example.com/<unsafe>')), true)
+})
+
+test('handlePortError preserves replacement tokens in fetch failure details', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new TypeError('Failed $& $$ & retry'), {
+      code: FETCH_REQUEST_FAILED,
+      requestOrigin: 'https://api.example.com',
+    }),
+  )
+
+  const error = port.postedMessages[0].error
+  assert.equal(error.includes(formatErrorText('Failed $& $$ & retry')), true)
+  assert.equal(error.includes('Failed %s'), false)
+})
+
+test('handlePortError preserves details when a translation omits its placeholder', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+  const message = 'Failed to fetch'
+  const translateWithoutPlaceholder = (key) =>
+    key === 'Browser message: %s' ? 'Browser message' : translateOrFallback(key)
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new TypeError(message), { code: FETCH_REQUEST_FAILED }),
+    translateWithoutPlaceholder,
+  )
+
+  assert.equal(
+    port.postedMessages[0].error.includes(`Browser message\n\n${formatErrorText(message)}`),
+    true,
+  )
+})
+
+test('handlePortError ignores classified AbortError before reporting fetch failure', (t) => {
+  const consoleError = t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new Error('The operation was canceled.'), {
+      name: 'AbortError',
+      code: FETCH_REQUEST_FAILED,
+    }),
+  )
+
+  assert.deepEqual(port.postedMessages, [])
+  assert.equal(consoleError.mock.callCount(), 0)
+})
+
+test('handlePortError ignores legacy DOMException abort errors', (t) => {
+  const consoleError = t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+  const abortError = new DOMException('The operation was canceled.', 'AbortError')
+  Object.defineProperty(abortError, 'name', { value: 'TypeError' })
+
+  handlePortError({ modelName: 'chatgptApi4oMini' }, port, abortError)
+
+  assert.deepEqual(port.postedMessages, [])
+  assert.equal(consoleError.mock.callCount(), 0)
+})
+
+test('handlePortError does not treat inherited object keys as transport error codes', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+  const message = 'Provider returned an unexpected error'
+
+  handlePortError(
+    { modelName: 'chatgptApi4oMini' },
+    port,
+    Object.assign(new Error(message), { code: 'constructor' }),
+  )
+
+  assert.deepEqual(port.postedMessages, [{ error: formatErrorMessage(message) }])
 })
 
 test('handlePortError reports exceeded maximum context length', (t) => {
@@ -110,16 +319,26 @@ test('handlePortError maps expired authentication token to UNAUTHORIZED', (t) =>
   assert.equal(port.postedMessages[0].error, 'UNAUTHORIZED')
 })
 
-test('handlePortError ignores aborted errors', (t) => {
-  const consoleError = t.mock.method(console, 'error', () => {})
+test('handlePortError preserves protocol error messages', (t) => {
+  t.mock.method(console, 'error', () => {})
+
+  for (const message of ['UNAUTHORIZED', 'CLOUDFLARE']) {
+    const port = createFakePort()
+    handlePortError({ modelName: 'chatgptApi4oMini' }, port, new Error(message))
+    assert.deepEqual(port.postedMessages, [{ error: message }])
+  }
+})
+
+test('handlePortError reports upstream errors that mention aborted requests', (t) => {
+  t.mock.method(console, 'error', () => {})
   const port = createFakePort()
+  const message = 'request aborted by upstream provider'
 
   handlePortError({ modelName: 'chatgptApi4oMini' }, port, {
-    message: 'request aborted by user',
+    message,
   })
 
-  assert.deepEqual(port.postedMessages, [])
-  assert.equal(consoleError.mock.callCount(), 0)
+  assert.deepEqual(port.postedMessages, [{ error: formatErrorMessage(message) }])
 })
 
 test('handlePortError ignores AbortError by name even when message text differs', (t) => {
@@ -163,7 +382,7 @@ test('handlePortError reports upstream errors that mention a closed port', (t) =
   })
 
   assert.deepEqual(port.postedMessages, [
-    { error: 'Upstream reset the request because its port closed' },
+    { error: formatErrorMessage('Upstream reset the request because its port closed') },
   ])
 })
 
@@ -207,7 +426,7 @@ test('handlePortError reports Bing login hint when trusted error has no message'
   assert.notEqual(port.postedMessages[0].error, JSON.stringify(err))
 })
 
-test('handlePortError forwards unknown message errors as-is', (t) => {
+test('handlePortError preserves plain unknown message errors for display translation', (t) => {
   t.mock.method(console, 'error', () => {})
   const port = createFakePort()
   const message = 'unknown upstream error'
@@ -215,7 +434,29 @@ test('handlePortError forwards unknown message errors as-is', (t) => {
   handlePortError({ modelName: 'chatgptApi4oMini' }, port, { message })
 
   assert.equal(port.postedMessages.length, 1)
-  assert.equal(port.postedMessages[0].error, message)
+  assert.equal(port.postedMessages[0].error, formatErrorMessage(message))
+})
+
+test('handlePortError formats HTML as fenced code in non-transport error messages', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+  const message = 'Rate limit reached <img src=x onerror=alert(1)> & retry'
+
+  handlePortError({ modelName: 'chatgptApi4oMini' }, port, { message })
+
+  const error = port.postedMessages[0].error
+  assert.equal(error.includes(formatErrorText(message)), true)
+})
+
+test('handlePortError formats Markdown images as fenced code in non-transport errors', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+  const message = 'Rate limit reached ![track](https://attacker.example/pixel)'
+
+  handlePortError({ modelName: 'chatgptApi4oMini' }, port, { message })
+
+  const error = port.postedMessages[0].error
+  assert.equal(error.includes(formatErrorText(message)), true)
 })
 
 test('handlePortError stringifies non-message errors for non-Bing models', (t) => {
@@ -226,7 +467,17 @@ test('handlePortError stringifies non-message errors for non-Bing models', (t) =
   handlePortError({ modelName: 'chatgptApi4oMini' }, port, err)
 
   assert.equal(port.postedMessages.length, 1)
-  assert.equal(port.postedMessages[0].error, JSON.stringify(err))
+  assert.equal(port.postedMessages[0].error, formatErrorMessage(JSON.stringify(err)))
+})
+
+test('handlePortError formats HTML as fenced code in stringified errors', (t) => {
+  t.mock.method(console, 'error', () => {})
+  const port = createFakePort()
+  const err = { detail: '<img src=x onerror=alert(1)>' }
+
+  handlePortError({ modelName: 'chatgptApi4oMini' }, port, err)
+
+  assert.deepEqual(port.postedMessages, [{ error: formatErrorMessage(JSON.stringify(err)) }])
 })
 
 test('handlePortError handles null thrown values without throwing again', (t) => {
@@ -238,7 +489,7 @@ test('handlePortError handles null thrown values without throwing again', (t) =>
   })
 
   assert.equal(port.postedMessages.length, 1)
-  assert.equal(port.postedMessages[0].error, 'null')
+  assert.equal(port.postedMessages[0].error, formatErrorMessage('null'))
 })
 
 test('handlePortError handles undefined thrown values without throwing again', (t) => {
@@ -250,7 +501,7 @@ test('handlePortError handles undefined thrown values without throwing again', (
   })
 
   assert.equal(port.postedMessages.length, 1)
-  assert.equal(port.postedMessages[0].error, 'unknown error')
+  assert.equal(port.postedMessages[0].error, formatErrorMessage('unknown error'))
 })
 
 test('handlePortError does not throw when the error port is closed', (t) => {

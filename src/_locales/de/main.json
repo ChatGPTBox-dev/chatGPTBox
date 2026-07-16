@@ -163,5 +163,11 @@
   "This provider is still used by other API modes or saved conversations": "Dieser Anbieter wird noch von anderen API-Modi oder gespeicherten Unterhaltungen verwendet",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "Dieser API-Schlüssel ist für den ausgewählten benutzerdefinierten Modus festgelegt. Wenn Sie ihn hier bearbeiten, wird ein dedizierter Provider für diesen Modus erstellt.",
   "Use shared key": "Gemeinsamen Schlüssel verwenden",
-  "This provider endpoint is still needed by saved conversations": "Dieser Anbieter-Endpunkt wird noch von gespeicherten Unterhaltungen benötigt"
+  "This provider endpoint is still needed by saved conversations": "Dieser Anbieter-Endpunkt wird noch von gespeicherten Unterhaltungen benötigt",
+  "The browser could not complete the request to the API endpoint.": "Der Browser konnte die Anfrage an den API-Endpunkt nicht abschließen.",
+  "The configured API endpoint URL is invalid.": "Die konfigurierte URL des API-Endpunkts ist ungültig.",
+  "The response stream from the API endpoint was interrupted.": "Der Antwortstream vom API-Endpunkt wurde unterbrochen.",
+  "Check the API endpoint URL and service availability, then try again.": "Überprüfen Sie die URL des API-Endpunkts und die Verfügbarkeit des Dienstes und versuchen Sie es dann erneut.",
+  "API endpoint: %s": "API-Endpunkt: %s",
+  "Browser message: %s": "Browsermeldung: %s"
 }

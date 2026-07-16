@@ -161,5 +161,11 @@
   "This provider is still used by other API modes or saved conversations": "Bu sağlayıcı hâlâ diğer API modları veya kaydedilmiş konuşmalar tarafından kullanılıyor",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "Bu API anahtarı seçili özel modda ayarlanmış. Burada düzenlemek bu mod için özel bir sağlayıcı oluşturur.",
   "Use shared key": "Paylaşılan anahtarı kullan",
-  "This provider endpoint is still needed by saved conversations": "Bu sağlayıcı uç noktası hâlâ kaydedilmiş konuşmalar için gerekli"
+  "This provider endpoint is still needed by saved conversations": "Bu sağlayıcı uç noktası hâlâ kaydedilmiş konuşmalar için gerekli",
+  "The browser could not complete the request to the API endpoint.": "Tarayıcı, API uç noktasına yapılan isteği tamamlayamadı.",
+  "The configured API endpoint URL is invalid.": "Yapılandırılmış API uç noktası URL'si geçersiz.",
+  "The response stream from the API endpoint was interrupted.": "API uç noktasından gelen yanıt akışı kesintiye uğradı.",
+  "Check the API endpoint URL and service availability, then try again.": "API uç noktası URL'sini ve hizmetin kullanılabilirliğini kontrol edip yeniden deneyin.",
+  "API endpoint: %s": "API uç noktası: %s",
+  "Browser message: %s": "Tarayıcı iletisi: %s"
 }

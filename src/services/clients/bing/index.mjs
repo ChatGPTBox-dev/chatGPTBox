@@ -11,6 +11,31 @@ import { fetchBg } from '../../../utils/fetch-bg.mjs'
 const genRanHex = (size) =>
   [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
 
+const createAbortError = () =>
+  Object.assign(new Error('Request aborted'), {
+    name: 'AbortError',
+  })
+
+const genericWebSocketErrorMessage = 'WebSocket connection failed'
+
+const redactWebSocketErrorMessage = (message) =>
+  message.replace(/([?&]sec_access_token=)[^&\s'"]+/gi, (_, prefix) => `${prefix}[REDACTED]`)
+
+const createWebSocketError = (error) => {
+  const closeCode = Number.isInteger(error?.code) ? error.code : null
+  const closeReason = typeof error?.reason === 'string' ? error.reason.trim() : ''
+  const closeMessage =
+    closeCode === null
+      ? ''
+      : `WebSocket closed with code ${closeCode}${closeReason ? `: ${closeReason}` : ''}`
+  const message =
+    (typeof error?.message === 'string' && error.message) ||
+    (typeof error?.error?.message === 'string' && error.error.message) ||
+    closeMessage ||
+    genericWebSocketErrorMessage
+  return new Error(redactWebSocketErrorMessage(message))
+}
+
 export default class BingAIClient {
   constructor(options) {
     const cacheOptions = options.cache || {}
@@ -134,7 +159,7 @@ export default class BingAIClient {
     }
   }
 
-  async createWebSocketConnection(encryptedConversationSignature) {
+  async createWebSocketConnection(encryptedConversationSignature, signal) {
     return new Promise((resolve, reject) => {
       // let agent
       // if (this.options.proxy) {
@@ -147,24 +172,61 @@ export default class BingAIClient {
         )}`,
       )
 
+      let settled = false
+      let handleAbort
+      let handshakeTimeout
+      const removeAbortListener = () => {
+        if (handleAbort) signal?.removeEventListener('abort', handleAbort)
+      }
+      const resolveConnection = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(handshakeTimeout)
+        removeAbortListener()
+        resolve(ws)
+      }
+      const rejectConnection = (error) => {
+        if (settled) return false
+        settled = true
+        clearTimeout(handshakeTimeout)
+        removeAbortListener()
+        reject(error)
+        return true
+      }
+      handleAbort = () => {
+        if (rejectConnection(createAbortError())) ws.close()
+      }
+      signal?.addEventListener('abort', handleAbort, { once: true })
+      if (signal?.aborted) {
+        handleAbort()
+        return
+      }
+      handshakeTimeout = setTimeout(() => {
+        if (rejectConnection(new Error('Timed out waiting for WebSocket handshake.'))) ws.close()
+      }, 300 * 1000)
+
       ws.onerror = (err) => {
-        reject(err)
+        const error = createWebSocketError(err)
+        if (error.message !== genericWebSocketErrorMessage && rejectConnection(error)) ws.close()
       }
 
       ws.onopen = () => {
+        if (settled || signal?.aborted) return
         if (this.debug) {
           console.debug('performing handshake')
         }
         ws.send('{"protocol":"json","version":1}')
       }
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (this.debug) {
           console.debug('disconnected')
         }
+        rejectConnection(createWebSocketError(event))
       }
 
       ws.onmessage = (e) => {
+        if (settled) return
         const data = e.data
         const objects = data.toString().split('')
         const messages = objects
@@ -188,7 +250,7 @@ export default class BingAIClient {
             ws.send('{"type":6}')
             // same message is sent back on/after 2nd time as a pong
           }, 15 * 1000)
-          resolve(ws)
+          resolveConnection()
           return
         }
         if (this.debug) {
@@ -336,11 +398,19 @@ export default class BingAIClient {
       conversation.messages.push(userMessage)
     }
 
-    const ws = await this.createWebSocketConnection(encryptedConversationSignature)
+    const ws = await this.createWebSocketConnection(
+      encryptedConversationSignature,
+      abortController.signal,
+    )
+    let webSocketError
 
     ws.onerror = (error) => {
-      console.error(error)
-      abortController.abort()
+      const connectionError = createWebSocketError(error)
+      console.error(connectionError)
+      if (connectionError.message !== genericWebSocketErrorMessage) {
+        webSocketError = connectionError
+        abortController.abort()
+      }
     }
 
     let toneOption
@@ -426,22 +496,50 @@ export default class BingAIClient {
     const messagePromise = new Promise((resolve, reject) => {
       let replySoFar = ''
       let stopTokenFound = false
+      let settled = false
+      let closeExpected = false
+      let handleAbort
+
+      const settle = (callback, value) => {
+        if (settled) return false
+        settled = true
+        clearTimeout(messageTimeout)
+        if (handleAbort) abortController.signal.removeEventListener('abort', handleAbort)
+        callback(value)
+        return true
+      }
+      const resolveMessage = (value) => settle(resolve, value)
+      const rejectMessage = (error) => settle(reject, error)
+      const cleanupConnection = () => {
+        if (closeExpected) return
+        closeExpected = true
+        this.constructor.cleanupWebSocketConnection(ws)
+      }
+      const rejectAndCleanup = (error) => {
+        if (rejectMessage(error)) cleanupConnection()
+      }
 
       const messageTimeout = setTimeout(() => {
-        this.constructor.cleanupWebSocketConnection(ws)
-        reject(
+        rejectAndCleanup(
           new Error(
             'Timed out waiting for response. Try enabling debug mode to see more information.',
           ),
         )
       }, 300 * 1000)
 
+      ws.onclose = (event) => {
+        if (!closeExpected) {
+          clearInterval(ws.bingPingInterval)
+          rejectMessage(createWebSocketError(event))
+        }
+      }
+
       // abort the request if the abort controller is aborted
-      abortController.signal.addEventListener('abort', () => {
-        clearTimeout(messageTimeout)
-        this.constructor.cleanupWebSocketConnection(ws)
-        reject(new Error('Request aborted'))
-      })
+      handleAbort = () => {
+        rejectAndCleanup(webSocketError ?? createAbortError())
+      }
+      abortController.signal.addEventListener('abort', handleAbort, { once: true })
+      if (abortController.signal.aborted) handleAbort()
 
       let bicIframe
       ws.onmessage = async (e) => {
@@ -503,9 +601,9 @@ export default class BingAIClient {
           }
           case 2: {
             clearTimeout(messageTimeout)
-            this.constructor.cleanupWebSocketConnection(ws)
+            cleanupConnection()
             if (event.item?.result?.value === 'InvalidSession') {
-              reject(new Error(`${event.item.result.value}: ${event.item.result.message}`))
+              rejectMessage(new Error(`${event.item.result.value}: ${event.item.result.message}`))
               return
             }
             const messages = event.item?.messages || []
@@ -519,21 +617,21 @@ export default class BingAIClient {
               if (replySoFar && eventMessage) {
                 eventMessage.adaptiveCards[0].body[0].text = replySoFar
                 eventMessage.text = replySoFar
-                resolve({
+                resolveMessage({
                   message: eventMessage,
                   conversationExpiryTime: event?.item?.conversationExpiryTime,
                 })
                 return
               }
-              reject(new Error(`${event.item.result.value}: ${event.item.result.message}`))
+              rejectMessage(new Error(`${event.item.result.value}: ${event.item.result.message}`))
               return
             }
             if (!eventMessage) {
-              reject(new Error('No message was generated.'))
+              rejectMessage(new Error('No message was generated.'))
               return
             }
             if (eventMessage?.author !== 'bot') {
-              reject(new Error('Unexpected message author.'))
+              rejectMessage(new Error('Unexpected message author.'))
               return
             }
             // The moderation filter triggered, so just return the text we have so far
@@ -571,7 +669,7 @@ export default class BingAIClient {
                 eventMessage.adaptiveCards[0].body[0].text = eventMessage.text
               }
             }
-            resolve({
+            resolveMessage({
               message: eventMessage,
               conversationExpiryTime: event?.item?.conversationExpiryTime,
             })
@@ -580,17 +678,13 @@ export default class BingAIClient {
           }
           case 7: {
             // [{"type":7,"error":"Connection closed with an error.","allowReconnect":true}]
-            clearTimeout(messageTimeout)
-            this.constructor.cleanupWebSocketConnection(ws)
-            reject(new Error(event.error || 'Connection closed with an error.'))
+            rejectAndCleanup(new Error(event.error || 'Connection closed with an error.'))
             // eslint-disable-next-line no-useless-return
             return
           }
           default:
             if (event?.error) {
-              clearTimeout(messageTimeout)
-              this.constructor.cleanupWebSocketConnection(ws)
-              reject(new Error(`Event Type('${event.type}'): ${event.error}`))
+              rejectAndCleanup(new Error(`Event Type('${event.type}'): ${event.error}`))
             }
             // eslint-disable-next-line no-useless-return
             return
@@ -603,7 +697,7 @@ export default class BingAIClient {
       console.debug(messageJson)
       console.debug('\n\n\n\n')
     }
-    ws.send(`${messageJson}`)
+    if (!abortController.signal.aborted) ws.send(`${messageJson}`)
 
     const { message: reply, conversationExpiryTime } = await messagePromise
 

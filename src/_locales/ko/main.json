@@ -165,5 +165,11 @@
   "This provider is still used by other API modes or saved conversations": "이 공급자는 아직 다른 API 모드 또는 저장된 대화에서 사용 중입니다",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "이 API 키는 선택한 사용자 지정 모드에 설정되어 있습니다. 여기서 편집하면 해당 모드 전용 provider가 생성됩니다.",
   "Use shared key": "공유 키 사용",
-  "This provider endpoint is still needed by saved conversations": "저장된 대화에 이 공급자 엔드포인트가 아직 필요합니다"
+  "This provider endpoint is still needed by saved conversations": "저장된 대화에 이 공급자 엔드포인트가 아직 필요합니다",
+  "The browser could not complete the request to the API endpoint.": "브라우저에서 API 엔드포인트에 대한 요청을 완료하지 못했습니다.",
+  "The configured API endpoint URL is invalid.": "설정된 API 엔드포인트 URL이 올바르지 않습니다.",
+  "The response stream from the API endpoint was interrupted.": "API 엔드포인트의 응답 스트림이 중단되었습니다.",
+  "Check the API endpoint URL and service availability, then try again.": "API 엔드포인트 URL과 서비스 상태를 확인한 후 다시 시도하세요.",
+  "API endpoint: %s": "API 엔드포인트: %s",
+  "Browser message: %s": "브라우저 메시지: %s"
 }

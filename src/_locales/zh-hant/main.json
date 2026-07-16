@@ -170,5 +170,11 @@
   "This provider is still used by other API modes or saved conversations": "此供應商仍被其他 API 模式或已儲存的對話使用中",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "此 API 金鑰已設在目前選取的自訂模式。在這裡編輯會為該模式建立專用供應商。",
   "Use shared key": "使用共用供應商金鑰",
-  "This provider endpoint is still needed by saved conversations": "已儲存的對話仍需要此供應商端點"
+  "This provider endpoint is still needed by saved conversations": "已儲存的對話仍需要此供應商端點",
+  "The browser could not complete the request to the API endpoint.": "瀏覽器無法完成對 API 端點的請求。",
+  "The configured API endpoint URL is invalid.": "設定的 API 端點網址無效。",
+  "The response stream from the API endpoint was interrupted.": "來自 API 端點的回應串流已中斷。",
+  "Check the API endpoint URL and service availability, then try again.": "請確認 API 端點網址與服務狀態，然後再試一次。",
+  "API endpoint: %s": "API 端點：%s",
+  "Browser message: %s": "瀏覽器訊息：%s"
 }
