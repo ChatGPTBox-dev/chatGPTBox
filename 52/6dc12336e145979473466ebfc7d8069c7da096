@@ -1,0 +1,27 @@
+.github/workflows/verify-configs.yml
+  s_e285c9a8f32543::t_47f3962893302e 10
+.github/workflows/scripts/verify-search-engine-configs.mjs
+  s_e285c9a8f32543::t_4407f16618a704 146,149-151,157,170
+  s_e285c9a8f32543::t_e69c0d8c072642 3
+  s_e285c9a8f32543::t_47f3962893302e 4,160,162,171-172
+  s_e285c9a8f32543::t_647019e93a27ca 147
+  s_e285c9a8f32543::t_207649633f7cf4 2,148,198
+  s_e285c9a8f32543::t_941994d0d1aac0 196-197
+  s_e285c9a8f32543::t_d614670746ad34 47,163-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "526dc12336e145979473466ebfc7d8069c7da096",
+  "prompts": {},
+  "sessions": {
+    "s_e285c9a8f32543": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5cfa-2ca3-7793-9383-1351d55c3bea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
