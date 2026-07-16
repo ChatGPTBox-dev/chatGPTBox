@@ -1,0 +1,23 @@
+.github/workflows/scripts/verify-search-engine-configs.mjs
+  s_e285c9a8f32543::t_47f3962893302e 4-5,159,161,163-166,190
+  s_e285c9a8f32543::t_647019e93a27ca 146
+  s_e285c9a8f32543::t_4407f16618a704 145,147-150,156,162
+.github/workflows/verify-configs.yml
+  s_e285c9a8f32543::t_47f3962893302e 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "9f98c87468710e3cd3d3fd4155351c45dc9c5231",
+  "prompts": {},
+  "sessions": {
+    "s_e285c9a8f32543": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5cfa-2ca3-7793-9383-1351d55c3bea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
