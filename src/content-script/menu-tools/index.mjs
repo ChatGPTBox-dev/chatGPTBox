@@ -1,7 +1,7 @@
-import { getCoreContentText } from '../../utils/get-core-content-text'
+import { getCoreContentText } from '../../utils/get-core-content-text.mjs'
 import Browser from 'webextension-polyfill'
 import { getUserConfig } from '../../config/index.mjs'
-import { openUrl } from '../../utils/open-url'
+import { openUrl } from '../../utils/open-url.mjs'
 
 export const config = {
   newChat: {
@@ -88,12 +88,19 @@ export const config = {
     label: 'Close All Chats In This Page',
     action: async (fromBackground) => {
       console.debug('action is from background', fromBackground)
-      Browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
-        Browser.tabs.sendMessage(tabs[0].id, {
+
+      try {
+        const tabs = await Browser.tabs.query({ active: true, currentWindow: true })
+        const currentTab = tabs && tabs[0]
+        if (currentTab?.id == null) return
+
+        await Browser.tabs.sendMessage(currentTab.id, {
           type: 'CLOSE_CHATS',
           data: {},
         })
-      })
+      } catch (error) {
+        console.error('failed to close all chats', error)
+      }
     },
   },
 }
