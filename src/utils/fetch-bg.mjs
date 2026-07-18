@@ -27,5 +27,6 @@ export function fetchBg(input, init) {
           )
         }
       })
+      .catch(reject)
   })
 }
