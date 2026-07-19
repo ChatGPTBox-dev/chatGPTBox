@@ -2578,6 +2578,11 @@ test('resolveOpenAICompatibleRequest avoids duplicate /v1 for custom provider ba
   assert.equal(resolved.requestUrl, 'https://proxy.example.com/v1/chat/completions')
 })
 
+test('resolveProviderIdForSession resolves legacy xAI model names to xai provider', () => {
+  assert.equal(resolveProviderIdForSession({ modelName: 'xaiGrok4_5' }), 'xai')
+  assert.equal(resolveProviderIdForSession({ modelName: 'xaiApiModelKeys-custom' }), 'xai')
+})
+
 test('resolveOpenAICompatibleRequest preserves /v1 for custom provider baseUrl with explicit non-default paths', () => {
   const config = {
     customOpenAIProviders: [

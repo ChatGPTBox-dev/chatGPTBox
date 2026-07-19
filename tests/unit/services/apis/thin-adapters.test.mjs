@@ -63,6 +63,13 @@ const adapters = [
     expectedBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     expectedApiKey: 'glm-key',
   },
+  {
+    name: 'xai-api',
+    apiMode: { groupName: 'xaiApiModelKeys', itemName: 'xaiGrok4_5' },
+    providerId: 'xai',
+    expectedBaseUrl: 'https://api.x.ai/v1',
+    expectedApiKey: 'xai-key',
+  },
 ]
 
 for (const adapter of adapters) {

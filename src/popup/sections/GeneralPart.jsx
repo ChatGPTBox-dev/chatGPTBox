@@ -60,6 +60,8 @@ function getProviderApiKeySetupUrl(providerId) {
   switch (String(providerId || '').trim()) {
     case 'openai':
       return 'https://platform.openai.com/account/api-keys'
+    case 'xai':
+      return 'https://console.x.ai/team/default/api-keys'
     case 'moonshot':
       return 'https://platform.moonshot.cn/console/api-keys'
     default:

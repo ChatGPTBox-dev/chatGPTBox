@@ -9,6 +9,7 @@ import {
   claudeApiModelKeys,
   openRouterApiModelKeys,
   aimlApiModelKeys,
+  xaiApiModelKeys,
   isUsingAimlApiModel,
   isUsingAzureOpenAiApiModel,
   isUsingBingWebModel,
@@ -28,6 +29,7 @@ import {
   isUsingOpenAiApiModel,
   isUsingGptCompletionApiModel,
   isUsingOpenRouterApiModel,
+  isUsingXaiApiModel,
 } from '../../../src/config/index.mjs'
 import {
   LEGACY_MODEL_KEY_MIGRATIONS,
@@ -240,6 +242,13 @@ test('isUsingOpenRouterApiModel accepts exported OpenRouter API model keys', () 
   for (const modelName of openRouterApiModelKeys) {
     assert.equal(isUsingOpenRouterApiModel({ modelName }), true)
   }
+})
+
+test('isUsingXaiApiModel accepts exported xAI API model keys', () => {
+  for (const modelName of xaiApiModelKeys) {
+    assert.equal(isUsingXaiApiModel({ modelName }), true)
+  }
+  assert.equal(isUsingXaiApiModel({ modelName: 'chatgptApi4oMini' }), false)
 })
 
 test('isUsingAimlApiModel matches representative AI/ML API keys', () => {

@@ -187,6 +187,7 @@ export const googleApiModelKeys = [
   'googleGemini2_5Flash',
   'googleGemini2_5FlashLite',
 ]
+export const xaiApiModelKeys = ['xaiGrok4_5', 'xaiGrok4_3']
 
 export const AlwaysCustomGroups = [
   'ollamaApiModelKeys',
@@ -264,6 +265,10 @@ export const ModelGroups = {
   googleApiModelKeys: {
     value: googleApiModelKeys,
     desc: 'Google (API)',
+  },
+  xaiApiModelKeys: {
+    value: xaiApiModelKeys,
+    desc: 'xAI (API)',
   },
   customApiModelKeys: {
     value: customApiModelKeys,
@@ -641,6 +646,14 @@ export const Models = {
     value: 'gemini-2.5-flash-lite',
     desc: 'Google (Gemini 2.5 Flash-Lite)',
   },
+  xaiGrok4_5: {
+    value: 'grok-4.5',
+    desc: 'xAI (Grok 4.5)',
+  },
+  xaiGrok4_3: {
+    value: 'grok-4.3',
+    desc: 'xAI (Grok 4.3)',
+  },
 }
 
 for (const modelName in Models) {
@@ -710,6 +723,7 @@ export const defaultConfig = {
   openRouterApiKey: '',
   aimlApiKey: '',
   googleApiKey: '',
+  xaiApiKey: '',
 
   // advanced
 
@@ -745,6 +759,7 @@ export const defaultConfig = {
     'chatgptApi5_6Sol',
     'chatgptApi5_6Terra',
     'chatgptApi5_6Luna',
+    'xaiGrok4_5',
     'claudeOpus48Api',
     'claudeSonnet5Api',
     'claudeHaiku45Api',
@@ -909,6 +924,10 @@ export function isUsingAimlApiModel(configOrSession) {
 
 export function isUsingGoogleApiModel(configOrSession) {
   return isInApiModeGroup(googleApiModelKeys, configOrSession)
+}
+
+export function isUsingXaiApiModel(configOrSession) {
+  return isInApiModeGroup(xaiApiModelKeys, configOrSession)
 }
 
 export function isUsingChatGLMApiModel(configOrSession) {
