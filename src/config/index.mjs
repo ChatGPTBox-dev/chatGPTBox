@@ -123,6 +123,11 @@ export const moonshotApiModelKeys = [
   'moonshot_v1_32k',
   'moonshot_v1_128k',
 ]
+export const mistralApiModelKeys = [
+  'mistralMediumLatest',
+  'mistralSmallLatest',
+  'mistralLargeLatest',
+]
 export const deepSeekApiModelKeys = [
   'deepseek_chat',
   'deepseek_reasoner',
@@ -228,6 +233,10 @@ export const ModelGroups = {
   moonshotApiModelKeys: {
     value: moonshotApiModelKeys,
     desc: 'Kimi.Moonshot (API)',
+  },
+  mistralApiModelKeys: {
+    value: mistralApiModelKeys,
+    desc: 'Mistral AI (API)',
   },
   chatglmApiModelKeys: {
     value: chatglmApiModelKeys,
@@ -431,6 +440,19 @@ export const Models = {
   deepseek_reasoner: {
     value: 'deepseek-reasoner',
     desc: 'DeepSeek (Reasoner)',
+  },
+
+  mistralMediumLatest: {
+    value: 'mistral-medium-latest',
+    desc: 'Mistral AI (Medium latest)',
+  },
+  mistralSmallLatest: {
+    value: 'mistral-small-latest',
+    desc: 'Mistral AI (Small latest)',
+  },
+  mistralLargeLatest: {
+    value: 'mistral-large-latest',
+    desc: 'Mistral AI (Large latest)',
   },
 
   openRouter_anthropic_claude_haiku4_5: {
@@ -691,6 +713,7 @@ export const defaultConfig = {
   anthropicApiKey: '',
   chatglmApiKey: '',
   moonshotApiKey: '',
+  mistralApiKey: '',
   deepSeekApiKey: '',
 
   customApiKey: '',
@@ -750,6 +773,7 @@ export const defaultConfig = {
     'claudeHaiku45Api',
     'googleGemini3_1Pro',
     'googleGemini3_5Flash',
+    'mistralMediumLatest',
     'openRouter_auto',
     'openRouter_free',
   ],
@@ -893,6 +917,10 @@ export function isUsingClaudeApiModel(configOrSession) {
 
 export function isUsingMoonshotApiModel(configOrSession) {
   return isInApiModeGroup(moonshotApiModelKeys, configOrSession)
+}
+
+export function isUsingMistralApiModel(configOrSession) {
+  return isInApiModeGroup(mistralApiModelKeys, configOrSession)
 }
 
 export function isUsingDeepSeekApiModel(configOrSession) {

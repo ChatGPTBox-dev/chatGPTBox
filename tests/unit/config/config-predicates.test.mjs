@@ -7,6 +7,7 @@ import {
   chatgptApiModelKeys,
   gptApiModelKeys,
   claudeApiModelKeys,
+  mistralApiModelKeys,
   openRouterApiModelKeys,
   aimlApiModelKeys,
   isUsingAimlApiModel,
@@ -22,6 +23,7 @@ import {
   isUsingGeminiWebModel,
   isUsingGithubThirdPartyApiModel,
   isUsingMoonshotApiModel,
+  isUsingMistralApiModel,
   isUsingMoonshotWebModel,
   isUsingMultiModeModel,
   isUsingOllamaApiModel,
@@ -221,6 +223,13 @@ test('isUsingMoonshotApiModel detects moonshot API models', () => {
   assert.equal(isUsingMoonshotApiModel({ modelName: 'moonshot_v1_8k' }), true)
   assert.equal(isUsingMoonshotApiModel({ modelName: 'moonshot_k2_5' }), true)
   assert.equal(isUsingMoonshotApiModel({ modelName: 'moonshotWebFree' }), false)
+})
+
+test('isUsingMistralApiModel accepts exported Mistral API model keys', () => {
+  for (const modelName of mistralApiModelKeys) {
+    assert.equal(isUsingMistralApiModel({ modelName }), true)
+  }
+  assert.equal(isUsingMistralApiModel({ modelName: 'chatgptApi4oMini' }), false)
 })
 
 test('isUsingDeepSeekApiModel detects DeepSeek models', () => {

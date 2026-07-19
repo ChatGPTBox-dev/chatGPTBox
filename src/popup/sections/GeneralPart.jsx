@@ -62,6 +62,8 @@ function getProviderApiKeySetupUrl(providerId) {
       return 'https://platform.openai.com/account/api-keys'
     case 'moonshot':
       return 'https://platform.moonshot.cn/console/api-keys'
+    case 'mistral':
+      return 'https://console.mistral.ai/api-keys'
     default:
       return ''
   }

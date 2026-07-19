@@ -36,6 +36,14 @@ const BUILTIN_PROVIDER_TEMPLATE = [
     enabled: true,
   },
   {
+    id: 'mistral',
+    name: 'Mistral AI',
+    baseUrl: 'https://api.mistral.ai/v1',
+    chatCompletionsPath: '/chat/completions',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'openrouter',
     name: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
@@ -111,6 +119,8 @@ function resolveProviderIdFromLegacyModelName(modelName) {
   }
   if (preset.startsWith('deepseek_') || preset === 'deepSeekApiModelKeys') return 'deepseek'
   if (preset.startsWith('moonshot_') || preset === 'moonshotApiModelKeys') return 'moonshot'
+  if (/^mistral(?:Medium|Small|Large)/.test(preset) || preset === 'mistralApiModelKeys')
+    return 'mistral'
   if (preset.startsWith('openRouter_') || preset === 'openRouterApiModelKeys') return 'openrouter'
   if (preset.startsWith('aiml_') || preset === 'aimlModelKeys' || preset === 'aimlApiModelKeys') {
     return 'aiml'

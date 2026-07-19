@@ -26,6 +26,7 @@ import {
   isUsingGeminiWebModel,
   isUsingClaudeWebModel,
   isUsingMoonshotApiModel,
+  isUsingMistralApiModel,
   isUsingMoonshotWebModel,
   isUsingOpenRouterApiModel,
   isUsingAimlApiModel,
@@ -396,6 +397,7 @@ function isUsingOpenAICompatibleApiSession(session) {
     isUsingCustomModel(session) ||
     isUsingChatgptApiModel(session) ||
     isUsingMoonshotApiModel(session) ||
+    isUsingMistralApiModel(session) ||
     isUsingChatGLMApiModel(session) ||
     isUsingDeepSeekApiModel(session) ||
     isUsingOllamaApiModel(session) ||

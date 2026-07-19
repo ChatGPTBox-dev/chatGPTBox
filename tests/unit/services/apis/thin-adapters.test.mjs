@@ -50,6 +50,13 @@ const adapters = [
     expectedApiKey: 'ms-key',
   },
   {
+    name: 'mistral-api',
+    apiMode: { groupName: 'mistralApiModelKeys', itemName: 'mistralMediumLatest' },
+    providerId: 'mistral',
+    expectedBaseUrl: 'https://api.mistral.ai/v1',
+    expectedApiKey: 'mistral-key',
+  },
+  {
     name: 'openrouter-api',
     apiMode: { groupName: 'openRouterApiModelKeys', itemName: 'openRouter_openai_o3' },
     providerId: 'openrouter',

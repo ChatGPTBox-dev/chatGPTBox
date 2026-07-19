@@ -41,6 +41,11 @@ test('resolveEndpointTypeForSession falls back to legacy modelName when apiMode 
   assert.equal(resolveEndpointTypeForSession(session), 'completion')
 })
 
+test('resolveProviderIdForSession resolves legacy Mistral preset keys', () => {
+  assert.equal(resolveProviderIdForSession({ modelName: 'mistralMediumLatest' }), 'mistral')
+  assert.equal(resolveProviderIdForSession({ modelName: 'mistralApiModelKeys-custom' }), 'mistral')
+})
+
 test('resolveProviderIdForSession resolves legacy Google preset keys', () => {
   assert.equal(resolveProviderIdForSession({ modelName: 'googleGemini2_5Flash' }), 'google')
   assert.equal(resolveProviderIdForSession({ modelName: 'googleApiModelKeys-custom' }), 'google')
