@@ -30,6 +30,7 @@ import {
   isUsingOpenRouterApiModel,
   isUsingAimlApiModel,
   isUsingDeepSeekApiModel,
+  isUsingNvidiaNimApiModel,
   isUsingGoogleApiModel,
 } from '../config/index.mjs'
 import '../_locales/i18n'
@@ -398,6 +399,7 @@ function isUsingOpenAICompatibleApiSession(session) {
     isUsingMoonshotApiModel(session) ||
     isUsingChatGLMApiModel(session) ||
     isUsingDeepSeekApiModel(session) ||
+    isUsingNvidiaNimApiModel(session) ||
     isUsingOllamaApiModel(session) ||
     isUsingOpenRouterApiModel(session) ||
     isUsingAimlApiModel(session) ||

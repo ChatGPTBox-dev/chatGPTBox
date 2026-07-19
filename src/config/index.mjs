@@ -129,6 +129,15 @@ export const deepSeekApiModelKeys = [
   'deepseek_v4_flash',
   'deepseek_v4_pro',
 ]
+export const nvidiaNimApiModelKeys = [
+  'nvidiaNim_nemotron_3_super',
+  'nvidiaNim_nemotron_3_ultra',
+  'nvidiaNim_deepseek_v4_flash',
+  'nvidiaNim_deepseek_v4_pro',
+  'nvidiaNim_glm_5_2',
+  'nvidiaNim_inkling',
+  'nvidiaNim_minimax_m3',
+]
 export const openRouterApiModelKeys = [
   'openRouter_auto',
   'openRouter_free',
@@ -248,6 +257,10 @@ export const ModelGroups = {
   githubThirdPartyApiModelKeys: {
     value: githubThirdPartyApiModelKeys,
     desc: 'Github Third Party Waylaidwanderer (API)',
+  },
+  nvidiaNimApiModelKeys: {
+    value: nvidiaNimApiModelKeys,
+    desc: 'NVIDIA NIM (API)',
   },
   deepSeekApiModelKeys: {
     value: deepSeekApiModelKeys,
@@ -413,6 +426,35 @@ export const Models = {
   moonshot_v1_128k: {
     value: 'moonshot-v1-128k',
     desc: 'Kimi.Moonshot (128k)',
+  },
+
+  nvidiaNim_nemotron_3_super: {
+    value: 'nvidia/nemotron-3-super-120b-a12b',
+    desc: 'NVIDIA NIM (Nemotron-3-Super)',
+  },
+  nvidiaNim_nemotron_3_ultra: {
+    value: 'nvidia/nemotron-3-ultra-550b-a55b',
+    desc: 'NVIDIA NIM (Nemotron-3-Ultra)',
+  },
+  nvidiaNim_deepseek_v4_flash: {
+    value: 'deepseek-ai/deepseek-v4-flash',
+    desc: 'NVIDIA NIM (DeepSeek V4 Flash)',
+  },
+  nvidiaNim_deepseek_v4_pro: {
+    value: 'deepseek-ai/deepseek-v4-pro',
+    desc: 'NVIDIA NIM (DeepSeek V4 Pro)',
+  },
+  nvidiaNim_glm_5_2: {
+    value: 'z-ai/glm-5.2',
+    desc: 'NVIDIA NIM (GLM-5.2)',
+  },
+  nvidiaNim_inkling: {
+    value: 'thinkingmachines/inkling',
+    desc: 'NVIDIA NIM (Inkling)',
+  },
+  nvidiaNim_minimax_m3: {
+    value: 'minimaxai/minimax-m3',
+    desc: 'NVIDIA NIM (MiniMax M3)',
   },
 
   deepseek_chat: {
@@ -692,6 +734,7 @@ export const defaultConfig = {
   chatglmApiKey: '',
   moonshotApiKey: '',
   deepSeekApiKey: '',
+  nvidiaNimApiKey: '',
 
   customApiKey: '',
 
@@ -752,6 +795,7 @@ export const defaultConfig = {
     'googleGemini3_5Flash',
     'openRouter_auto',
     'openRouter_free',
+    'nvidiaNim_nemotron_3_super',
   ],
   customApiModes: [
     {
@@ -897,6 +941,10 @@ export function isUsingMoonshotApiModel(configOrSession) {
 
 export function isUsingDeepSeekApiModel(configOrSession) {
   return isInApiModeGroup(deepSeekApiModelKeys, configOrSession)
+}
+
+export function isUsingNvidiaNimApiModel(configOrSession) {
+  return isInApiModeGroup(nvidiaNimApiModelKeys, configOrSession)
 }
 
 export function isUsingOpenRouterApiModel(configOrSession) {

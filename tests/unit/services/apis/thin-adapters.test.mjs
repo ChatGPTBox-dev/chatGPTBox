@@ -43,6 +43,16 @@ const adapters = [
     expectedApiKey: 'ds-key',
   },
   {
+    name: 'nvidia-nim-api',
+    apiMode: {
+      groupName: 'nvidiaNimApiModelKeys',
+      itemName: 'nvidiaNim_nemotron_3_super',
+    },
+    providerId: 'nvidia-nim',
+    expectedBaseUrl: 'https://integrate.api.nvidia.com/v1',
+    expectedApiKey: 'nv-key',
+  },
+  {
     name: 'moonshot-api',
     apiMode: { groupName: 'moonshotApiModelKeys', itemName: 'moonshot_kimi_latest' },
     providerId: 'moonshot',

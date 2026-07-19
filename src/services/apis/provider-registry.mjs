@@ -27,6 +27,14 @@ const BUILTIN_PROVIDER_TEMPLATE = [
     enabled: true,
   },
   {
+    id: 'nvidia-nim',
+    name: 'NVIDIA NIM',
+    baseUrl: 'https://integrate.api.nvidia.com',
+    chatCompletionsPath: '/v1/chat/completions',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'moonshot',
     name: 'Kimi.Moonshot',
     baseUrl: 'https://api.moonshot.cn/v1',
@@ -110,6 +118,7 @@ function resolveProviderIdFromLegacyModelName(modelName) {
     return 'openai'
   }
   if (preset.startsWith('deepseek_') || preset === 'deepSeekApiModelKeys') return 'deepseek'
+  if (preset.startsWith('nvidiaNim_') || preset === 'nvidiaNimApiModelKeys') return 'nvidia-nim'
   if (preset.startsWith('moonshot_') || preset === 'moonshotApiModelKeys') return 'moonshot'
   if (preset.startsWith('openRouter_') || preset === 'openRouterApiModelKeys') return 'openrouter'
   if (preset.startsWith('aiml_') || preset === 'aimlModelKeys' || preset === 'aimlApiModelKeys') {

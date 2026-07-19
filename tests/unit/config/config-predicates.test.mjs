@@ -8,6 +8,7 @@ import {
   gptApiModelKeys,
   claudeApiModelKeys,
   openRouterApiModelKeys,
+  nvidiaNimApiModelKeys,
   aimlApiModelKeys,
   isUsingAimlApiModel,
   isUsingAzureOpenAiApiModel,
@@ -19,6 +20,7 @@ import {
   isUsingCustomModel,
   isUsingCustomNameOnlyModel,
   isUsingDeepSeekApiModel,
+  isUsingNvidiaNimApiModel,
   isUsingGeminiWebModel,
   isUsingGithubThirdPartyApiModel,
   isUsingMoonshotApiModel,
@@ -227,6 +229,13 @@ test('isUsingDeepSeekApiModel detects DeepSeek models', () => {
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_v4_flash' }), true)
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_v4_pro' }), true)
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'chatgptApi4oMini' }), false)
+})
+
+test('isUsingNvidiaNimApiModel accepts exported NVIDIA NIM API model keys', () => {
+  for (const modelName of nvidiaNimApiModelKeys) {
+    assert.equal(isUsingNvidiaNimApiModel({ modelName }), true)
+  }
+  assert.equal(isUsingNvidiaNimApiModel({ modelName: 'chatgptApi4oMini' }), false)
 })
 
 test('isUsingOpenRouterApiModel matches representative OpenRouter API keys', () => {

@@ -46,6 +46,17 @@ test('resolveProviderIdForSession resolves legacy Google preset keys', () => {
   assert.equal(resolveProviderIdForSession({ modelName: 'googleApiModelKeys-custom' }), 'google')
 })
 
+test('resolveProviderIdForSession resolves legacy NVIDIA NIM preset keys', () => {
+  assert.equal(
+    resolveProviderIdForSession({ modelName: 'nvidiaNim_nemotron_3_super' }),
+    'nvidia-nim',
+  )
+  assert.equal(
+    resolveProviderIdForSession({ modelName: 'nvidiaNimApiModelKeys-custom' }),
+    'nvidia-nim',
+  )
+})
+
 test('resolveProviderIdForSession does not treat raw Gemini model IDs as legacy presets', () => {
   assert.equal(resolveProviderIdForSession({ modelName: 'gemini-2.5-flash' }), null)
 })

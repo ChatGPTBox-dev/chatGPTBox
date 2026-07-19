@@ -58,6 +58,8 @@ function isUsingSpecialCustomModel(configOrSession) {
 
 function getProviderApiKeySetupUrl(providerId) {
   switch (String(providerId || '').trim()) {
+    case 'nvidia-nim':
+      return 'https://build.nvidia.com/settings/keys'
     case 'openai':
       return 'https://platform.openai.com/account/api-keys'
     case 'moonshot':
