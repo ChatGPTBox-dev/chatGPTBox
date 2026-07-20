@@ -79,7 +79,7 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&
 
 - You can use projects like https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api to convert LLM APIs into OpenAI format and use them in conjunction with ChatGPTBox's `Custom Model` mode
 
-- You can also use [Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models with ChatGPTBox's `Custom Model` mode
+- You can also use [Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models / [Requesty](https://requesty.ai/) with ChatGPTBox's `Custom Model` mode
 
 ## ✨ Features
 
