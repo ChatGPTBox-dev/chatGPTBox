@@ -76,7 +76,7 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 
 - Bu eklenti hiçbir verinizi **toplamaz**. Kod içinde network isteği çağrılarını bulmak için `fetch(` ve `XMLHttpRequest(` için global bir arama yaparak bunu doğrulayabilirsiniz. Kod miktarı fazla değil, bu yüzden yapılması kolaydır.
 
-- Bu araç ChatGPT'ye siz açıkça belirtmediğiniz sürece hiçbir veri iletmez. Varsayılan olarak, eklentinin manuel olarak aktif hale getirilmesi gerekmektedir. Özellikle, sadece "ChatGPT'ye Sor" butonuna basarsanız ChatGPT'ye istek atar veya yüzen seçim araçlarını tetiklerseniz — Bu yalnızca GPT API modlarını kullandığınızda uygulanır (konu #407)
+- Bu araç, AI destekli bir özellik tetiklenmediği sürece yapılandırılmış AI hizmetine istemleri veya sayfa içeriğini iletmez. Varsayılan olarak, eklentinin manuel olarak etkinleştirilmesi gerekir. (konu #407)
 
 - Proje olarak https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api gibi şeyleri kullanarak LLM API'larını OpenAI formatına dönüştürebilir ve bunları ChatGPTBox'ın `Custom Model` modu ile birlikte kullanabilirsiniz
 

@@ -75,7 +75,7 @@
 
 - 这个扩展程序不收集你的数据, 你可以通过对代码全局搜索 `fetch(` 和 `XMLHttpRequest(` 找到所有的网络请求调用. 代码量不多, 所以很容易验证.
 
-- 此工具不会向 ChatGPT 传输任何数据，除非你明确要求。默认情况下，扩展程序需要手动激活。只有当你专门点击 “Ask ChatGPT” 或触发选择浮动工具时才会发送请求——这仅在使用 GPT API 模式时适用。（issue #407）
+- 此工具不会向配置的 AI 服务传输提示词或页面内容，除非触发 AI 功能。默认情况下，扩展程序需要手动激活。（issue #407）
 
 - 你可以使用像 https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api 这样的项目，将各种 大语言模型 API 转换为OpenAI格式，并与ChatGPTBox的`自定义模型`模式结合使用
 

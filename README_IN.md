@@ -75,7 +75,7 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 
 - Ekstensi ini **tidak** mengumpulkan data Anda. Anda dapat memverifikasinya dengan melakukan pencarian global untuk `fetch(` dan `XMLHttpRequest(` dalam kode untuk menemukan semua panggilan permintaan jaringan. Jumlah kode tidak banyak, jadi mudah untuk melakukannya.
 
-- Alat ini tidak akan mengirimkan data apa pun ke ChatGPT kecuali Anda secara eksplisit memintanya. Secara default, ekstensi harus diaktifkan secara manual. Permintaan hanya akan dikirim ke ChatGPT jika Anda secara khusus mengklik "Ask ChatGPT" atau memicu alat pilihan mengambang — dan ini hanya berlaku saat Anda menggunakan mode GPT API. (issue #407)
+- Alat ini tidak akan mengirimkan prompt atau konten halaman ke layanan AI yang dikonfigurasi kecuali fitur berbasis AI dipicu. Secara default, ekstensi harus diaktifkan secara manual. (issue #407)
 
 - Anda dapat menggunakan proyek seperti https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api untuk mengkonversi API LLM ke dalam format OpenAI dan menggunakannya bersama dengan mode `Custom Model` dari ChatGPTBox
 
