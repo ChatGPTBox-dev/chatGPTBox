@@ -37,7 +37,7 @@ jobs:
         with:
           ref: ${{ github.event_name == 'push' && 'master' || github.ref_name }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: npm ci
