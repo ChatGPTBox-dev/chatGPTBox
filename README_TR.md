@@ -12,7 +12,8 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 [![license][license-image]][license-url]
 [![release][release-image]][release-url]
 [![size](https://img.shields.io/badge/minified%20size-390%20kB-blue)][release-url]
-[![verfiy][verify-image]][verify-url]
+[![verify][verify-image]][verify-url]
+[![coverage][coverage-image]][coverage-url]
 
 [English](README.md) &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&nbsp; [简体中文](README_ZH.md) &nbsp;&nbsp;|&nbsp;&nbsp; [日本語](README_JA.md) &nbsp;&nbsp;|&nbsp;&nbsp; Türkçe
 
@@ -23,9 +24,9 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 [![Firefox][Firefox-image]][Firefox-url]
 [![Safari][Safari-image]][Safari-url]
 [![Android][Android-image]][Android-url]
-[![Github][Github-image]][Github-url]
+[![GitHub][Github-image]][Github-url]
 
-[Rehber](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [Önizleme](#Preview) &nbsp;&nbsp;|&nbsp;&nbsp; [Gelişim ve Katkı Sağlama][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [Video](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [Credit](#Credit)
+[Rehber](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [Önizleme](#önizleme) &nbsp;&nbsp;|&nbsp;&nbsp; [Gelişim ve Katkı Sağlama][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [Video](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [Credits](#katkıda-bulunanlar)
 
 [dev-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Development&Contributing
 
@@ -40,6 +41,10 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 [verify-image]: https://github.com/ChatGPTBox-dev/chatGPTBox/workflows/verify-configs/badge.svg
 
 [verify-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/verify-configs.yml
+
+[coverage-image]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ChatGPTBox-dev/chatGPTBox/master/badges/coverage.json
+
+[coverage-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/pr-tests.yml
 
 [Chrome-image]: https://img.shields.io/badge/-Chrome-brightgreen?logo=google-chrome&logoColor=white
 
@@ -93,7 +98,7 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 - 🌍 Dil tercih desteği.
 - 📝 Özel API adres desteği.
 - ⚙️ Tüm site adaptasyonları ve seçim araçları(sohbet balonu) özgürce açıp kapatılabilir, ihtiyacınız olmayan modülleri kapatın.
-- 💡 Seçim araçları ve site adaptasyonunun geliştirilmesi kolay ve geniştir, [Development&Contributing][dev-url] bölümüne bakınız.
+- 💡 Seçim araçları ve site adaptasyonunun geliştirilmesi kolay ve geniştir, [Development & Contributing][dev-url] bölümüne bakınız.
 - 😉 Yanıt kalitesini artırmak için sohbet edin.
 
 ## Önizleme

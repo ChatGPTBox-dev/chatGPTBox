@@ -11,7 +11,8 @@
 [![license][license-image]][license-url]
 [![release][release-image]][release-url]
 [![size](https://img.shields.io/badge/minified%20size-390%20kB-blue)][release-url]
-[![verfiy][verify-image]][verify-url]
+[![verify][verify-image]][verify-url]
+[![coverage][coverage-image]][coverage-url]
 
 [English](README.md) &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&nbsp; [简体中文](README_ZH.md) &nbsp;&nbsp;|&nbsp;&nbsp; 日本語 &nbsp;&nbsp;|&nbsp;&nbsp; [Türkçe](README_TR.md)
 
@@ -22,7 +23,7 @@
 [![Firefox][Firefox-image]][Firefox-url]
 [![Safari][Safari-image]][Safari-url]
 [![Android][Android-image]][Android-url]
-[![Github][Github-image]][Github-url]
+[![GitHub][Github-image]][Github-url]
 
 [ガイド](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [プレビュー](#プレビュー) &nbsp;&nbsp;|&nbsp;&nbsp; [開発 & コントリビュート][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [ビデオデモ](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [クレジット](#クレジット)
 
@@ -39,6 +40,10 @@
 [verify-image]: https://github.com/ChatGPTBox-dev/chatGPTBox/workflows/verify-configs/badge.svg
 
 [verify-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/verify-configs.yml
+
+[coverage-image]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ChatGPTBox-dev/chatGPTBox/master/badges/coverage.json
+
+[coverage-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/pr-tests.yml
 
 [Chrome-image]: https://img.shields.io/badge/-Chrome-brightgreen?logo=google-chrome&logoColor=white
 
@@ -74,7 +79,7 @@
 
 - https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api のようなプロジェクトを使用して、LLM APIをOpenAI形式に変換し、それらをChatGPTBoxの `カスタムモデル` モードと組み合わせて使用することができます
 
-- もちろんです。ChatGPTBoxの `カスタムモデル` モードを使用する際には、[Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models もご利用いただけます
+- ChatGPTBoxの `カスタムモデル` モードを使用する際には、[Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models もご利用いただけます
 
 ## ✨ 機能
 

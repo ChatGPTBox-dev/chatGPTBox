@@ -11,7 +11,8 @@
 [![license][license-image]][license-url]
 [![release][release-image]][release-url]
 [![size](https://img.shields.io/badge/minified%20size-390%20kB-blue)][release-url]
-[![verfiy][verify-image]][verify-url]
+[![verify][verify-image]][verify-url]
+[![coverage][coverage-image]][coverage-url]
 
 [English](README.md) &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&nbsp; 简体中文 &nbsp;&nbsp;|&nbsp;&nbsp; [日本語](README_JA.md) &nbsp;&nbsp;|&nbsp;&nbsp; [Türkçe](README_TR.md)
 
@@ -22,9 +23,9 @@
 [![Firefox][Firefox-image]][Firefox-url]
 [![Safari][Safari-image]][Safari-url]
 [![Android][Android-image]][Android-url]
-[![Github][Github-image]][Github-url]
+[![GitHub][Github-image]][Github-url]
 
-[使用指南](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [效果预览](#Preview) &nbsp;&nbsp;|&nbsp;&nbsp; [开发&贡献][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [视频演示](https://www.bilibili.com/video/BV1524y1x7io) &nbsp;&nbsp;|&nbsp;&nbsp; [鸣谢](#Credit)
+[使用指南](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [效果预览](#preview) &nbsp;&nbsp;|&nbsp;&nbsp; [开发&贡献][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [视频演示](https://www.bilibili.com/video/BV1524y1x7io) &nbsp;&nbsp;|&nbsp;&nbsp; [鸣谢](#credits)
 
 [dev-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Development&Contributing
 
@@ -39,6 +40,10 @@
 [verify-image]: https://github.com/ChatGPTBox-dev/chatGPTBox/workflows/verify-configs/badge.svg
 
 [verify-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/verify-configs.yml
+
+[coverage-image]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ChatGPTBox-dev/chatGPTBox/master/badges/coverage.json
+
+[coverage-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/pr-tests.yml
 
 [Chrome-image]: https://img.shields.io/badge/-Chrome-brightgreen?logo=google-chrome&logoColor=white
 
@@ -70,6 +75,8 @@
 
 - 这个扩展程序不收集你的数据, 你可以通过对代码全局搜索 `fetch(` 和 `XMLHttpRequest(` 找到所有的网络请求调用. 代码量不多, 所以很容易验证.
 
+- 此工具不会向 ChatGPT 传输任何数据，除非你明确要求。默认情况下，扩展程序需要手动激活。只有当你专门点击 “Ask ChatGPT” 或触发选择浮动工具时才会发送请求——这仅在使用 GPT API 模式时适用。（issue #407）
+
 - 你可以使用像 https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api 这样的项目，将各种 大语言模型 API 转换为OpenAI格式，并与ChatGPTBox的`自定义模型`模式结合使用
 
 - 对于国内用户, 有GPT, Midjourney, Netflix等账号需求的, 可以考虑此站点购买合租, 此链接购买的订单也会给我带来一定收益, 作为对本项目的支持: https://nf.video/yinhe/web?sharedId=84599
@@ -92,7 +99,7 @@
 - 🖨️ 随意保存你的完整对话记录, 或进行局部复制
 - 🎨 强大的渲染支持, 不论是代码高亮, 还是复杂数学公式
 - 🌍 多语言偏好支持
-- 📝 [自定义API地址](https://github.com/Ice-Hazymoon/openai-scf-proxy)支持
+- 📝 自定义API地址支持
 - ⚙️ 所有站点适配与工具均可自由开关, 随时停用你不需要的模块
 - 💡 工具与站点适配开发易于扩展, 对于开发人员易于自定义, 请查看[开发&贡献][dev-url]部分
 - 😉 此外, 如果回答有任何不足, 直接聊天解决!
@@ -131,7 +138,7 @@
 
 </div>
 
-## Credit
+## Credits
 
 该项目基于我的另一个项目 [josStorer/chatGPT-search-engine-extension](https://github.com/josStorer/chatGPT-search-engine-extension)
 

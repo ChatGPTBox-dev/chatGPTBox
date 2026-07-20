@@ -11,7 +11,8 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 [![license][license-image]][license-url]
 [![release][release-image]][release-url]
 [![size](https://img.shields.io/badge/minified%20size-390%20kB-blue)][release-url]
-[![verfiy][verify-image]][verify-url]
+[![verify][verify-image]][verify-url]
+[![coverage][coverage-image]][coverage-url]
 
 [Inggris](README.md) &nbsp;&nbsp;|&nbsp;&nbsp; Indonesia &nbsp;&nbsp;|&nbsp;&nbsp; [简体中文](README_ZH.md) &nbsp;&nbsp;|&nbsp;&nbsp; [日本語](README_JA.md) &nbsp;&nbsp;|&nbsp;&nbsp; [Türkçe](README_TR.md)
 
@@ -22,9 +23,9 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 [![Firefox][Firefox-image]][Firefox-url]
 [![Safari][Safari-image]][Safari-url]
 [![Android][Android-image]][Android-url]
-[![Github][Github-image]][Github-url]
+[![GitHub][Github-image]][Github-url]
 
-[Panduan](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [Pratinjau](#Pratinjau) &nbsp;&nbsp;|&nbsp;&nbsp; [Pengembangan & Berkontribusi][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [Demonstrasi Video](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [Kredit](#Kredit)
+[Panduan](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [Pratinjau](#pratinjau) &nbsp;&nbsp;|&nbsp;&nbsp; [Pengembangan & Berkontribusi][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [Demonstrasi Video](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [Kredit](#kredit)
 
 [dev-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Development&Contributing
 
@@ -39,6 +40,10 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 [verify-image]: https://github.com/ChatGPTBox-dev/chatGPTBox/workflows/verify-configs/badge.svg
 
 [verify-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/verify-configs.yml
+
+[coverage-image]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ChatGPTBox-dev/chatGPTBox/master/badges/coverage.json
+
+[coverage-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/pr-tests.yml
 
 [Chrome-image]: https://img.shields.io/badge/-Chrome-brightgreen?logo=google-chrome&logoColor=white
 
@@ -69,6 +74,8 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 ## Berita
 
 - Ekstensi ini **tidak** mengumpulkan data Anda. Anda dapat memverifikasinya dengan melakukan pencarian global untuk `fetch(` dan `XMLHttpRequest(` dalam kode untuk menemukan semua panggilan permintaan jaringan. Jumlah kode tidak banyak, jadi mudah untuk melakukannya.
+
+- Alat ini tidak akan mengirimkan data apa pun ke ChatGPT kecuali Anda secara eksplisit memintanya. Secara default, ekstensi harus diaktifkan secara manual. Permintaan hanya akan dikirim ke ChatGPT jika Anda secara khusus mengklik "Ask ChatGPT" atau memicu alat pilihan mengambang — dan ini hanya berlaku saat Anda menggunakan mode GPT API. (issue #407)
 
 - Anda dapat menggunakan proyek seperti https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api untuk mengkonversi API LLM ke dalam format OpenAI dan menggunakannya bersama dengan mode `Custom Model` dari ChatGPTBox
 
