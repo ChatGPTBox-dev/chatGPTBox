@@ -3,12 +3,14 @@
 import fs from 'fs-extra'
 import jwt from 'jsonwebtoken'
 import { spawn } from 'node:child_process'
-import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const REQUIRED_ARTIFACTS = ['build/chromium.zip', 'build/firefox.zip', 'build/firefox-sources.zip']
 const AMO_BASE_URL = 'https://addons.mozilla.org'
+const require = createRequire(import.meta.url)
 export const FIREFOX_COMPATIBILITY = {
   firefox: {
     min: '58.0',
@@ -36,11 +38,12 @@ const REQUIRED_ENV = [
 export function parseArgs(args) {
   return {
     dryRun: args.includes('--dry-run'),
+    preflightOnly: args.includes('--preflight-only'),
   }
 }
 
 export function findMissingEnv(env = process.env) {
-  return REQUIRED_ENV.filter((name) => !env[name])
+  return REQUIRED_ENV.filter((name) => String(env[name] ?? '').trim().length === 0)
 }
 
 export async function findMissingArtifacts({ exists = fs.pathExists } = {}) {
@@ -156,18 +159,29 @@ export async function updateFirefoxVersionNotes({
 }
 
 function resolvePublishExtensionBin() {
-  const command = process.platform === 'win32' ? 'publish-extension.cmd' : 'publish-extension'
-  return path.join(process.cwd(), 'node_modules', '.bin', command)
+  return require.resolve('publish-browser-extension/cli')
 }
 
-async function runPublishExtension(args) {
-  const command = resolvePublishExtensionBin()
+function buildPublishExtensionEnv(env, baseEnv = process.env) {
+  const merged = { ...baseEnv, ...(env ?? {}) }
+  return Object.fromEntries(
+    Object.entries(merged)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([name, value]) => [name, String(value)]),
+  )
+}
+
+export async function runPublishExtension(
+  args,
+  { env, baseEnv = process.env, spawnImpl = spawn } = {},
+) {
+  const childArgs = [resolvePublishExtensionBin(), ...args]
 
   await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawnImpl(process.execPath, childArgs, {
       stdio: 'inherit',
       shell: false,
-      env: process.env,
+      env: buildPublishExtensionEnv(env, baseEnv),
     })
 
     child.once('error', reject)
@@ -181,34 +195,62 @@ async function runPublishExtension(args) {
   })
 }
 
-export async function submitStores({ argv = process.argv.slice(2), env = process.env } = {}) {
-  const { dryRun } = parseArgs(argv)
-  const missingArtifacts = await findMissingArtifacts()
-  const missingEnv = findMissingEnv(env)
+export async function submitStores({
+  argv = process.argv.slice(2),
+  env: envInput,
+  exists = fs.pathExists,
+  readJson = fs.readJson,
+  runPublishExtensionImpl = runPublishExtension,
+  updateFirefoxVersionNotesImpl = updateFirefoxVersionNotes,
+  logger = console.log,
+  errorLogger = console.error,
+} = {}) {
+  const { dryRun, preflightOnly } = parseArgs(argv)
+  const env = envInput ?? process.env
+  const missingArtifacts = await findMissingArtifacts({ exists })
+  const missingEnv = preflightOnly ? [] : findMissingEnv(env)
 
   if (missingArtifacts.length > 0 || missingEnv.length > 0) {
     if (missingArtifacts.length > 0) {
-      console.error(`Missing release artifacts: ${missingArtifacts.join(', ')}`)
+      errorLogger(`Missing release artifacts: ${missingArtifacts.join(', ')}`)
     }
     if (missingEnv.length > 0) {
-      console.error(`Missing store submission environment variables: ${missingEnv.join(', ')}`)
+      errorLogger(`Missing store submission environment variables: ${missingEnv.join(', ')}`)
     }
     throw new Error('Store submission preflight failed')
   }
 
-  const manifest = await fs.readJson('build/firefox/manifest.json')
-  const args = buildPublishExtensionArgs({ dryRun })
+  let manifest
+  try {
+    manifest = await readJson('build/firefox/manifest.json')
+  } catch (error) {
+    errorLogger('Missing or invalid Firefox manifest: build/firefox/manifest.json')
+    throw new Error('Store submission preflight failed', { cause: error })
+  }
+
+  if (!manifest || typeof manifest.version !== 'string' || manifest.version.trim().length === 0) {
+    errorLogger('Missing Firefox manifest version: build/firefox/manifest.json')
+    throw new Error('Store submission preflight failed')
+  }
+
   const firefoxReleaseNotes = buildFirefoxReleaseNotes(manifest.version)
+  const mode = preflightOnly ? 'preflight' : dryRun ? 'dry-run' : 'submit'
 
-  console.log(`Submitting ChatGPTBox ${manifest.version} to Chrome, Firefox, and Edge`)
-  console.log(`Mode: ${dryRun ? 'dry-run' : 'submit'}`)
-  console.log(`Artifacts: ${REQUIRED_ARTIFACTS.join(', ')}`)
-  console.log(`Firefox version notes: ${firefoxReleaseNotes}`)
+  logger(`${preflightOnly ? 'Checking' : 'Submitting'} ChatGPTBox ${manifest.version}`)
+  logger(`Mode: ${mode}`)
+  logger(`Artifacts: ${REQUIRED_ARTIFACTS.join(', ')}`)
+  logger(`Firefox version notes: ${firefoxReleaseNotes}`)
 
-  await runPublishExtension(args)
+  if (preflightOnly) {
+    logger('Store authentication, upload, and submission are skipped in preflight mode')
+    return
+  }
+
+  const args = buildPublishExtensionArgs({ dryRun })
+  await runPublishExtensionImpl(args, { env })
 
   if (!dryRun) {
-    await updateFirefoxVersionNotes({
+    await updateFirefoxVersionNotesImpl({
       extensionId: env.FIREFOX_EXTENSION_ID,
       version: manifest.version,
       jwtIssuer: env.FIREFOX_JWT_ISSUER,
