@@ -8,23 +8,27 @@ on:
       - "synchronize"
     paths:
       - "src/**"
+      - "safari/**"
       - "build.mjs"
       - "tests/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/scripts/**"
       - ".github/workflows/pr-tests.yml"
+      - ".github/workflows/tagged-release.yml"
   push:
     branches:
       - "master"
     paths:
       - "src/**"
+      - "safari/**"
       - "build.mjs"
       - "tests/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/scripts/**"
       - ".github/workflows/pr-tests.yml"
+      - ".github/workflows/tagged-release.yml"
 
 jobs:
   tests:
@@ -42,9 +46,46 @@ jobs:
       - run: npm run lint
       - run: npm run build
 
+  safari-build:
+    runs-on: macos-14
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: 16.2
+      - run: npm ci
+      - run: npm run build:safari
+      - name: Verify Safari build artifacts
+        shell: bash
+        run: |
+          set -eo pipefail
+          shopt -s nullglob
+          apps=(build/*.app)
+
+          if [ "${#apps[@]}" -ne 1 ]; then
+            echo "Expected exactly one Safari app bundle, found ${#apps[@]}"
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "${apps[0]}"
+          test -s build/safari.dmg
+          hdiutil verify build/safari.dmg
+
   update_coverage_badge:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: tests
+    needs: [tests, safari-build]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
