@@ -48,7 +48,7 @@ Production build creates multiple variants in `build/` directory:
 - Distribution artifacts:
   - Chromium: `build/chromium.zip`
   - Firefox: `build/firefox.zip`
-  - Safari: `Fission - ChatBox.app` and `safari.dmg` (see Safari Build section for details)
+  - Safari: `ChatGPTBox.app` and `safari.dmg` (see Safari Build section for details)
 
 ## Architecture Overview
 
@@ -193,8 +193,8 @@ src/
 ### Safari Build (macOS Only)
 
 - Run `npm run build:safari` (requires macOS with Xcode installed)
-- Creates `Fission - ChatBox.app` bundle and `safari.dmg` installer
-- Uses `safari/build.sh` script with platform-specific patches
+- Creates `ChatGPTBox.app` bundle and `safari.dmg` installer
+- Uses `safari/build.sh` script with platform-specific build settings
 
 ### Cross-Browser Compatibility
 

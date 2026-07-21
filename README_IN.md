@@ -2,7 +2,7 @@
     <img src="./src/logo.png">
 </p>
 
-<h1 align="center">ChatGPT Box</h1>
+<h1 align="center">ChatGPTBox</h1>
 
 <div align="center">
 
@@ -59,7 +59,7 @@ Integrasi Deep ChatGPT di browser Anda, sepenuhnya gratis.
 
 [Safari-image]: https://img.shields.io/badge/-Safari-blue?logo=safari&logoColor=white
 
-[Safari-url]: https://apps.apple.com/app/fission-chatbox/id6446611121
+[Safari-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Install#install-to-safarimacos
 
 [Android-image]: https://img.shields.io/badge/-Android-brightgreen?logo=android&logoColor=white
 
