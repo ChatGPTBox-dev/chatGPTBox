@@ -1,11 +1,11 @@
 /* global process */
 
 import fs from 'fs-extra'
-import jwt from 'jsonwebtoken'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { signHs256Jwt } from '../src/utils/hs256-jwt.mjs'
 
 const REQUIRED_ARTIFACTS = ['build/chromium.zip', 'build/firefox.zip', 'build/firefox-sources.zip']
 const AMO_BASE_URL = 'https://addons.mozilla.org'
@@ -40,7 +40,10 @@ export function parseArgs(args) {
 }
 
 export function findMissingEnv(env = process.env) {
-  return REQUIRED_ENV.filter((name) => !env[name])
+  return REQUIRED_ENV.filter((name) => {
+    const value = env[name]
+    return typeof value !== 'string' || value.trim().length === 0
+  })
 }
 
 export async function findMissingArtifacts({ exists = fs.pathExists } = {}) {
@@ -82,7 +85,7 @@ export function stripFirefoxExtensionId(extensionId) {
 
 function createFirefoxJwt(jwtIssuer, jwtSecret) {
   const issuedAt = Math.floor(Date.now() / 1000)
-  return jwt.sign(
+  return signHs256Jwt(
     {
       iss: jwtIssuer,
       jti: randomUUID(),
@@ -90,7 +93,6 @@ function createFirefoxJwt(jwtIssuer, jwtSecret) {
       exp: issuedAt + 300,
     },
     jwtSecret,
-    { algorithm: 'HS256' },
   )
 }
 
@@ -120,12 +122,12 @@ export async function updateFirefoxVersionNotes({
   sleepImpl = sleep,
 }) {
   const amoId = encodeURIComponent(stripFirefoxExtensionId(extensionId))
-  const authHeader = `JWT ${createFirefoxJwt(jwtIssuer, jwtSecret)}`
   const amoVersion = encodeURIComponent(`v${version}`)
   const releaseNotes = buildFirefoxReleaseNotes(version)
   const patchUrl = `${AMO_BASE_URL}/api/v5/addons/addon/${amoId}/versions/${amoVersion}/`
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const authHeader = `JWT ${createFirefoxJwt(jwtIssuer, jwtSecret)}`
     const patchResponse = await fetchImpl(patchUrl, {
       method: 'PATCH',
       headers: {

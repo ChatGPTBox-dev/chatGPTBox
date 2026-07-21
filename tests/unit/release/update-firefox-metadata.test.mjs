@@ -28,6 +28,17 @@ test('findMissingFirefoxMetadataEnv reports required Firefox secrets only', () =
   )
 })
 
+test('findMissingFirefoxMetadataEnv treats whitespace-only secrets as missing', () => {
+  assert.deepEqual(
+    findMissingFirefoxMetadataEnv({
+      FIREFOX_EXTENSION_ID: 'chatgptbox',
+      FIREFOX_JWT_ISSUER: '   ',
+      FIREFOX_JWT_SECRET: '   ',
+    }),
+    ['FIREFOX_JWT_ISSUER', 'FIREFOX_JWT_SECRET'],
+  )
+})
+
 test('updateFirefoxMetadata patches the requested Firefox version only', async () => {
   const calls = []
 
