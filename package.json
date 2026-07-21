@@ -109,5 +109,8 @@
     "thread-loader": "^4.0.4",
     "webpack": "^5.92.1",
     "webpack-bundle-analyzer": "^4.10.2"
+  },
+  "optionalDependencies": {
+    "appdmg": "0.6.6"
   }
 }

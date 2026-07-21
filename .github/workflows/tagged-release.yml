@@ -40,6 +40,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10' # for appdmg
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: 16.2
       - run: npm ci
 
       - name: Resolve release version
@@ -80,18 +86,6 @@ jobs:
         run: |
           gh release create ${{github.ref_name}} -d -F CURRENT_CHANGE.md -t ${{github.ref_name}}
 
-      - uses: actions/setup-python@v6
-        if: github.event_name == 'push'
-        with:
-          python-version: '3.10' # for appdmg
-      - uses: maxim-lobanov/setup-xcode@v1
-        if: github.event_name == 'push'
-        with:
-          xcode-version: 16.2
-      - if: github.event_name == 'push'
-        run: sed -i '' "s/0.0.0/${{ env.VERSION }}/g" safari/project.pre.patch
-      - if: github.event_name == 'push'
-        run: sed -i '' "s/0.0.0/${{ env.VERSION }}/g" safari/project.patch
       - if: github.event_name == 'push'
         run: npm run build:safari
 
