@@ -9,6 +9,40 @@ import {
   resolveProviderIdForSession,
 } from '../../../../src/services/apis/provider-registry.mjs'
 
+function createCanonicalSiblingProviders() {
+  return [
+    {
+      id: 'Foo',
+      name: 'Uppercase provider',
+      chatCompletionsUrl: 'https://uppercase.example.com/v1/chat/completions',
+    },
+    {
+      id: 'foo',
+      name: 'Lowercase provider',
+      chatCompletionsUrl: 'https://lowercase.example.com/v1/chat/completions',
+    },
+  ]
+}
+
+function createCanonicalSiblingMode(providerId, customName) {
+  return {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName,
+    providerId,
+  }
+}
+
+function createCanonicalSiblingSession(customName) {
+  return {
+    apiMode: {
+      ...createCanonicalSiblingMode('foo', customName),
+      customUrl: '',
+    },
+  }
+}
+
 test('resolveEndpointTypeForSession prefers apiMode when present', () => {
   const session = {
     apiMode: {
@@ -95,6 +129,262 @@ test('resolveOpenAICompatibleRequest resolves custom provider from normalized se
   assert.equal(resolved.providerId, 'myproxy')
   assert.equal(resolved.requestUrl, 'https://proxy.example.com/v1/chat/completions')
   assert.equal(resolved.apiKey, 'proxy-key')
+})
+
+test('resolveOpenAICompatibleRequest disambiguates legacy and normalized ID matches by URL', () => {
+  const config = {
+    customOpenAIProviders: [
+      {
+        id: 'proxy-v1',
+        name: 'Normalized Match',
+        chatCompletionsUrl: 'https://normalized.example.com/v1/chat/completions',
+      },
+      {
+        id: 'renamed-provider',
+        name: 'Legacy Match',
+        chatCompletionsUrl: 'https://legacy.example.com/v1/chat/completions',
+        legacyProviderIds: ['proxy-v1'],
+      },
+    ],
+    customApiModes: [
+      {
+        groupName: 'customApiModelKeys',
+        itemName: 'customModel',
+        isCustom: true,
+        customName: 'collision-model',
+        providerId: 'proxy-v1',
+      },
+    ],
+    providerSecrets: {
+      'proxy-v1': 'normalized-key',
+      'renamed-provider': 'legacy-key',
+    },
+  }
+  const createSession = (customUrl = '') => ({
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      providerId: 'proxy_v1',
+      customName: 'collision-model',
+      customUrl,
+    },
+  })
+
+  assert.equal(
+    resolveOpenAICompatibleRequest(
+      config,
+      createSession('https://legacy.example.com/v1/chat/completions'),
+    )?.providerId,
+    'renamed-provider',
+  )
+  assert.equal(
+    resolveOpenAICompatibleRequest(
+      config,
+      createSession('https://normalized.example.com/v1/chat/completions'),
+    )?.providerId,
+    'proxy-v1',
+  )
+  assert.equal(resolveOpenAICompatibleRequest(config, createSession()), null)
+})
+
+test('resolveOpenAICompatibleRequest disambiguates exact and legacy provider ID collisions by URL', () => {
+  const config = {
+    customOpenAIProviders: [
+      {
+        id: 'proxy-v1',
+        name: 'Current ID Match',
+        chatCompletionsUrl: 'https://current.example.com/v1/chat/completions',
+      },
+      {
+        id: 'renamed-provider',
+        name: 'Legacy ID Match',
+        chatCompletionsUrl: 'https://legacy.example.com/v1/chat/completions',
+        legacyProviderIds: ['proxy-v1'],
+      },
+      {
+        id: 'unrelated-provider',
+        name: 'Unrelated',
+        chatCompletionsUrl: 'https://unrelated.example.com/v1/chat/completions',
+      },
+    ],
+    customApiModes: [
+      {
+        groupName: 'customApiModelKeys',
+        itemName: 'customModel',
+        isCustom: true,
+        customName: 'collision-model',
+        providerId: 'unrelated-provider',
+      },
+    ],
+  }
+  const createSession = (customUrl = '') => ({
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      providerId: 'proxy-v1',
+      customName: 'collision-model',
+      customUrl,
+    },
+  })
+
+  assert.equal(
+    resolveOpenAICompatibleRequest(
+      config,
+      createSession('https://legacy.example.com/v1/chat/completions'),
+    )?.providerId,
+    'renamed-provider',
+  )
+  assert.equal(
+    resolveOpenAICompatibleRequest(
+      config,
+      createSession('https://current.example.com/v1/chat/completions'),
+    )?.providerId,
+    'proxy-v1',
+  )
+  assert.equal(resolveOpenAICompatibleRequest(config, createSession()), null)
+  assert.equal(
+    resolveOpenAICompatibleRequest(
+      config,
+      createSession('https://unrelated.example.com/v1/chat/completions'),
+    ),
+    null,
+  )
+})
+
+test('resolveOpenAICompatibleRequest disambiguates exact and legacy provider ID collisions by mode label', () => {
+  const config = {
+    customOpenAIProviders: [
+      {
+        id: 'proxy-v1',
+        name: 'Current ID Match',
+        chatCompletionsUrl: 'https://current.example.com/v1/chat/completions',
+      },
+      {
+        id: 'renamed-provider',
+        name: 'Legacy ID Match',
+        chatCompletionsUrl: 'https://legacy.example.com/v1/chat/completions',
+        legacyProviderIds: ['proxy-v1'],
+      },
+    ],
+    customApiModes: [
+      {
+        groupName: 'customApiModelKeys',
+        itemName: 'customModel',
+        isCustom: true,
+        customName: 'current-model',
+        providerId: 'proxy-v1',
+      },
+      {
+        groupName: 'customApiModelKeys',
+        itemName: 'customModel',
+        isCustom: false,
+        customName: 'current-model',
+        providerId: 'renamed-provider',
+      },
+    ],
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      providerId: 'proxy-v1',
+      customName: 'current-model',
+      customUrl: '',
+    },
+  }
+
+  assert.equal(resolveOpenAICompatibleRequest(config, session)?.providerId, 'proxy-v1')
+  delete session.apiMode.isCustom
+  assert.equal(resolveOpenAICompatibleRequest(config, session), null)
+})
+
+test('resolveOpenAICompatibleRequest preserves raw provider ID disambiguation by mode label', () => {
+  const config = {
+    customOpenAIProviders: createCanonicalSiblingProviders(),
+    customApiModes: [createCanonicalSiblingMode('Foo', 'uppercase-model')],
+    providerSecrets: {
+      Foo: 'uppercase-key',
+      foo: 'lowercase-key',
+    },
+  }
+  const session = createCanonicalSiblingSession('uppercase-model')
+
+  const resolved = resolveOpenAICompatibleRequest(config, session)
+
+  assert.equal(resolved?.providerId, 'Foo')
+  assert.equal(resolved?.requestUrl, 'https://uppercase.example.com/v1/chat/completions')
+  assert.equal(resolved?.apiKey, 'uppercase-key')
+})
+
+test('resolveOpenAICompatibleRequest does not borrow a canonical sibling secret', () => {
+  const config = {
+    customOpenAIProviders: createCanonicalSiblingProviders(),
+    customApiModes: [createCanonicalSiblingMode('Foo', 'uppercase-model')],
+    providerSecrets: {
+      foo: 'lowercase-key',
+    },
+  }
+  const session = createCanonicalSiblingSession('uppercase-model')
+
+  const resolved = resolveOpenAICompatibleRequest(config, session)
+
+  assert.equal(resolved?.providerId, 'Foo')
+  assert.equal(resolved?.secretProviderId, 'Foo')
+  assert.equal(resolved?.apiKey, '')
+})
+
+test('resolveOpenAICompatibleRequest does not borrow canonical sibling mode or session secrets', () => {
+  const config = {
+    customOpenAIProviders: createCanonicalSiblingProviders(),
+    customApiModes: [
+      {
+        ...createCanonicalSiblingMode('foo', 'lowercase-model'),
+        apiKey: 'lowercase-mode-key',
+      },
+    ],
+    providerSecrets: {},
+  }
+  const session = createCanonicalSiblingSession('lowercase-model')
+  session.apiMode.customUrl = 'https://uppercase.example.com/v1/chat/completions'
+  session.apiMode.apiKey = 'lowercase-session-key'
+
+  const resolved = resolveOpenAICompatibleRequest(config, session)
+
+  assert.equal(resolved?.providerId, 'Foo')
+  assert.equal(resolved?.requestUrl, 'https://uppercase.example.com/v1/chat/completions')
+  assert.equal(resolved?.apiKey, '')
+})
+
+test('resolveOpenAICompatibleRequest fails closed for duplicate labels on canonical siblings', () => {
+  const config = {
+    customOpenAIProviders: createCanonicalSiblingProviders(),
+    customApiModes: [
+      createCanonicalSiblingMode('Foo', 'shared-model'),
+      createCanonicalSiblingMode('foo', 'shared-model'),
+    ],
+    providerSecrets: {
+      Foo: 'uppercase-key',
+      foo: 'lowercase-key',
+    },
+  }
+  const session = createCanonicalSiblingSession('shared-model')
+
+  assert.equal(resolveOpenAICompatibleRequest(config, session), null)
+})
+
+test('resolveOpenAICompatibleRequest does not replace a disabled exact label provider', () => {
+  const providers = createCanonicalSiblingProviders()
+  providers[0].enabled = false
+  const config = {
+    customOpenAIProviders: providers,
+    customApiModes: [createCanonicalSiblingMode('Foo', 'uppercase-model')],
+    providerSecrets: {
+      Foo: 'uppercase-key',
+      foo: 'lowercase-key',
+    },
+  }
+  const session = createCanonicalSiblingSession('uppercase-model')
+
+  assert.equal(resolveOpenAICompatibleRequest(config, session), null)
 })
 
 test('getOpenAICompatibleRequestDiagnostic reports safe context for missing custom provider', () => {
@@ -864,6 +1154,7 @@ test('resolveOpenAICompatibleRequest recovers by legacy customUrl when provider 
   const resolved = resolveOpenAICompatibleRequest(config, session)
 
   assert.equal(resolved.providerId, 'legacy-custom-default')
+  assert.equal(resolved.secretProviderId, 'openai')
   assert.equal(resolved.requestUrl, 'https://derived.example.com/v1/chat/completions')
   assert.equal(resolved.apiKey, '')
 })
@@ -909,8 +1200,23 @@ test('resolveOpenAICompatibleRequest does not fall back when customUrl points at
         chatCompletionsUrl: 'https://proxy.example.com/v1/chat/completions',
         enabled: false,
       },
+      {
+        id: 'label-provider',
+        name: 'Label Provider',
+        chatCompletionsUrl: 'https://other.example.com/v1/chat/completions',
+        enabled: true,
+      },
     ],
-    customApiModes: [],
+    customApiModes: [
+      {
+        groupName: 'customApiModelKeys',
+        itemName: 'customModel',
+        isCustom: true,
+        providerId: 'label-provider',
+        customName: 'proxy-model',
+        active: true,
+      },
+    ],
   }
   const session = {
     apiMode: {
@@ -2352,6 +2658,94 @@ test('resolveOpenAICompatibleRequest fails closed when shared legacy custom url 
   const resolved = resolveOpenAICompatibleRequest(config, session)
 
   assert.equal(resolved, null)
+})
+
+test('resolveOpenAICompatibleRequest does not bypass a disabled provider through its legacy ID', () => {
+  const config = {
+    customOpenAIProviders: [
+      {
+        id: 'stale-provider',
+        name: 'Current Provider',
+        chatCompletionsUrl: 'https://current.example.com/v1/chat/completions',
+      },
+      {
+        id: 'renamed-provider',
+        name: 'Disabled Provider',
+        chatCompletionsUrl: 'https://disabled.example.com/v1/chat/completions',
+        legacyProviderIds: ['stale-provider'],
+        enabled: false,
+      },
+    ],
+    customApiModes: [
+      {
+        groupName: 'customApiModelKeys',
+        customName: 'shared-label',
+        providerId: 'stale-provider',
+      },
+    ],
+    providerSecrets: {
+      'stale-provider': 'current-key',
+      'renamed-provider': 'disabled-key',
+    },
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      providerId: 'stale-provider',
+      customName: 'shared-label',
+      customUrl: 'https://disabled.example.com/v1/chat/completions',
+    },
+  }
+
+  assert.equal(resolveOpenAICompatibleRequest(config, session), null)
+})
+
+test('resolveOpenAICompatibleRequest uses a stable mode label despite a disabled legacy URL match', () => {
+  const config = {
+    customOpenAIProviders: [
+      {
+        id: 'provider-a',
+        name: 'Current Provider',
+        chatCompletionsUrl: 'https://current.example.com/v1/chat/completions',
+      },
+      {
+        id: 'provider-b-renamed',
+        name: 'Disabled Legacy Provider',
+        chatCompletionsUrl: 'https://legacy.example.com/v1/chat/completions',
+        legacyProviderIds: ['provider-a'],
+        enabled: false,
+      },
+    ],
+    customApiModes: [
+      {
+        groupName: 'customApiModelKeys',
+        itemName: 'customModel',
+        isCustom: true,
+        customName: 'current-model',
+        providerId: 'provider-a',
+      },
+    ],
+    providerSecrets: {
+      'provider-a': 'current-key',
+      'provider-b-renamed': 'legacy-key',
+    },
+  }
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'current-model',
+      providerId: 'provider-a',
+      customUrl: 'https://legacy.example.com/v1/chat/completions',
+    },
+  }
+
+  const resolved = resolveOpenAICompatibleRequest(config, session)
+
+  assert.equal(resolved?.providerId, 'provider-a')
+  assert.equal(resolved?.requestUrl, 'https://current.example.com/v1/chat/completions')
+  assert.equal(resolved?.apiKey, 'current-key')
 })
 
 test('resolveOpenAICompatibleRequest fails closed when legacy customUrl has only provider secrets and no session key signal', () => {

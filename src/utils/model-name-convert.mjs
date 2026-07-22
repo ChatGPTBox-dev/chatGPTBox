@@ -1,5 +1,28 @@
 import { AlwaysCustomGroups, ModelGroups, ModelMode, Models } from '../config/index.mjs'
 
+function normalizeProviderId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function areProviderIdsEquivalent(firstProviderId, secondProviderId) {
+  const normalizedFirstProviderId = normalizeProviderId(firstProviderId)
+  const normalizedSecondProviderId = normalizeProviderId(secondProviderId)
+  if (!normalizedFirstProviderId || !normalizedSecondProviderId) {
+    return String(firstProviderId || '').trim() === String(secondProviderId || '').trim()
+  }
+  return normalizedFirstProviderId === normalizedSecondProviderId
+}
+
+function normalizeProviderEndpointUrl(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
+}
+
 export function modelNameToDesc(modelName, t, extraCustomModelName = '') {
   if (!t) t = (x) => x
   if (modelName in Models) {
@@ -348,6 +371,17 @@ export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = fa
 
     if (!selectedApiMode.providerId) return true
     if (selectedApiMode.providerId === targetApiMode.providerId) return true
+    if (areProviderIdsEquivalent(selectedApiMode.providerId, targetApiMode.providerId)) {
+      return true
+    }
+    if (
+      Array.isArray(targetApiMode.legacyProviderIds) &&
+      targetApiMode.legacyProviderIds.some((providerId) =>
+        areProviderIdsEquivalent(providerId, selectedApiMode.providerId),
+      )
+    ) {
+      return true
+    }
     if (!targetApiMode.providerId) return isLegacyCustomSession
     return isLegacyCustomSession
   }
@@ -390,14 +424,21 @@ export function getUniquelySelectedApiModeIndex(
 ) {
   if (!Array.isArray(apiModes) || apiModes.length === 0) return -1
 
-  let selectedIndex = -1
+  const selectedIndexes = []
   for (const [index, apiMode] of apiModes.entries()) {
     if (!isApiModeSelected(apiMode, configOrSession, { sessionCompat })) continue
-    if (selectedIndex !== -1) return -1
-    selectedIndex = index
+    selectedIndexes.push(index)
   }
 
-  return selectedIndex
+  if (selectedIndexes.length === 1) return selectedIndexes[0]
+  if (!sessionCompat || selectedIndexes.length === 0) return -1
+
+  const selectedCustomUrl = normalizeProviderEndpointUrl(configOrSession?.apiMode?.customUrl)
+  if (!selectedCustomUrl) return -1
+  const urlMatchedIndexes = selectedIndexes.filter(
+    (index) => normalizeProviderEndpointUrl(apiModes[index]?.customUrl) === selectedCustomUrl,
+  )
+  return urlMatchedIndexes.length === 1 ? urlMatchedIndexes[0] : -1
 }
 
 // also match custom modelName, e.g. when modelName is bingFree4, configOrSession model is bingFree4-fast, it returns true

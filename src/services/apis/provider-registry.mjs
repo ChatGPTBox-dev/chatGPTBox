@@ -198,7 +198,7 @@ function getConfiguredCustomApiModes(config) {
         itemName: toStringOrEmpty(apiMode.itemName).trim(),
         isCustom: Boolean(apiMode.isCustom),
         customName: toStringOrEmpty(apiMode.customName).trim(),
-        providerId: normalizeProviderId(apiMode.providerId),
+        providerId: toStringOrEmpty(apiMode.providerId).trim(),
       })
       if (seen.has(signature)) return false
       seen.add(signature)
@@ -207,21 +207,27 @@ function getConfiguredCustomApiModes(config) {
 }
 
 function getConfiguredCustomApiModesForProvider(config, providerId) {
+  const exactProviderId = toStringOrEmpty(providerId).trim()
   const normalizedProviderId = normalizeProviderId(providerId)
   if (!normalizedProviderId) return []
-  return getConfiguredCustomApiModes(config).filter(
-    (apiMode) => normalizeProviderId(apiMode?.providerId) === normalizedProviderId,
+  const hasCanonicalProviderIdCollision =
+    getAllOpenAIProviders(config).filter(
+      (provider) => normalizeProviderId(provider.id) === normalizedProviderId,
+    ).length > 1
+  return getConfiguredCustomApiModes(config).filter((apiMode) =>
+    hasCanonicalProviderIdCollision
+      ? toStringOrEmpty(apiMode?.providerId).trim() === exactProviderId
+      : normalizeProviderId(apiMode?.providerId) === normalizedProviderId,
   )
 }
 
 function findConfiguredCustomApiMode(config, sessionApiMode, providerId) {
-  const normalizedProviderId = normalizeProviderId(providerId)
   const normalizedSessionApiMode = normalizeStableCustomApiModeIdentity(sessionApiMode, providerId)
   if (!normalizedSessionApiMode || normalizedSessionApiMode.groupName !== 'customApiModelKeys') {
     return null
   }
 
-  const providerCandidates = getConfiguredCustomApiModesForProvider(config, normalizedProviderId)
+  const providerCandidates = getConfiguredCustomApiModesForProvider(config, providerId)
   const exactCandidates = providerCandidates.filter((apiMode) => {
     const normalizedCandidate = normalizeStableCustomApiModeIdentity(apiMode)
     return (
@@ -234,7 +240,11 @@ function findConfiguredCustomApiMode(config, sessionApiMode, providerId) {
   return null
 }
 
-function findConfiguredCustomApiModeBySessionLabel(config, sessionApiMode) {
+function findConfiguredCustomApiModeBySessionLabel(
+  config,
+  sessionApiMode,
+  allowedProviderIds = [],
+) {
   if (!sessionApiMode || typeof sessionApiMode !== 'object') return null
   if (toStringOrEmpty(sessionApiMode.groupName).trim() !== 'customApiModelKeys') return null
 
@@ -244,8 +254,15 @@ function findConfiguredCustomApiModeBySessionLabel(config, sessionApiMode) {
     isCustom: Boolean(sessionApiMode.isCustom),
     customName: toStringOrEmpty(sessionApiMode.customName).trim(),
   }
+  const normalizedAllowedProviderIds = new Set(allowedProviderIds.map(normalizeProviderId))
   const allCandidates = getConfiguredCustomApiModes(config).filter((apiMode) => {
     if (!apiMode || typeof apiMode !== 'object') return false
+    if (
+      normalizedAllowedProviderIds.size > 0 &&
+      !normalizedAllowedProviderIds.has(normalizeProviderId(apiMode.providerId))
+    ) {
+      return false
+    }
     return (
       toStringOrEmpty(apiMode.groupName).trim() === normalizedSessionLabel.groupName &&
       toStringOrEmpty(apiMode.customName).trim() === normalizedSessionLabel.customName
@@ -324,6 +341,13 @@ function normalizeCustomProvider(provider, index) {
   if (!provider || typeof provider !== 'object') return null
   const id = toStringOrEmpty(provider.id).trim() || `custom-provider-${index + 1}`
   const sourceProviderId = normalizeProviderId(provider.sourceProviderId)
+  const legacyProviderIds = Array.from(
+    new Set(
+      (Array.isArray(provider.legacyProviderIds) ? provider.legacyProviderIds : [])
+        .map(normalizeProviderId)
+        .filter((providerId) => providerId && providerId !== normalizeProviderId(id)),
+    ),
+  )
   const chatCompletionsPath = ensureLeadingSlash(provider.chatCompletionsPath, DEFAULT_CHAT_PATH)
   const completionsPath = ensureLeadingSlash(provider.completionsPath, DEFAULT_COMPLETION_PATH)
   const chatCompletionsUrl = toStringOrEmpty(provider.chatCompletionsUrl).trim()
@@ -349,6 +373,7 @@ function normalizeCustomProvider(provider, index) {
     enabled: provider.enabled !== false,
     allowLegacyResponseField: provider.allowLegacyResponseField !== false,
     ...(sourceProviderId ? { sourceProviderId } : {}),
+    ...(legacyProviderIds.length > 0 ? { legacyProviderIds } : {}),
   }
 }
 
@@ -362,6 +387,16 @@ export function getCustomOpenAIProviders(config) {
 export function getAllOpenAIProviders(config) {
   const customProviders = getCustomOpenAIProviders(config)
   return [...buildBuiltinProviders(config), ...customProviders]
+}
+
+function resolveSecretProviderId(config, providerId) {
+  const exactProviderId = toStringOrEmpty(providerId).trim()
+  const normalizedProviderId = normalizeProviderId(providerId)
+  const hasCanonicalProviderIdCollision =
+    getAllOpenAIProviders(config).filter(
+      (provider) => normalizeProviderId(provider.id) === normalizedProviderId,
+    ).length > 1
+  return hasCanonicalProviderIdCollision ? exactProviderId : normalizedProviderId
 }
 
 export function resolveProviderIdForSession(session) {
@@ -422,18 +457,31 @@ function hasConfiguredProviderSecretEntry(config, providerId) {
 
 export function getProviderSecret(config, providerId, session) {
   if (!providerId) return ''
+  const exactProviderId = toStringOrEmpty(providerId).trim()
   const normalizedProviderId = normalizeProviderId(providerId)
+  const hasCanonicalProviderIdCollision =
+    getAllOpenAIProviders(config).filter(
+      (provider) => normalizeProviderId(provider.id) === normalizedProviderId,
+    ).length > 1
+  const configuredProviderId = hasConfiguredProviderSecretEntry(config, exactProviderId)
+    ? exactProviderId
+    : hasCanonicalProviderIdCollision
+    ? exactProviderId
+    : normalizedProviderId
+  const sessionProviderId = toStringOrEmpty(session?.apiMode?.providerId).trim()
+  const canUseApiModeApiKey =
+    !hasCanonicalProviderIdCollision || !sessionProviderId || sessionProviderId === exactProviderId
   const apiModeApiKey =
-    session?.apiMode && typeof session.apiMode === 'object'
+    canUseApiModeApiKey && session?.apiMode && typeof session.apiMode === 'object'
       ? toStringOrEmpty(session.apiMode.apiKey).trim()
       : ''
-  const hasConfiguredSecretEntry = hasConfiguredProviderSecretEntry(config, normalizedProviderId)
-  const configuredSecret = getConfiguredProviderSecret(config, normalizedProviderId)
+  const hasConfiguredSecretEntry = hasConfiguredProviderSecretEntry(config, configuredProviderId)
+  const configuredSecret = getConfiguredProviderSecret(config, configuredProviderId)
   if (session?.apiMode?.groupName === 'customApiModelKeys') {
     const configuredCustomApiMode = findConfiguredCustomApiMode(
       config,
       session.apiMode,
-      normalizedProviderId,
+      exactProviderId,
     )
     if (configuredCustomApiMode) {
       const configuredModeApiKey = toStringOrEmpty(configuredCustomApiMode.apiKey).trim()
@@ -441,7 +489,7 @@ export function getProviderSecret(config, providerId, session) {
       if (configuredSecret || hasConfiguredSecretEntry) return configuredSecret
       return apiModeApiKey
     }
-    const providerCandidates = getConfiguredCustomApiModesForProvider(config, normalizedProviderId)
+    const providerCandidates = getConfiguredCustomApiModesForProvider(config, exactProviderId)
     if (providerCandidates.length > 0) {
       const hasAnyModeSpecificKey = providerCandidates.some((apiMode) =>
         toStringOrEmpty(apiMode.apiKey).trim(),
@@ -589,6 +637,17 @@ function hasEnabledCustomProviderMatchByLegacySessionUrl(customProviders, sessio
   })
 }
 
+function hasNormalizedProviderIdMatch(provider, normalizedProviderId) {
+  if (!normalizedProviderId) return false
+  return (
+    normalizeProviderId(provider?.id) === normalizedProviderId ||
+    (Array.isArray(provider?.legacyProviderIds) &&
+      provider.legacyProviderIds.some(
+        (legacyProviderId) => normalizeProviderId(legacyProviderId) === normalizedProviderId,
+      ))
+  )
+}
+
 export function getOpenAICompatibleRequestDiagnostic(config, session) {
   const apiMode = session?.apiMode && typeof session.apiMode === 'object' ? session.apiMode : null
   const rawProviderId = apiMode ? toStringOrEmpty(apiMode.providerId) : ''
@@ -603,14 +662,15 @@ export function getOpenAICompatibleRequestDiagnostic(config, session) {
     hasCustomUrl: Boolean(normalizeEndpointUrlForCompare(apiMode?.customUrl)),
     hasMatchingCustomProvider: normalizedProviderId
       ? customProviders.some(
-          (item) => item.enabled !== false && normalizeProviderId(item.id) === normalizedProviderId,
+          (item) =>
+            item.enabled !== false && hasNormalizedProviderIdMatch(item, normalizedProviderId),
         )
       : false,
     hasDisabledMatchingCustomProvider: normalizedProviderId
       ? Array.isArray(config?.customOpenAIProviders) &&
         config.customOpenAIProviders.some(
           (item) =>
-            item?.enabled === false && normalizeProviderId(item?.id) === normalizedProviderId,
+            item?.enabled === false && hasNormalizedProviderIdMatch(item, normalizedProviderId),
         )
       : false,
     hasMatchingCustomProviderByLegacyUrl: hasEnabledCustomProviderMatchByLegacySessionUrl(
@@ -681,31 +741,49 @@ export function resolveOpenAICompatibleRequest(config, session) {
   let recoveredProviderId = ''
   if (session?.apiMode?.groupName === 'customApiModelKeys') {
     const customProviders = getCustomOpenAIProviders(config)
+    const normalizedProviderId = normalizeProviderId(providerId)
+    let matchedByProviderId = []
+    let matchedByLegacyProviderId = []
+    let matchedByNormalizedProviderId = []
+    let providerIdCandidates = []
+    if (normalizedProviderId) {
+      matchedByProviderId = customProviders.filter((item) => item.id === providerId)
+      matchedByLegacyProviderId = customProviders.filter(
+        (item) =>
+          Array.isArray(item.legacyProviderIds) &&
+          item.legacyProviderIds.includes(normalizedProviderId),
+      )
+      matchedByNormalizedProviderId = customProviders.filter(
+        (item) => normalizeProviderId(item.id) === normalizedProviderId,
+      )
+      providerIdCandidates = Array.from(
+        new Map(
+          [
+            ...matchedByProviderId,
+            ...matchedByLegacyProviderId,
+            ...matchedByNormalizedProviderId,
+          ].map((item) => [item.id, item]),
+        ).values(),
+      )
+      if (providerIdCandidates.length === 1 && providerIdCandidates[0].enabled !== false) {
+        provider = providerIdCandidates[0]
+        resolvedProviderId = provider.id
+      }
+    }
+    const recoveryProviders =
+      providerIdCandidates.length > 0 ? providerIdCandidates : customProviders
+    const hasDisabledRecoveryProviderMatchByUrl = hasDisabledCustomProviderMatchByLegacySessionUrl(
+      recoveryProviders,
+      session,
+    )
     const hasAmbiguousLegacyCustomUrlMatch = hasAmbiguousCustomProviderMatchByLegacySessionUrl(
-      customProviders,
+      recoveryProviders,
       config,
       session,
     )
-    const matchedByProviderId = customProviders.find(
-      (item) => item.enabled !== false && item.id === providerId,
-    )
-    if (matchedByProviderId) {
-      provider = matchedByProviderId
-      resolvedProviderId = matchedByProviderId.id
-    }
-    const normalizedProviderId = normalizeProviderId(providerId)
-    if (!provider && normalizedProviderId) {
-      const matchedByNormalizedProviderId = customProviders.find(
-        (item) => item.enabled !== false && item.id === normalizedProviderId,
-      )
-      if (matchedByNormalizedProviderId) {
-        provider = matchedByNormalizedProviderId
-        resolvedProviderId = matchedByNormalizedProviderId.id
-      }
-    }
-    if (!provider && !hasAmbiguousLegacyCustomUrlMatch) {
+    if (!provider && !hasDisabledRecoveryProviderMatchByUrl && !hasAmbiguousLegacyCustomUrlMatch) {
       const matchedByCustomUrl = resolveCustomProviderByLegacySessionUrl(
-        customProviders,
+        recoveryProviders,
         config,
         session,
       )
@@ -714,30 +792,61 @@ export function resolveOpenAICompatibleRequest(config, session) {
         resolvedProviderId = matchedByCustomUrl.id
       }
     }
-    if (!provider) {
+    const hasStableSessionModeLabel = Boolean(
+      toStringOrEmpty(session?.apiMode?.itemName).trim() &&
+        typeof session?.apiMode?.isCustom === 'boolean',
+    )
+    const canUseStableLabelToDisambiguateCandidates =
+      hasStableSessionModeLabel && providerIdCandidates.length > 1
+    if (
+      !provider &&
+      ((providerIdCandidates.length <= 1 && !hasDisabledRecoveryProviderMatchByUrl) ||
+        canUseStableLabelToDisambiguateCandidates)
+    ) {
       const matchedConfiguredApiMode = findConfiguredCustomApiModeBySessionLabel(
         config,
         session?.apiMode,
+        providerIdCandidates.map((item) => item.id),
       )
-      const matchedConfiguredProviderId = normalizeProviderId(matchedConfiguredApiMode?.providerId)
-      if (matchedConfiguredProviderId) {
-        const matchedConfiguredProvider = customProviders.find(
-          (item) => item.enabled !== false && item.id === matchedConfiguredProviderId,
+      const matchedConfiguredProviderId = toStringOrEmpty(
+        matchedConfiguredApiMode?.providerId,
+      ).trim()
+      const normalizedMatchedConfiguredProviderId = normalizeProviderId(matchedConfiguredProviderId)
+      if (normalizedMatchedConfiguredProviderId) {
+        const configuredProviderCandidates =
+          providerIdCandidates.length > 0 ? providerIdCandidates : customProviders
+        const exactConfiguredProviderCandidates = configuredProviderCandidates.filter(
+          (item) => item.id === matchedConfiguredProviderId,
         )
+        const exactConfiguredProviderMatches = exactConfiguredProviderCandidates.filter(
+          (item) => item.enabled !== false,
+        )
+        const canonicalConfiguredProviderMatches = configuredProviderCandidates.filter(
+          (item) =>
+            item.enabled !== false &&
+            normalizeProviderId(item.id) === normalizedMatchedConfiguredProviderId,
+        )
+        const matchedConfiguredProvider =
+          exactConfiguredProviderMatches.length === 1
+            ? exactConfiguredProviderMatches[0]
+            : exactConfiguredProviderCandidates.length === 0 &&
+              canonicalConfiguredProviderMatches.length === 1
+            ? canonicalConfiguredProviderMatches[0]
+            : null
         if (matchedConfiguredProvider) {
           provider = matchedConfiguredProvider
           resolvedProviderId = matchedConfiguredProvider.id
-        } else if (matchedConfiguredProviderId === 'legacy-custom-default') {
-          provider = getProviderById(config, matchedConfiguredProviderId)
+        } else if (normalizedMatchedConfiguredProviderId === 'legacy-custom-default') {
+          provider = getProviderById(config, normalizedMatchedConfiguredProviderId)
           if (provider) {
-            resolvedProviderId = matchedConfiguredProviderId
+            resolvedProviderId = normalizedMatchedConfiguredProviderId
           }
         }
       }
     }
-    if (!provider && hasAmbiguousLegacyCustomUrlMatch) {
+    if (!provider && !hasDisabledRecoveryProviderMatchByUrl && hasAmbiguousLegacyCustomUrlMatch) {
       const matchedByCustomUrl = resolveCustomProviderByLegacySessionUrl(
-        customProviders,
+        recoveryProviders,
         config,
         session,
       )
@@ -747,11 +856,13 @@ export function resolveOpenAICompatibleRequest(config, session) {
       }
     }
     if (!provider) {
-      const normalizedProviderId = normalizeProviderId(providerId)
       const hasDisabledCustomProviderMatch = Array.isArray(config?.customOpenAIProviders)
         ? config.customOpenAIProviders.some(
             (item) =>
-              normalizeProviderId(item?.id) === normalizedProviderId && item?.enabled === false,
+              item?.enabled === false &&
+              (normalizeProviderId(item?.id) === normalizedProviderId ||
+                (Array.isArray(item?.legacyProviderIds) &&
+                  item.legacyProviderIds.map(normalizeProviderId).includes(normalizedProviderId))),
           )
         : false
       const hasDisabledCustomProviderMatchByUrl = hasDisabledCustomProviderMatchByLegacySessionUrl(
@@ -812,7 +923,7 @@ export function resolveOpenAICompatibleRequest(config, session) {
   if (!requestUrl) return null
   return {
     providerId: resolvedProviderId,
-    secretProviderId: normalizeProviderId(recoveredProviderId || resolvedProviderId),
+    secretProviderId: resolveSecretProviderId(config, recoveredProviderId || resolvedProviderId),
     provider,
     endpointType,
     requestUrl,

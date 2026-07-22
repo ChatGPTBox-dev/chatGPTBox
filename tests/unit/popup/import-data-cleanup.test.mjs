@@ -74,6 +74,43 @@ test('prepareImportData leaves unrelated imports untouched', () => {
   assert.deepEqual(keysToRemove, [])
 })
 
+test('prepareImportData reruns builtin provider ID migrations for legacy provider state', () => {
+  const { normalizedData, keysToRemove } = prepareImportData({
+    customOpenAIProviders: [{ id: 'legacy-provider' }],
+    providerSecrets: { 'legacy-provider': 'legacy-secret' },
+  })
+
+  assert.deepEqual(normalizedData, {
+    customOpenAIProviders: [{ id: 'legacy-provider' }],
+    providerSecrets: { 'legacy-provider': 'legacy-secret' },
+    completedBuiltinProviderIdMigrations: [],
+  })
+  assert.deepEqual(keysToRemove, [])
+})
+
+test('prepareImportData preserves migration markers for provider-only imports', () => {
+  const { normalizedData, keysToRemove } = prepareImportData({
+    customOpenAIProviders: [{ id: 'xai' }],
+  })
+
+  assert.deepEqual(normalizedData, {
+    customOpenAIProviders: [{ id: 'xai' }],
+  })
+  assert.deepEqual(keysToRemove, [])
+})
+
+test('prepareImportData preserves imported builtin provider ID migration markers', () => {
+  const input = {
+    customOpenAIProviders: [{ id: 'current-provider' }],
+    providerSecrets: { 'current-provider': 'current-secret' },
+    completedBuiltinProviderIdMigrations: ['current-provider'],
+  }
+  const { normalizedData, keysToRemove } = prepareImportData(input)
+
+  assert.deepEqual(normalizedData, input)
+  assert.deepEqual(keysToRemove, [])
+})
+
 test('prepareImportData migrates legacy model keys in imported config and sessions', () => {
   const { normalizedData, keysToRemove } = prepareImportData({
     modelName: 'chatgptFree4o',
@@ -177,6 +214,29 @@ test('importDataIntoStorage writes normalized data before removing legacy keys',
   ])
 })
 
+test('importDataIntoStorage ignores inherited provider mapping names', async () => {
+  const calls = []
+  const storageArea = {
+    async get(keys) {
+      calls.push(['get', keys])
+      return {}
+    },
+    async set(data) {
+      calls.push(['set', data])
+    },
+    async remove(keys) {
+      calls.push(['remove', keys])
+    },
+  }
+  const data = {
+    customOpenAIProviders: [{ id: 'constructor' }],
+  }
+
+  await importDataIntoStorage(storageArea, data)
+
+  assert.deepEqual(calls, [['set', data]])
+})
+
 test('importDataIntoStorage replaces stale API mode state before legacy migration', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 2,
@@ -205,6 +265,93 @@ test('importDataIntoStorage replaces stale API mode state before legacy migratio
   assert.equal(config.apiMode, null)
   assert.equal(Object.hasOwn(migratedStorage, 'activeApiModes'), false)
   assert.equal(Object.hasOwn(migratedStorage, 'knownApiModeDefaultIds'), false)
+})
+
+test('importDataIntoStorage does not assign an existing builtin secret to an imported provider', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    providerSecrets: { xai: 'builtin-xai-key' },
+    customOpenAIProviders: [],
+  })
+
+  await importDataIntoStorage(Browser.storage.local, {
+    customOpenAIProviders: [
+      {
+        id: 'xai',
+        name: 'Imported xAI proxy',
+        chatCompletionsUrl: 'https://proxy.example.com/v1/chat/completions',
+      },
+    ],
+  })
+  const config = await getUserConfig()
+
+  assert.equal(config.customOpenAIProviders[0].id, 'xai-2')
+  assert.equal(config.providerSecrets.xai, 'builtin-xai-key')
+  assert.equal(config.providerSecrets['xai-2'], undefined)
+})
+
+test('importDataIntoStorage preserves a builtin secret when its legacy mirror is stale', async () => {
+  for (const { storedXaiApiKey, importedXaiApiKey } of [
+    { storedXaiApiKey: '' },
+    { storedXaiApiKey: 'stale-stored-key' },
+    { storedXaiApiKey: 'builtin-xai-key', importedXaiApiKey: '' },
+    { storedXaiApiKey: 'builtin-xai-key', importedXaiApiKey: 'stale-imported-key' },
+  ]) {
+    globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+      configSchemaVersion: 2,
+      completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+      xaiApiKey: storedXaiApiKey,
+      providerSecrets: { xai: 'builtin-xai-key' },
+      customOpenAIProviders: [],
+    })
+
+    await importDataIntoStorage(Browser.storage.local, {
+      ...(importedXaiApiKey !== undefined ? { xaiApiKey: importedXaiApiKey } : {}),
+      customOpenAIProviders: [
+        {
+          id: 'xai',
+          name: 'Imported xAI proxy',
+          chatCompletionsUrl: 'https://proxy.example.com/v1/chat/completions',
+        },
+      ],
+    })
+    const config = await getUserConfig()
+
+    assert.equal(config.customOpenAIProviders[0].id, 'xai-2')
+    assert.equal(config.providerSecrets.xai, 'builtin-xai-key')
+    assert.equal(config.providerSecrets['xai-2'], undefined)
+  }
+})
+
+test('importDataIntoStorage still migrates a secret from an existing custom collision', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    providerSecrets: { xai: 'custom-xai-key' },
+    customOpenAIProviders: [
+      {
+        id: 'xai',
+        name: 'Existing xAI proxy',
+        chatCompletionsUrl: 'https://proxy.example.com/v1/chat/completions',
+      },
+    ],
+  })
+
+  await importDataIntoStorage(Browser.storage.local, {
+    customOpenAIProviders: [
+      {
+        id: 'xai',
+        name: 'Imported xAI proxy',
+        chatCompletionsUrl: 'https://proxy.example.com/v1/chat/completions',
+      },
+    ],
+  })
+  const config = await getUserConfig()
+
+  assert.equal(config.customOpenAIProviders[0].id, 'xai-2')
+  assert.equal(config.providerSecrets['xai-2'], 'custom-xai-key')
+  assert.equal(Object.hasOwn(config.providerSecrets, 'xai'), false)
 })
 
 test('importDataIntoStorage does not remove existing keys when set fails', async () => {

@@ -4,6 +4,7 @@ import {
   canonicalizeModelKeyArray,
   canonicalizeSessionModelFields,
 } from '../../config/model-key-migrations.mjs'
+import { LEGACY_API_KEY_FIELD_BY_PROVIDER_ID } from '../../config/openai-provider-mappings.mjs'
 
 const conflictingKeyPairs = [
   ['claudeApiKey', 'anthropicApiKey'],
@@ -13,9 +14,82 @@ const conflictingKeyPairs = [
 const apiModeListKeys = ['activeApiModes', 'customApiModes', 'knownApiModeDefaultIds']
 const apiModeSelectionKeys = ['modelName', 'apiMode']
 
+function normalizeProviderId(value) {
+  return typeof value === 'string'
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+    : ''
+}
+
+async function preserveExistingBuiltinSecrets(storageArea, data, normalizedData) {
+  if (
+    !Object.hasOwn(data, 'customOpenAIProviders') ||
+    Object.hasOwn(data, 'providerSecrets') ||
+    !Array.isArray(data.customOpenAIProviders) ||
+    typeof storageArea.get !== 'function'
+  ) {
+    return
+  }
+
+  const importedProviderIds = new Set(
+    data.customOpenAIProviders.map((provider) => normalizeProviderId(provider?.id)).filter(Boolean),
+  )
+  const relevantProviderIds = [...importedProviderIds].filter((providerId) =>
+    Object.hasOwn(LEGACY_API_KEY_FIELD_BY_PROVIDER_ID, providerId),
+  )
+  if (relevantProviderIds.length === 0) return
+
+  const legacyKeys = relevantProviderIds.map(
+    (providerId) => LEGACY_API_KEY_FIELD_BY_PROVIDER_ID[providerId],
+  )
+  const stored = await storageArea.get([
+    'completedBuiltinProviderIdMigrations',
+    'customOpenAIProviders',
+    'providerSecrets',
+    ...legacyKeys,
+  ])
+  const completedMigrations = new Set(
+    Array.isArray(stored.completedBuiltinProviderIdMigrations)
+      ? stored.completedBuiltinProviderIdMigrations.map(normalizeProviderId).filter(Boolean)
+      : [],
+  )
+  const existingProviderIds = new Set(
+    (Array.isArray(stored.customOpenAIProviders) ? stored.customOpenAIProviders : [])
+      .map((provider) => normalizeProviderId(provider?.id))
+      .filter(Boolean),
+  )
+  const existingProviderSecrets =
+    stored.providerSecrets && typeof stored.providerSecrets === 'object'
+      ? stored.providerSecrets
+      : {}
+
+  for (const providerId of relevantProviderIds) {
+    const legacyKey = LEGACY_API_KEY_FIELD_BY_PROVIDER_ID[providerId]
+    if (
+      completedMigrations.has(providerId) &&
+      !existingProviderIds.has(providerId) &&
+      Object.hasOwn(existingProviderSecrets, providerId)
+    ) {
+      normalizedData[legacyKey] = existingProviderSecrets[providerId]
+    }
+  }
+}
+
 export function prepareImportData(data) {
   const normalizedData = { ...data }
   const keysToRemove = []
+  const importsCompleteProviderState =
+    Object.hasOwn(data, 'customOpenAIProviders') && Object.hasOwn(data, 'providerSecrets')
+
+  if (
+    importsCompleteProviderState &&
+    !Object.hasOwn(data, 'completedBuiltinProviderIdMigrations')
+  ) {
+    normalizedData.completedBuiltinProviderIdMigrations = []
+  }
 
   if (apiModeListKeys.some((key) => Object.hasOwn(data, key))) {
     for (const key of apiModeListKeys) {
@@ -68,6 +142,8 @@ export function prepareImportData(data) {
 
 export async function importDataIntoStorage(storageArea, data) {
   const { normalizedData, keysToRemove } = prepareImportData(data)
+
+  await preserveExistingBuiltinSecrets(storageArea, data, normalizedData)
 
   await storageArea.set(normalizedData)
 

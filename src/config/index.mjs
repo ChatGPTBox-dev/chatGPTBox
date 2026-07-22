@@ -10,6 +10,7 @@ import {
 } from '../utils/model-name-convert.mjs'
 import { t } from 'i18next'
 import {
+  LEGACY_API_KEY_FIELD_BY_PROVIDER_ID,
   LEGACY_SECRET_KEY_TO_PROVIDER_ID,
   OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID as API_MODE_GROUP_TO_PROVIDER_ID,
 } from './openai-provider-mappings.mjs'
@@ -37,6 +38,9 @@ export const ModelMode = {
   precise: 'Precise',
   fast: 'Fast',
 }
+
+// Provider IDs added after custom providers became configurable need one-time secret migration.
+const NEWLY_RESERVED_BUILTIN_PROVIDER_IDS = new Set(['xai', 'nvidia-nim', 'mistral'])
 
 export const chatgptWebModelKeys = [
   'chatgptFree35',
@@ -853,6 +857,7 @@ export const defaultConfig = {
   knownApiModeDefaultIds: [],
   customOpenAIProviders: [],
   providerSecrets: {},
+  completedBuiltinProviderIdMigrations: [],
   configSchemaVersion: 2,
   activeSelectionTools: ['translate', 'translateToEn', 'summary', 'polish', 'code', 'ask'],
   customSelectionTools: [
@@ -1059,6 +1064,28 @@ function normalizeEndpointUrlForCompare(value) {
   return normalizeText(value).replace(/\/+$/, '')
 }
 
+function ensureLeadingSlash(value, fallback = '') {
+  const normalized = normalizeText(value)
+  if (!normalized) return fallback
+  return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
+function getProviderChatCompletionsUrlForCompare(provider) {
+  const directUrl = normalizeEndpointUrlForCompare(provider?.chatCompletionsUrl)
+  if (directUrl) return directUrl
+
+  let baseUrl = normalizeEndpointUrlForCompare(provider?.baseUrl)
+  const path = ensureLeadingSlash(provider?.chatCompletionsPath)
+  if (!baseUrl || !path) return ''
+  const usesDefaultV1Paths =
+    path === '/v1/chat/completions' &&
+    ensureLeadingSlash(provider?.completionsPath) === '/v1/completions'
+  if (!normalizeText(provider?.completionsUrl) && usesDefaultV1Paths) {
+    baseUrl = baseUrl.replace(/\/v1$/i, '')
+  }
+  return normalizeEndpointUrlForCompare(`${baseUrl}/${path.replace(/^\/+/, '')}`)
+}
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -1091,6 +1118,31 @@ function ensureUniqueProviderId(providerIdSet, preferredId) {
   return id
 }
 
+function getLegacyProviderIds(value, currentProviderId = '') {
+  const normalizedCurrentProviderId = normalizeProviderId(currentProviderId)
+  return Array.from(
+    new Set(
+      (Array.isArray(value) ? value : [])
+        .map(normalizeProviderId)
+        .filter((providerId) => providerId && providerId !== normalizedCurrentProviderId),
+    ),
+  )
+}
+
+function addLegacyProviderId(target, providerId) {
+  const normalizedProviderId = normalizeProviderId(providerId)
+  if (!target || !normalizedProviderId) return false
+  const legacyProviderIds = getLegacyProviderIds(target.legacyProviderIds, target.providerId)
+  if (
+    normalizedProviderId === normalizeProviderId(target.providerId) ||
+    legacyProviderIds.includes(normalizedProviderId)
+  ) {
+    return false
+  }
+  target.legacyProviderIds = [...legacyProviderIds, normalizedProviderId]
+  return true
+}
+
 function normalizeCustomProviderForStorage(provider, index, providerIdSet) {
   if (!provider || typeof provider !== 'object') return null
   const originalRawId = normalizeText(provider.id)
@@ -1100,22 +1152,39 @@ function normalizeCustomProviderForStorage(provider, index, providerIdSet) {
   const preferredId = originalId || `custom-provider-${index + 1}`
   const id = ensureUniqueProviderId(providerIdSet, preferredId)
   providerIdSet.add(id)
+  const legacyProviderIds = getLegacyProviderIds(
+    [...(Array.isArray(provider.legacyProviderIds) ? provider.legacyProviderIds : []), originalId],
+    id,
+  )
+  const chatCompletionsPath = ensureLeadingSlash(
+    provider.chatCompletionsPath,
+    '/v1/chat/completions',
+  )
+  const completionsPath = ensureLeadingSlash(provider.completionsPath, '/v1/completions')
+  const normalizedLegacyProviderIds = legacyProviderIds.length > 0 ? legacyProviderIds : undefined
+  const storageShapeChanged =
+    (normalizeText(provider.chatCompletionsPath) || '/v1/chat/completions') !==
+      chatCompletionsPath ||
+    (normalizeText(provider.completionsPath) || '/v1/completions') !== completionsPath ||
+    JSON.stringify(provider.legacyProviderIds) !== JSON.stringify(normalizedLegacyProviderIds)
   return {
     originalId,
     originalRawId,
     sourceProviderOriginalId: sourceProviderId,
     sourceProviderOriginalRawId,
+    storageShapeChanged,
     provider: {
       id,
       name: normalizeText(provider.name) || `Custom Provider ${index + 1}`,
       baseUrl: normalizeText(provider.baseUrl),
-      chatCompletionsPath: normalizeText(provider.chatCompletionsPath) || '/v1/chat/completions',
-      completionsPath: normalizeText(provider.completionsPath) || '/v1/completions',
+      chatCompletionsPath,
+      completionsPath,
       chatCompletionsUrl: normalizeText(provider.chatCompletionsUrl),
       completionsUrl: normalizeText(provider.completionsUrl),
       enabled: provider.enabled !== false,
       allowLegacyResponseField: provider.allowLegacyResponseField !== false,
       ...(sourceProviderId ? { sourceProviderId } : {}),
+      ...(normalizedLegacyProviderIds ? { legacyProviderIds: normalizedLegacyProviderIds } : {}),
     },
   }
 }
@@ -1158,6 +1227,7 @@ function migrateUserConfig(options) {
   if (!hasProviderSecretsRecord) {
     dirty = true
   }
+  const providerSecretSnapshot = { ...providerSecrets }
   for (const [legacyKey, providerId] of Object.entries(LEGACY_SECRET_KEY_TO_PROVIDER_ID)) {
     const legacyKeyValue = normalizeText(migrated[legacyKey])
     const hasProviderSecret = Object.hasOwn(providerSecrets, providerId)
@@ -1166,6 +1236,23 @@ function migrateUserConfig(options) {
       dirty = true
     }
   }
+  const completedBuiltinProviderIdMigrations = new Set(
+    Array.isArray(migrated.completedBuiltinProviderIdMigrations)
+      ? migrated.completedBuiltinProviderIdMigrations.map(normalizeProviderId).filter(Boolean)
+      : [],
+  )
+  const currentBuiltinProviderIdCollisions = new Set(
+    (Array.isArray(migrated.customOpenAIProviders) ? migrated.customOpenAIProviders : [])
+      .map((provider) => normalizeProviderId(provider?.id))
+      .filter((providerId) => NEWLY_RESERVED_BUILTIN_PROVIDER_IDS.has(providerId)),
+  )
+  const pendingBuiltinProviderIdMigrations = new Set(
+    [...NEWLY_RESERVED_BUILTIN_PROVIDER_IDS].filter(
+      (providerId) =>
+        !completedBuiltinProviderIdMigrations.has(providerId) ||
+        currentBuiltinProviderIdCollisions.has(providerId),
+    ),
+  )
 
   const builtinProviderIds = new Set(
     Object.values(API_MODE_GROUP_TO_PROVIDER_ID)
@@ -1195,7 +1282,10 @@ function migrateUserConfig(options) {
       .filter((id) => id),
   )
   const customOpenAIProviders = normalizedProviderResults.map(
-    ({ originalId, originalRawId, sourceProviderOriginalRawId, provider }) => {
+    ({ originalId, originalRawId, sourceProviderOriginalRawId, storageShapeChanged, provider }) => {
+      if (storageShapeChanged) {
+        dirty = true
+      }
       if (normalizeText(originalRawId) !== normalizeText(provider.id)) {
         dirty = true
       }
@@ -1215,7 +1305,52 @@ function migrateUserConfig(options) {
       return provider
     },
   )
+  for (const provider of customOpenAIProviders) {
+    for (const legacyProviderId of getLegacyProviderIds(provider.legacyProviderIds)) {
+      providerIdSet.add(legacyProviderId)
+    }
+  }
   if (!Array.isArray(migrated.customOpenAIProviders)) dirty = true
+  const hasCanonicalProviderIdCollision = (providerId) =>
+    normalizedProviderResults.filter(({ originalId }) => originalId === providerId).length > 1
+  const resolveRenamedProviderId = (providerId, providerIdRaw, customUrl) => {
+    const providerIdCandidates = normalizedProviderResults.filter(
+      ({ originalId }) => originalId === providerId,
+    )
+    if (providerIdCandidates.length > 1) {
+      const normalizedProviderIdRaw = normalizeText(providerIdRaw)
+      const rawIdMatches = providerIdCandidates.filter(
+        ({ originalRawId }) => normalizeText(originalRawId) === normalizedProviderIdRaw,
+      )
+      if (rawIdMatches.length === 1) {
+        return rawIdMatches[0].provider.id
+      }
+      const normalizedCustomUrl = normalizeEndpointUrlForCompare(customUrl)
+      if (normalizedCustomUrl) {
+        const matchingProviderIds = providerIdCandidates
+          .filter(
+            ({ provider }) =>
+              getProviderChatCompletionsUrlForCompare(provider) === normalizedCustomUrl,
+          )
+          .map(({ provider }) => provider.id)
+        if (matchingProviderIds.length === 1) {
+          return matchingProviderIds[0]
+        }
+      }
+      return undefined
+    }
+    const renamedProviderId = providerIdRenameLookup.get(providerId)
+    if (renamedProviderId) return renamedProviderId
+    if (!NEWLY_RESERVED_BUILTIN_PROVIDER_IDS.has(providerId)) return undefined
+
+    const legacyProviderIdMatches = customOpenAIProviders.filter((provider) =>
+      getLegacyProviderIds(provider.legacyProviderIds).includes(providerId),
+    )
+    if (legacyProviderIdMatches.length !== 1 || legacyProviderIdMatches[0].enabled === false) {
+      return undefined
+    }
+    return legacyProviderIdMatches[0].id
+  }
 
   for (const {
     sourceProviderOriginalId,
@@ -1244,39 +1379,146 @@ function migrateUserConfig(options) {
     }
   }
 
-  for (let index = providerIdRenames.length - 1; index >= 0; index -= 1) {
-    const {
-      oldId: oldProviderId,
-      oldRawId: oldRawProviderId,
-      newId: newProviderId,
-    } = providerIdRenames[index]
+  const rawProviderSecretIdsToDelete = new Set()
+  const builtinProviderSecretIdsToDelete = new Map()
+  for (const {
+    oldId: oldProviderId,
+    oldRawId: oldRawProviderId,
+    newId: newProviderId,
+  } of providerIdRenames) {
     if (oldProviderId === newProviderId) continue
     if (!legacyCustomProviderIds.has(oldProviderId)) continue
-    const hasRawIdSecret = Object.hasOwn(providerSecrets, oldRawProviderId)
-    const hasNormalizedIdSecret = Object.hasOwn(providerSecrets, oldProviderId)
+    const hasRawIdSecret = Object.hasOwn(providerSecretSnapshot, oldRawProviderId)
+    const hasNormalizedIdSecret = Object.hasOwn(providerSecretSnapshot, oldProviderId)
+    const hasDistinctRawId = oldRawProviderId !== oldProviderId
     const usesBuiltinSecretSlot = builtinProviderIds.has(oldProviderId)
-    if (usesBuiltinSecretSlot && !hasRawIdSecret) continue
-    if (!usesBuiltinSecretSlot && !hasRawIdSecret && !hasNormalizedIdSecret) continue
-    const rawIdSecret = hasRawIdSecret ? providerSecrets[oldRawProviderId] : undefined
-    const normalizedIdSecret = hasNormalizedIdSecret ? providerSecrets[oldProviderId] : undefined
-    const oldSecret = usesBuiltinSecretSlot
-      ? rawIdSecret
-      : hasRawIdSecret && rawIdSecret !== ''
-      ? rawIdSecret
-      : hasNormalizedIdSecret
-      ? normalizedIdSecret
-      : rawIdSecret
+    const isPendingBuiltinProviderIdMigration =
+      usesBuiltinSecretSlot && pendingBuiltinProviderIdMigrations.has(oldProviderId)
+    const hasMultipleProviderIdRenames =
+      normalizedProviderResults.filter(({ originalId }) => originalId === oldProviderId).length > 1
+    const hasUniqueCanonicalRawIdOwner =
+      normalizedProviderResults.filter(
+        ({ originalId, originalRawId }) =>
+          originalId === oldProviderId && originalRawId === oldProviderId,
+      ).length === 1
+    const rawIdSecret = hasRawIdSecret ? providerSecretSnapshot[oldRawProviderId] : undefined
+    const normalizedIdSecret = hasNormalizedIdSecret
+      ? providerSecretSnapshot[oldProviderId]
+      : undefined
+    const rawSecretValue = normalizeText(rawIdSecret)
+    const normalizedSecretValue = normalizeText(normalizedIdSecret)
+    const builtinLegacyKey = LEGACY_API_KEY_FIELD_BY_PROVIDER_ID[oldProviderId]
+    const builtinLegacySecret = builtinLegacyKey ? normalizeText(migrated[builtinLegacyKey]) : ''
+    const normalizedSecretBelongsToBuiltin =
+      isPendingBuiltinProviderIdMigration &&
+      builtinLegacySecret &&
+      builtinLegacySecret === normalizeText(normalizedIdSecret)
+    if (hasDistinctRawId && hasRawIdSecret && !unchangedProviderIds.has(oldProviderId)) {
+      rawProviderSecretIdsToDelete.add(oldRawProviderId)
+    }
     if (
-      !Object.hasOwn(providerSecrets, newProviderId) ||
-      providerSecrets[newProviderId] !== oldSecret
+      !usesBuiltinSecretSlot &&
+      hasMultipleProviderIdRenames &&
+      hasUniqueCanonicalRawIdOwner &&
+      !hasDistinctRawId &&
+      hasRawIdSecret
+    ) {
+      rawProviderSecretIdsToDelete.add(oldProviderId)
+    }
+    let hasOldSecret = false
+    let oldSecret
+    let usesNormalizedBuiltinSecretSlot = false
+    if (
+      hasDistinctRawId &&
+      hasRawIdSecret &&
+      (hasMultipleProviderIdRenames ||
+        !isPendingBuiltinProviderIdMigration ||
+        !hasNormalizedIdSecret ||
+        normalizedSecretBelongsToBuiltin ||
+        rawSecretValue)
+    ) {
+      hasOldSecret = true
+      oldSecret =
+        !usesBuiltinSecretSlot && rawIdSecret === '' && hasNormalizedIdSecret
+          ? normalizedIdSecret
+          : rawIdSecret
+    } else if (
+      isPendingBuiltinProviderIdMigration &&
+      hasNormalizedIdSecret &&
+      !normalizedSecretBelongsToBuiltin &&
+      (!hasMultipleProviderIdRenames || !hasUniqueCanonicalRawIdOwner || !hasDistinctRawId) &&
+      (normalizedSecretValue || !rawSecretValue)
+    ) {
+      hasOldSecret = true
+      oldSecret = normalizedIdSecret
+      usesNormalizedBuiltinSecretSlot = true
+    } else if (
+      !usesBuiltinSecretSlot &&
+      (!hasMultipleProviderIdRenames || !hasDistinctRawId) &&
+      (hasRawIdSecret || hasNormalizedIdSecret)
+    ) {
+      hasOldSecret = true
+      oldSecret =
+        hasRawIdSecret && rawIdSecret !== ''
+          ? rawIdSecret
+          : hasNormalizedIdSecret
+          ? normalizedIdSecret
+          : rawIdSecret
+    }
+    if (
+      hasOldSecret &&
+      (!Object.hasOwn(providerSecrets, newProviderId) ||
+        providerSecrets[newProviderId] !== oldSecret)
     ) {
       providerSecrets[newProviderId] = oldSecret
       dirty = true
     }
-    if (hasRawIdSecret && oldRawProviderId !== oldProviderId) {
-      delete providerSecrets[oldRawProviderId]
+    if (
+      usesNormalizedBuiltinSecretSlot ||
+      (isPendingBuiltinProviderIdMigration &&
+        hasNormalizedIdSecret &&
+        !normalizedSecretBelongsToBuiltin &&
+        !normalizedSecretValue &&
+        rawSecretValue)
+    ) {
+      builtinProviderSecretIdsToDelete.set(oldProviderId, normalizedIdSecret)
+    }
+  }
+  for (const providerId of rawProviderSecretIdsToDelete) {
+    if (Object.hasOwn(providerSecrets, providerId)) {
+      delete providerSecrets[providerId]
       dirty = true
     }
+  }
+  for (const [providerId, migratedCustomSecret] of builtinProviderSecretIdsToDelete) {
+    const legacyKey = LEGACY_API_KEY_FIELD_BY_PROVIDER_ID[providerId]
+    const builtinLegacySecret = legacyKey ? normalizeText(migrated[legacyKey]) : ''
+    if (builtinLegacySecret && builtinLegacySecret !== normalizeText(migratedCustomSecret)) {
+      if (providerSecrets[providerId] !== builtinLegacySecret) {
+        providerSecrets[providerId] = builtinLegacySecret
+        dirty = true
+      }
+      continue
+    }
+    if (Object.hasOwn(providerSecrets, providerId)) {
+      delete providerSecrets[providerId]
+      dirty = true
+    }
+    if (legacyKey && normalizeText(migrated[legacyKey])) {
+      migrated[legacyKey] = ''
+      dirty = true
+    }
+  }
+  for (const providerId of NEWLY_RESERVED_BUILTIN_PROVIDER_IDS) {
+    completedBuiltinProviderIdMigrations.add(providerId)
+  }
+  const completedBuiltinProviderIdMigrationList = [...completedBuiltinProviderIdMigrations]
+  if (
+    JSON.stringify(migrated.completedBuiltinProviderIdMigrations) !==
+    JSON.stringify(completedBuiltinProviderIdMigrationList)
+  ) {
+    migrated.completedBuiltinProviderIdMigrations = completedBuiltinProviderIdMigrationList
+    dirty = true
   }
 
   const activeCustomProviderIds = new Set(
@@ -1287,11 +1529,25 @@ function migrateUserConfig(options) {
     const rawProviderId = normalizeText(originalRawId)
     const normalizedProviderId = normalizeText(provider?.id)
     if (!rawProviderId || !normalizedProviderId || rawProviderId === normalizedProviderId) continue
+    if (builtinProviderIds.has(normalizeProviderId(rawProviderId))) continue
     if (!Object.hasOwn(providerSecrets, rawProviderId)) continue
-    const rawSecret = providerSecrets[rawProviderId]
+    const snapshotHasRawSecret = Object.hasOwn(providerSecretSnapshot, rawProviderId)
+    const snapshotRawSecret = snapshotHasRawSecret
+      ? providerSecretSnapshot[rawProviderId]
+      : undefined
+    const hasCanonicalProviderIdCollision =
+      normalizedProviderResults.filter(
+        ({ originalId }) => originalId === normalizeProviderId(rawProviderId),
+      ).length > 1
+    if (hasCanonicalProviderIdCollision && !snapshotHasRawSecret) continue
+    const shouldPreferDistinctRawSecret =
+      snapshotHasRawSecret && snapshotRawSecret !== '' && hasCanonicalProviderIdCollision
+    const rawSecret = shouldPreferDistinctRawSecret
+      ? snapshotRawSecret
+      : providerSecrets[rawProviderId]
     const shouldPreserveRawSecretSlot =
       builtinProviderIds.has(rawProviderId) || activeCustomProviderIds.has(rawProviderId)
-    if (!Object.hasOwn(providerSecrets, normalizedProviderId)) {
+    if (shouldPreferDistinctRawSecret || !Object.hasOwn(providerSecrets, normalizedProviderId)) {
       providerSecrets[normalizedProviderId] = rawSecret
       dirty = true
     }
@@ -1312,6 +1568,7 @@ function migrateUserConfig(options) {
     JSON.stringify(customApiModes) !== JSON.stringify(migrated.customApiModes)
   let customProvidersDirty = false
   const migratedCustomModeProviderIds = new Map()
+  const migratedCustomModeProviderIdsByCanonicalSignature = new Map()
   const pendingLegacyCustomUrlProviderSecretBackfillIds = new Set()
   const getLegacyCustomProviderSecret = () =>
     normalizeText(providerSecrets['legacy-custom-default'])
@@ -1345,13 +1602,20 @@ function migrateUserConfig(options) {
       }
     }
   }
-  const getCustomModeMigrationSignature = (apiMode) =>
+  const getCustomModeMigrationSignature = (apiMode, includeRawProviderId = true) =>
     JSON.stringify({
       groupName: normalizeText(apiMode?.groupName),
       itemName: normalizeText(apiMode?.itemName),
       isCustom: Boolean(apiMode?.isCustom),
       customName: normalizeText(apiMode?.customName),
       customUrl: normalizeEndpointUrlForCompare(normalizeText(apiMode?.customUrl)),
+      ...(includeRawProviderId
+        ? {
+            providerIdRaw: normalizeText(
+              typeof apiMode?.providerId === 'string' ? apiMode.providerId : '',
+            ),
+          }
+        : {}),
       providerId: normalizeProviderId(
         typeof apiMode?.providerId === 'string' ? apiMode.providerId : '',
       ),
@@ -1377,11 +1641,21 @@ function migrateUserConfig(options) {
       `custom-provider-${customProviderCounter}`
     const providerId = ensureUniqueProviderId(providerIdSet, preferredId)
     providerIdSet.add(providerId)
+    const legacyProviderIds = getLegacyProviderIds(
+      [
+        ...(Array.isArray(sourceProvider?.legacyProviderIds)
+          ? sourceProvider.legacyProviderIds
+          : []),
+        ...(targetProviderId === 'legacy-custom-default' ? [] : [targetProviderId]),
+      ],
+      providerId,
+    )
     const provider = sourceProvider
       ? {
           ...sourceProvider,
           id: providerId,
           name: providerName,
+          ...(legacyProviderIds.length > 0 ? { legacyProviderIds } : {}),
         }
       : {
           id: providerId,
@@ -1394,6 +1668,7 @@ function migrateUserConfig(options) {
           completionsUrl: '',
           enabled: true,
           allowLegacyResponseField: true,
+          ...(legacyProviderIds.length > 0 ? { legacyProviderIds } : {}),
         }
     customOpenAIProviders.push(provider)
     customProvidersDirty = true
@@ -1401,7 +1676,12 @@ function migrateUserConfig(options) {
     return providerId
   }
   const promoteCustomModeApiKeyToProvider = (apiMode, apiModeKey) => {
-    const targetProviderId = normalizeText(apiMode.providerId) || 'legacy-custom-default'
+    const targetProviderId = normalizeProviderId(apiMode.providerId) || 'legacy-custom-default'
+    const targetsUnresolvedReservedBuiltin =
+      NEWLY_RESERVED_BUILTIN_PROVIDER_IDS.has(targetProviderId) &&
+      !customOpenAIProviders.some((provider) => provider.id === targetProviderId)
+    if (targetsUnresolvedReservedBuiltin) return ''
+
     const existingProviderSecret = normalizeText(providerSecrets[targetProviderId])
     if (!hasOwnProviderSecret(targetProviderId)) {
       providerSecrets[targetProviderId] = apiModeKey
@@ -1444,6 +1724,7 @@ function migrateUserConfig(options) {
     }
 
     const originalCustomModeSignature = getCustomModeMigrationSignature(apiMode)
+    const originalCanonicalCustomModeSignature = getCustomModeMigrationSignature(apiMode, false)
     const existingProviderIdRaw = typeof apiMode.providerId === 'string' ? apiMode.providerId : ''
     const existingProviderId = normalizeProviderId(existingProviderIdRaw)
     if (existingProviderId && existingProviderIdRaw !== existingProviderId) {
@@ -1451,9 +1732,14 @@ function migrateUserConfig(options) {
       customApiModesDirty = true
     }
     let providerIdAssignedFromLegacyCustomUrl = false
-    const renamedProviderId = providerIdRenameLookup.get(existingProviderId)
+    const renamedProviderId = resolveRenamedProviderId(
+      existingProviderId,
+      existingProviderIdRaw,
+      apiMode.customUrl,
+    )
     if (renamedProviderId && normalizeText(apiMode.providerId) !== renamedProviderId) {
       apiMode.providerId = renamedProviderId
+      addLegacyProviderId(apiMode, existingProviderId)
       customApiModesDirty = true
     }
 
@@ -1502,15 +1788,19 @@ function migrateUserConfig(options) {
     const apiModeKey = normalizeText(apiMode.apiKey)
     if (apiModeKey) {
       const promotedProviderId = promoteCustomModeApiKeyToProvider(apiMode, apiModeKey)
-      if (normalizeText(apiMode.providerId) !== promotedProviderId) {
-        apiMode.providerId = promotedProviderId
-        customApiModesDirty = true
-      }
-      if (normalizeText(apiMode.apiKey)) {
-        // Mode-level custom keys are treated as legacy data; after migration,
-        // providerSecrets is the single source of truth.
-        apiMode.apiKey = ''
-        customApiModesDirty = true
+      if (promotedProviderId) {
+        if (normalizeText(apiMode.providerId) !== promotedProviderId) {
+          const previousProviderId = apiMode.providerId
+          apiMode.providerId = promotedProviderId
+          addLegacyProviderId(apiMode, previousProviderId)
+          customApiModesDirty = true
+        }
+        if (normalizeText(apiMode.apiKey)) {
+          // Mode-level custom keys are treated as legacy data; after migration,
+          // providerSecrets is the single source of truth.
+          apiMode.apiKey = ''
+          customApiModesDirty = true
+        }
       }
     } else if (providerIdAssignedFromLegacyCustomUrl) {
       queueLegacyCustomUrlProviderSecretBackfill(apiMode.providerId)
@@ -1520,6 +1810,24 @@ function migrateUserConfig(options) {
       originalCustomModeSignature,
       normalizeText(apiMode.providerId),
     )
+    const migratedProviderId = normalizeText(apiMode.providerId)
+    if (
+      !migratedCustomModeProviderIdsByCanonicalSignature.has(originalCanonicalCustomModeSignature)
+    ) {
+      migratedCustomModeProviderIdsByCanonicalSignature.set(
+        originalCanonicalCustomModeSignature,
+        migratedProviderId,
+      )
+    } else if (
+      migratedCustomModeProviderIdsByCanonicalSignature.get(
+        originalCanonicalCustomModeSignature,
+      ) !== migratedProviderId
+    ) {
+      migratedCustomModeProviderIdsByCanonicalSignature.set(
+        originalCanonicalCustomModeSignature,
+        '',
+      )
+    }
   }
   backfillPendingLegacyCustomUrlProviderSecrets()
 
@@ -1531,6 +1839,14 @@ function migrateUserConfig(options) {
     const originalSelectedCustomModeSignature = selectedIsCustom
       ? getCustomModeMigrationSignature(selectedApiMode)
       : ''
+    const originalSelectedCanonicalCustomModeSignature = selectedIsCustom
+      ? getCustomModeMigrationSignature(selectedApiMode, false)
+      : ''
+    const originalSelectedCanonicalProviderId = selectedIsCustom
+      ? normalizeProviderId(selectedApiMode.providerId)
+      : ''
+    const selectedCanonicalProviderIdHasCollision =
+      selectedIsCustom && hasCanonicalProviderIdCollision(originalSelectedCanonicalProviderId)
 
     if (selectedIsCustom) {
       const existingSelectedProviderIdRaw =
@@ -1543,22 +1859,37 @@ function migrateUserConfig(options) {
         selectedApiMode.providerId = existingSelectedProviderId
         selectedApiModeDirty = true
       }
-      const renamedSelectedProviderId = providerIdRenameLookup.get(existingSelectedProviderId)
+      const renamedSelectedProviderId = resolveRenamedProviderId(
+        existingSelectedProviderId,
+        existingSelectedProviderIdRaw,
+        selectedApiMode.customUrl,
+      )
       if (
         renamedSelectedProviderId &&
         normalizeText(selectedApiMode.providerId) !== renamedSelectedProviderId
       ) {
         selectedApiMode.providerId = renamedSelectedProviderId
+        addLegacyProviderId(selectedApiMode, existingSelectedProviderId)
         selectedApiModeDirty = true
       }
     }
 
     if (selectedIsCustom) {
-      const migratedProviderId = migratedCustomModeProviderIds.get(
+      const exactMigratedProviderId = migratedCustomModeProviderIds.get(
         originalSelectedCustomModeSignature,
       )
+      const migratedProviderId =
+        exactMigratedProviderId ||
+        (!selectedCanonicalProviderIdHasCollision &&
+        normalizeText(selectedApiMode.providerId) === originalSelectedCanonicalProviderId
+          ? migratedCustomModeProviderIdsByCanonicalSignature.get(
+              originalSelectedCanonicalCustomModeSignature,
+            )
+          : '')
       if (migratedProviderId && normalizeText(selectedApiMode.providerId) !== migratedProviderId) {
+        const previousSelectedProviderId = selectedApiMode.providerId
         selectedApiMode.providerId = migratedProviderId
+        addLegacyProviderId(selectedApiMode, previousSelectedProviderId)
         selectedApiModeDirty = true
       }
     }
@@ -1626,30 +1957,31 @@ function migrateUserConfig(options) {
       const migratedProviderId = selectedIsCustom
         ? migratedCustomModeProviderIds.get(originalSelectedCustomModeSignature)
         : ''
-      if (migratedProviderId) {
-        if (normalizeText(selectedApiMode.providerId) !== migratedProviderId) {
-          selectedApiMode.providerId = migratedProviderId
-          selectedApiModeDirty = true
+      if (migratedProviderId && normalizeText(selectedApiMode.providerId) !== migratedProviderId) {
+        const previousSelectedProviderId = selectedApiMode.providerId
+        selectedApiMode.providerId = migratedProviderId
+        addLegacyProviderId(selectedApiMode, previousSelectedProviderId)
+        selectedApiModeDirty = true
+      }
+      const targetProviderId = selectedIsCustom
+        ? promoteCustomModeApiKeyToProvider(selectedApiMode, selectedApiModeKey)
+        : API_MODE_GROUP_TO_PROVIDER_ID[normalizeText(selectedApiMode.groupName)] ||
+          normalizeText(selectedApiMode.providerId)
+      if (targetProviderId && normalizeText(selectedApiMode.providerId) !== targetProviderId) {
+        const previousSelectedProviderId = selectedApiMode.providerId
+        selectedApiMode.providerId = targetProviderId
+        if (selectedIsCustom) {
+          addLegacyProviderId(selectedApiMode, previousSelectedProviderId)
         }
+        selectedApiModeDirty = true
+      }
+      if (targetProviderId && !selectedIsCustom && !hasOwnProviderSecret(targetProviderId)) {
+        providerSecrets[targetProviderId] = selectedApiModeKey
+        dirty = true
+      }
+      if (targetProviderId) {
         selectedApiMode.apiKey = ''
         selectedApiModeDirty = true
-      } else {
-        const targetProviderId = selectedIsCustom
-          ? promoteCustomModeApiKeyToProvider(selectedApiMode, selectedApiModeKey)
-          : API_MODE_GROUP_TO_PROVIDER_ID[normalizeText(selectedApiMode.groupName)] ||
-            normalizeText(selectedApiMode.providerId)
-        if (targetProviderId && normalizeText(selectedApiMode.providerId) !== targetProviderId) {
-          selectedApiMode.providerId = targetProviderId
-          selectedApiModeDirty = true
-        }
-        if (targetProviderId && !selectedIsCustom && !hasOwnProviderSecret(targetProviderId)) {
-          providerSecrets[targetProviderId] = selectedApiModeKey
-          dirty = true
-        }
-        if (targetProviderId) {
-          selectedApiMode.apiKey = ''
-          selectedApiModeDirty = true
-        }
       }
     }
     backfillPendingLegacyCustomUrlProviderSecrets()
@@ -1864,6 +2196,12 @@ export async function getUserConfig() {
     }
     if (options.configSchemaVersion !== migrated.configSchemaVersion) {
       payload.configSchemaVersion = migrated.configSchemaVersion
+    }
+    if (
+      JSON.stringify(options.completedBuiltinProviderIdMigrations) !==
+      JSON.stringify(migrated.completedBuiltinProviderIdMigrations)
+    ) {
+      payload.completedBuiltinProviderIdMigrations = migrated.completedBuiltinProviderIdMigrations
     }
     if (migrated.customChatGptWebApiUrl !== undefined) {
       if (options.customChatGptWebApiUrl !== migrated.customChatGptWebApiUrl) {

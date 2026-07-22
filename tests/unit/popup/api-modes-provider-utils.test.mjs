@@ -131,6 +131,12 @@ test('createProviderId does not reuse ids reserved by staged provider deletions'
   assert.equal(createProviderId('My Proxy', existingProviders, reservedProviderIds), 'my-proxy-3')
 })
 
+test('createProviderId does not reuse legacy provider IDs', () => {
+  const existingProviders = [{ id: 'renamed-provider', legacyProviderIds: ['my-proxy'] }]
+
+  assert.equal(createProviderId('My Proxy', existingProviders), 'my-proxy-2')
+})
+
 test('parseChatCompletionsEndpointUrl accepts full chat endpoint url', () => {
   const parsed = parseChatCompletionsEndpointUrl('https://api.example.com/v1/chat/completions/')
 
@@ -607,6 +613,7 @@ test('sanitizeApiModeForSave clears custom-provider metadata for non-custom mode
     apiKey: 'sk-test',
     customUrl: 'https://proxy.example.com/v1/chat/completions',
     sourceProviderId: 'openai',
+    legacyProviderIds: ['legacy-provider'],
   })
 
   assert.deepEqual(sanitizedApiMode, {
@@ -635,6 +642,7 @@ test('applySelectedProviderToApiMode clears provider-derived fields when provide
       providerId: 'selected-mode-2',
       apiKey: 'override-key',
       sourceProviderId: 'openai',
+      legacyProviderIds: ['selected-mode'],
       customUrl: 'https://example.com',
     },
     'myproxy',
@@ -756,6 +764,7 @@ test('isProviderReferencedByApiModes only matches custom modes with the same pro
   ]
 
   assert.equal(isProviderReferencedByApiModes('provider-a', apiModes), true)
+  assert.equal(isProviderReferencedByApiModes('Provider_A', apiModes), true)
   assert.equal(isProviderReferencedByApiModes('provider-b', apiModes), false)
 })
 
@@ -1496,4 +1505,85 @@ test('getConversationAiName does not treat canonical provider id matches as miss
   const t = (value) => value
 
   assert.equal(getConversationAiName(session, t, providers), 'My Proxy (deepseek-v3.2)')
+})
+
+test('legacy provider IDs keep saved conversations linked to renamed providers', () => {
+  const providers = [
+    {
+      id: 'renamed-provider',
+      name: 'Renamed Provider',
+      legacyProviderIds: ['legacy-provider'],
+      enabled: false,
+    },
+  ]
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      providerId: 'legacy-provider',
+      customName: 'proxy-model',
+    },
+  }
+  const t = (value) => value
+
+  assert.deepEqual(getReferencedCustomProviderIdsFromSessions([session], providers), [
+    'renamed-provider',
+  ])
+  assert.equal(getConversationAiName(session, t, providers), 'Renamed Provider (proxy-model)')
+})
+
+test('canonical and legacy provider ID collisions use the session URL for display and references', () => {
+  const providers = [
+    {
+      id: 'proxy-v1',
+      name: 'Current ID Match',
+      chatCompletionsUrl: 'https://current.example.com/v1/chat/completions',
+    },
+    {
+      id: 'renamed-provider',
+      name: 'Legacy ID Match',
+      chatCompletionsUrl: 'https://legacy.example.com/v1/chat/completions',
+      legacyProviderIds: ['proxy-v1'],
+      enabled: false,
+    },
+    {
+      id: 'unrelated-provider',
+      name: 'Unrelated',
+      chatCompletionsUrl: 'https://unrelated.example.com/v1/chat/completions',
+    },
+  ]
+  const createSession = (customUrl = '') => ({
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      providerId: 'proxy_v1',
+      customName: 'custom-model',
+      customUrl,
+    },
+  })
+  const apiModes = [
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'custom-model',
+      providerId: 'proxy-v1',
+    },
+  ]
+  const t = (value) => value
+  const legacySession = createSession('https://legacy.example.com/v1/chat/completions')
+
+  assert.deepEqual(
+    getReferencedCustomProviderIdsFromSessions([legacySession], providers, apiModes),
+    ['renamed-provider'],
+  )
+  assert.equal(getConversationAiName(legacySession, t, providers), 'Legacy ID Match (custom-model)')
+  assert.deepEqual(
+    getReferencedCustomProviderIdsFromSessions([createSession()], providers, apiModes),
+    ['proxy-v1', 'renamed-provider'],
+  )
+  const unrelatedSession = createSession('https://unrelated.example.com/v1/chat/completions')
+  assert.deepEqual(
+    getReferencedCustomProviderIdsFromSessions([unrelatedSession], providers, apiModes),
+    ['proxy-v1', 'renamed-provider'],
+  )
+  assert.equal(getConversationAiName(unrelatedSession, t, providers), 'Custom Model (custom-model)')
 })

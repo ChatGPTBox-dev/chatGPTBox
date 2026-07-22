@@ -1121,6 +1121,65 @@ test('isApiModeSelected keeps provider mismatch fail-closed for non-legacy sessi
   assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), false)
 })
 
+test('isApiModeSelected accepts a canonically equivalent session provider ID', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'proxy-model',
+    providerId: 'proxy-v1',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+      providerId: 'Proxy_V1',
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), false)
+  assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), true)
+})
+
+test('getUniquelySelectedApiModeIndex disambiguates provider ID collisions by customUrl', () => {
+  const apiModes = [
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'proxy-model',
+      customUrl: 'https://current.example.com/v1/chat/completions',
+      providerId: 'legacy-provider',
+      active: true,
+    },
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'proxy-model',
+      customUrl: 'https://renamed.example.com/v1/chat/completions/',
+      providerId: 'renamed-provider',
+      legacyProviderIds: ['legacy-provider'],
+      active: true,
+    },
+  ]
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'proxy-model',
+      customUrl: 'https://renamed.example.com/v1/chat/completions',
+      providerId: 'legacy-provider',
+      active: true,
+    },
+  }
+
+  assert.equal(getUniquelySelectedApiModeIndex(apiModes, session, { sessionCompat: true }), 1)
+  session.apiMode.customUrl = 'https://current.example.com/v1/chat/completions/'
+  assert.equal(getUniquelySelectedApiModeIndex(apiModes, session, { sessionCompat: true }), 0)
+})
+
 test('isApiModeSelected keeps modern custom session provider mismatch fail-closed with customUrl and apiKey', () => {
   const apiMode = {
     groupName: 'customApiModelKeys',

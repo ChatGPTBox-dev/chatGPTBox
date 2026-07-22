@@ -17,6 +17,7 @@ import {
   applySelectedProviderToApiMode,
   applyDeletedProviderSecrets,
   applyPendingProviderChanges,
+  areProviderIdsEquivalent,
   buildEditedProvider,
   createProviderId,
   getApiModeDisplayLabel,
@@ -400,7 +401,7 @@ export function ApiModes({ config, updateConfig }) {
         return
       }
       const shouldClearProviderDerivedFields =
-        editingIndex !== -1 && selectedProviderId !== previousProviderId
+        editingIndex !== -1 && !areProviderIdsEquivalent(selectedProviderId, previousProviderId)
       const isEndpointProviderManaged = editingIndex === -1
       nextApiMode = applySelectedProviderToApiMode(
         nextApiMode,
