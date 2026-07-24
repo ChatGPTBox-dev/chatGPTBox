@@ -665,6 +665,11 @@ function ConversationCard(props) {
             type={data.type}
             descName={data.type === 'answer' && currentAiName}
             onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
+            onReplace={
+              data.type === 'answer' && data.done && props.onReplaceContent
+                ? () => props.onReplaceContent(data.content.replace(/\n<hr\/>$/, ''))
+                : null
+            }
           />
         ))}
       </div>
@@ -725,6 +730,7 @@ ConversationCard.propTypes = {
   session: PropTypes.object.isRequired,
   question: PropTypes.string,
   onUpdate: PropTypes.func,
+  onReplaceContent: PropTypes.func,
   draggable: PropTypes.bool,
   closeable: PropTypes.bool,
   onClose: PropTypes.func,

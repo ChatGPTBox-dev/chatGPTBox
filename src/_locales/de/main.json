@@ -86,6 +86,8 @@
   "Confirm": "Bestätigen",
   "Clear Conversation": "Konversation löschen",
   "Retry": "Erneut versuchen",
+  "Replace Selection": "Auswahl ersetzen",
+  "Replace Failed": "Ersetzen fehlgeschlagen",
   "Exceeded maximum context length": "Maximale Kontextlänge überschritten, bitte Konversation löschen und erneut versuchen",
   "Regenerate the answer after switching model": "Antwort nach dem Wechseln des Modells neu generieren",
   "Pin": "Anheften",

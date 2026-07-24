@@ -93,6 +93,8 @@
   "Confirm": "Confirm",
   "Clear Conversation": "Clear Conversation",
   "Retry": "Retry",
+  "Replace Selection": "Replace Selection",
+  "Replace Failed": "Replace Failed",
   "Exceeded maximum context length": "Exceeded maximum context length, please clear the conversation and try again",
   "Regenerate the answer after switching model": "Regenerate the answer after switching model",
   "Pin": "Pin",
