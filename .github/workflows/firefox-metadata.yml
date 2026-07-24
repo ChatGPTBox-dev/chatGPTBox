@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Firefox version to update, for example 2.6.1"
+        description: "Firefox version to update, for example 2.6.1 or 2.4.5.1"
         required: true
         type: string
 
@@ -27,8 +27,16 @@ jobs:
         run: npm ci
 
       - name: Update Firefox metadata
-        run: npm run release:update-firefox-metadata -- --version "${{ inputs.version }}"
+        shell: bash
+        run: |
+          if [[ ! "$FIREFOX_METADATA_VERSION" =~ ^(0|[1-9][0-9]{0,8})(\.(0|[1-9][0-9]{0,8})){2,3}$ ]]; then
+            echo "Firefox version must use x.y.z or x.y.z.w numeric format without leading zeros" >&2
+            exit 1
+          fi
+
+          npm run release:update-firefox-metadata -- --version "$FIREFOX_METADATA_VERSION"
         env:
+          FIREFOX_METADATA_VERSION: ${{ inputs.version }}
           FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
           FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
           FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
