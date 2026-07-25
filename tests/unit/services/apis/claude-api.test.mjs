@@ -125,6 +125,7 @@ test('claude-api: omits temperature for models that reject custom sampling', asy
   for (const [modelName, model] of [
     ['claudeOpus47Api', 'claude-opus-4-7'],
     ['claudeOpus48Api', 'claude-opus-4-8'],
+    ['claudeOpus5Api', 'claude-opus-5'],
     ['claudeSonnet5Api', 'claude-sonnet-5'],
   ]) {
     await t.test(modelName, async (t) => {

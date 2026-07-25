@@ -6,7 +6,12 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 
 function shouldOmitTemperature(model) {
-  return model === 'claude-opus-4-7' || model === 'claude-opus-4-8' || model === 'claude-sonnet-5'
+  return (
+    model === 'claude-opus-4-7' ||
+    model === 'claude-opus-4-8' ||
+    model === 'claude-sonnet-5' ||
+    model === 'claude-opus-5'
+  )
 }
 
 function shouldDisableDefaultThinking(model) {

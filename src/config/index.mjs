@@ -91,6 +91,7 @@ export const claudeApiModelKeys = [
   'claudeOpus46Api',
   'claudeOpus47Api',
   'claudeOpus48Api',
+  'claudeOpus5Api',
   'claudeSonnet45Api',
   'claudeSonnet46Api',
   'claudeSonnet5Api',
@@ -363,6 +364,10 @@ export const Models = {
   claudeOpus48Api: {
     value: 'claude-opus-4-8',
     desc: 'Anthropic (Claude Opus 4.8)',
+  },
+  claudeOpus5Api: {
+    value: 'claude-opus-5',
+    desc: 'Anthropic (Claude Opus 5)',
   },
   claudeSonnet45Api: {
     value: 'claude-sonnet-4-5-20250929',
@@ -750,7 +755,7 @@ export const defaultApiModeIds = [
   'chatgptApi5_6Terra',
   'chatgptApi5_6Luna',
   'xaiGrok4_5',
-  'claudeOpus48Api',
+  'claudeOpus5Api',
   'claudeSonnet5Api',
   'claudeHaiku45Api',
   'googleGemini3_1Pro',
