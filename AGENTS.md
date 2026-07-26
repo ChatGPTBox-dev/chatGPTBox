@@ -209,7 +209,8 @@ src/
 ## Localization
 
 - Source of truth: `src/_locales/en/main.json`; do not change existing keys (only add new ones)
-- Add new strings to `en/main.json` first, then propagate to other locales
+- Add new source strings to `en/main.json` first and translate user-facing text in other locales as appropriate
+- Do not duplicate unchanged model or provider labels across non-English locales; rely on the English fallback unless the displayed text requires localization
 - Register new locales in `src/_locales/resources.mjs`
 - Preserve placeholders and product names; keep punctuation/quotes intact
 - For Traditional Chinese (Taiwan), use `src/_locales/zh-hant/main.json` and avoid zh‑CN terms
