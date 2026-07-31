@@ -89,9 +89,6 @@ test('all provider-specific fields default to null', () => {
   assert.equal(session.bingWeb_parentMessageId, null)
   assert.equal(session.bingWeb_jailbreakConversationCache, null)
 
-  // poe
-  assert.equal(session.poe_chatId, null)
-
   // bard
   assert.equal(session.bard_conversationObj, null)
 

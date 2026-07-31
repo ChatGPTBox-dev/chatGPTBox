@@ -219,7 +219,7 @@ src/
 
 The extension supports multiple AI providers:
 
-- **Web (cookie-based)**: ChatGPT (Web), Claude (Web), Kimi.Moonshot (Web), Bing (Web), Bard (Web), Poe (Web)
+- **Web (cookie-based)**: ChatGPT (Web), Claude (Web), Kimi.Moonshot (Web), Bing (Web), Bard (Web)
 - **APIs (key-based)**: OpenAI (API), Azure OpenAI (API), Anthropic (Claude API), OpenRouter (API), AI/ML (API), DeepSeek (API), Ollama (local), ChatGLM (API), Waylaidwanderer (API), Kimi.Moonshot (API)
 - **Custom/self-hosted**: Alternative endpoints and self-hosted backends
 

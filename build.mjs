@@ -352,10 +352,6 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
           test: /\.(jpg|png|svg)$/,
           type: 'asset/inline',
         },
-        {
-          test: /\.(graphql|gql)$/,
-          loader: 'graphql-tag/loader',
-        },
         isWithoutTiktoken
           ? {
               test: /crop-text\.mjs$/,

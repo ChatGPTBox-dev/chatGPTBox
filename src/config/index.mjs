@@ -4,7 +4,6 @@ import { isMobile } from '../utils/is-mobile.mjs'
 import {
   getApiModesFromConfig,
   isInApiModeGroup,
-  isUsingModelName,
   modelNameToDesc,
   reconcileMaterializedApiModeDefaults,
 } from '../utils/model-name-convert.mjs'
@@ -108,21 +107,6 @@ export const chatglmApiModelKeys = [
   'chatglm4Long',
 ]
 export const githubThirdPartyApiModelKeys = ['waylaidwandererApi']
-export const poeWebModelKeys = [
-  'poeAiWebSage', //poe.com/Assistant
-  'poeAiWebGPT4',
-  'poeAiWebGPT4_32k',
-  'poeAiWebClaudePlus',
-  'poeAiWebClaude',
-  'poeAiWebClaude100k',
-  'poeAiWebCustom',
-  'poeAiWebChatGpt',
-  'poeAiWebChatGpt_16k',
-  'poeAiWebGooglePaLM',
-  'poeAiWeb_Llama_2_7b',
-  'poeAiWeb_Llama_2_13b',
-  'poeAiWeb_Llama_2_70b',
-]
 export const moonshotApiModelKeys = [
   'moonshot_k2_5',
   'moonshot_kimi_latest',
@@ -416,20 +400,6 @@ export const Models = {
   ollamaModel: { value: '', desc: 'Ollama API' },
   azureOpenAi: { value: '', desc: 'Azure OpenAI' },
   waylaidwandererApi: { value: '', desc: 'Waylaidwanderer API (Github)' },
-
-  poeAiWebSage: { value: 'Assistant', desc: 'Poe AI (Web, Assistant)' },
-  poeAiWebGPT4: { value: 'gpt-4', desc: 'Poe AI (Web, GPT-4)' },
-  poeAiWebGPT4_32k: { value: 'gpt-4-32k', desc: 'Poe AI (Web, GPT-4-32k)' },
-  poeAiWebClaudePlus: { value: 'claude-2-100k', desc: 'Poe AI (Web, Claude 2 100k)' },
-  poeAiWebClaude: { value: 'claude-instant', desc: 'Poe AI (Web, Claude instant)' },
-  poeAiWebClaude100k: { value: 'claude-instant-100k', desc: 'Poe AI (Web, Claude instant 100k)' },
-  poeAiWebGooglePaLM: { value: 'Google-PaLM', desc: 'Poe AI (Web, Google-PaLM)' },
-  poeAiWeb_Llama_2_7b: { value: 'Llama-2-7b', desc: 'Poe AI (Web, Llama-2-7b)' },
-  poeAiWeb_Llama_2_13b: { value: 'Llama-2-13b', desc: 'Poe AI (Web, Llama-2-13b)' },
-  poeAiWeb_Llama_2_70b: { value: 'Llama-2-70b', desc: 'Poe AI (Web, Llama-2-70b)' },
-  poeAiWebChatGpt: { value: 'chatgpt', desc: 'Poe AI (Web, ChatGPT)' },
-  poeAiWebChatGpt_16k: { value: 'chatgpt-16k', desc: 'Poe AI (Web, ChatGPT-16k)' },
-  poeAiWebCustom: { value: '', desc: 'Poe AI (Web, Custom)' },
 
   moonshot_k2_5: {
     value: 'kimi-k2.5',
@@ -795,8 +765,6 @@ export const defaultConfig = {
   azureEndpoint: '',
   azureDeploymentName: '',
 
-  poeCustomBotName: '',
-
   anthropicApiKey: '',
   chatglmApiKey: '',
   moonshotApiKey: '',
@@ -1037,13 +1005,6 @@ export function isUsingGithubThirdPartyApiModel(configOrSession) {
 
 export function isUsingCustomModel(configOrSession) {
   return isInApiModeGroup(customApiModelKeys, configOrSession)
-}
-
-/**
- * @deprecated
- */
-export function isUsingCustomNameOnlyModel(configOrSession) {
-  return isUsingModelName('poeAiWebCustom', configOrSession)
 }
 
 export async function getPreferredLanguageKey() {

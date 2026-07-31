@@ -20,7 +20,6 @@ import {
   isUsingChatgptApiModel,
   isUsingClaudeApiModel,
   isUsingCustomModel,
-  isUsingCustomNameOnlyModel,
   isUsingDeepSeekApiModel,
   isUsingNvidiaNimApiModel,
   isUsingGeminiWebModel,
@@ -310,12 +309,6 @@ test('isUsingAzureOpenAiApiModel detects Azure OpenAI models', () => {
 test('isUsingGithubThirdPartyApiModel detects waylaidwanderer models', () => {
   assert.equal(isUsingGithubThirdPartyApiModel({ modelName: 'waylaidwandererApi' }), true)
   assert.equal(isUsingGithubThirdPartyApiModel({ modelName: 'chatgptApi4oMini' }), false)
-})
-
-test('isUsingCustomNameOnlyModel detects poeAiWebCustom', () => {
-  assert.equal(isUsingCustomNameOnlyModel({ modelName: 'poeAiWebCustom' }), true)
-  assert.equal(isUsingCustomNameOnlyModel({ modelName: 'poeAiWebSage' }), false)
-  assert.equal(isUsingCustomNameOnlyModel({ modelName: 'customModel' }), false)
 })
 
 // ── getPreferredLanguageKey ──────────────────────────────────────────
