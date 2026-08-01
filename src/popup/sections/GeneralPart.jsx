@@ -68,6 +68,8 @@ function getProviderApiKeySetupUrl(providerId) {
       return 'https://platform.moonshot.cn/console/api-keys'
     case 'mistral':
       return 'https://console.mistral.ai/api-keys'
+    case 'orcarouter':
+      return 'https://www.orcarouter.ai/console'
     default:
       return ''
   }

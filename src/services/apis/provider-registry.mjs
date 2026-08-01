@@ -61,6 +61,15 @@ const BUILTIN_PROVIDER_TEMPLATE = [
     enabled: true,
   },
   {
+    id: 'orcarouter',
+    name: 'OrcaRouter',
+    baseUrl: 'https://api.orcarouter.ai/v1',
+    chatCompletionsPath: '/chat/completions',
+    completionsPath: '/completions',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'aiml',
     name: 'AI/ML',
     baseUrl: 'https://api.aimlapi.com/v1',
@@ -139,6 +148,7 @@ function resolveProviderIdFromLegacyModelName(modelName) {
   if (/^mistral(?:Medium|Small|Large)/.test(preset) || preset === 'mistralApiModelKeys')
     return 'mistral'
   if (preset.startsWith('openRouter_') || preset === 'openRouterApiModelKeys') return 'openrouter'
+  if (preset.startsWith('orcaRouter_') || preset === 'orcaRouterApiModelKeys') return 'orcarouter'
   if (preset.startsWith('aiml_') || preset === 'aimlModelKeys' || preset === 'aimlApiModelKeys') {
     return 'aiml'
   }

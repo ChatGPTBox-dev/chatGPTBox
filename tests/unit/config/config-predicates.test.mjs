@@ -9,6 +9,7 @@ import {
   claudeApiModelKeys,
   mistralApiModelKeys,
   openRouterApiModelKeys,
+  orcaRouterApiModelKeys,
   nvidiaNimApiModelKeys,
   aimlApiModelKeys,
   xaiApiModelKeys,
@@ -32,6 +33,7 @@ import {
   isUsingOpenAiApiModel,
   isUsingGptCompletionApiModel,
   isUsingOpenRouterApiModel,
+  isUsingOrcaRouterApiModel,
   isUsingXaiApiModel,
 } from '../../../src/config/index.mjs'
 import {
@@ -58,6 +60,11 @@ const representativeClaudeApiModelNames = ['claudeOpus48Api', 'claudeSonnet46Api
 const representativeOpenRouterApiModelNames = [
   'openRouter_anthropic_claude_sonnet4_6',
   'openRouter_openai_gpt_5_5',
+]
+const representativeOrcaRouterApiModelNames = [
+  'orcaRouter_auto',
+  'orcaRouter_anthropic_claude_opus5',
+  'orcaRouter_openai_gpt_5_5',
 ]
 const representativeAimlApiModelNames = ['aiml_claude_sonnet_4_6_20260218', 'aiml_openai_gpt_5_5']
 
@@ -259,6 +266,37 @@ test('isUsingOpenRouterApiModel accepts exported OpenRouter API model keys', () 
   for (const modelName of openRouterApiModelKeys) {
     assert.equal(isUsingOpenRouterApiModel({ modelName }), true)
   }
+})
+
+test('isUsingOrcaRouterApiModel matches representative OrcaRouter API keys', () => {
+  for (const modelName of representativeOrcaRouterApiModelNames) {
+    assert.equal(isUsingOrcaRouterApiModel({ modelName }), true)
+  }
+  assert.equal(isUsingOrcaRouterApiModel({ modelName: 'chatgptApi4oMini' }), false)
+})
+
+test('isUsingOrcaRouterApiModel accepts exported OrcaRouter API model keys', () => {
+  for (const modelName of orcaRouterApiModelKeys) {
+    assert.equal(isUsingOrcaRouterApiModel({ modelName }), true)
+  }
+})
+
+test('isUsingOrcaRouterApiModel does not match OpenRouter API model keys', () => {
+  for (const modelName of openRouterApiModelKeys) {
+    assert.equal(isUsingOrcaRouterApiModel({ modelName }), false)
+  }
+  for (const modelName of orcaRouterApiModelKeys) {
+    assert.equal(isUsingOpenRouterApiModel({ modelName }), false)
+  }
+})
+
+test('orcaRouterApiModelKeys does not expose duplicate picker entries', () => {
+  const signatures = orcaRouterApiModelKeys.map((modelName) => {
+    const model = Models[modelName]
+    return model.value + '\n' + model.desc
+  })
+
+  assert.equal(new Set(signatures).size, signatures.length)
 })
 
 test('isUsingXaiApiModel accepts exported xAI API model keys', () => {

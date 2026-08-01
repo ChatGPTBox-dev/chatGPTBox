@@ -74,6 +74,13 @@ const adapters = [
     expectedApiKey: 'or-key',
   },
   {
+    name: 'orcarouter-api',
+    apiMode: { groupName: 'orcaRouterApiModelKeys', itemName: 'orcaRouter_auto' },
+    providerId: 'orcarouter',
+    expectedBaseUrl: 'https://api.orcarouter.ai/v1',
+    expectedApiKey: 'sk-orca-key',
+  },
+  {
     name: 'chatglm-api',
     apiMode: { groupName: 'chatglmApiModelKeys', itemName: 'chatglmTurbo' },
     providerId: 'chatglm',
