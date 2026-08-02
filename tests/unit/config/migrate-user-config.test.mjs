@@ -12,6 +12,7 @@ const newlyReservedBuiltinProviders = [
   { id: 'xai', legacyKey: 'xaiApiKey' },
   { id: 'nvidia-nim', legacyKey: 'nvidiaNimApiKey' },
   { id: 'mistral', legacyKey: 'mistralApiKey' },
+  { id: 'orcarouter', legacyKey: 'orcaRouterApiKey' },
 ]
 
 function createCustomApiMode(overrides = {}) {
