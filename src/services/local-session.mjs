@@ -2,11 +2,12 @@ import Browser from 'webextension-polyfill'
 import { initSession } from './init-session.mjs'
 import { getUserConfig } from '../config/index.mjs'
 import { canonicalizeSessionModelFields } from '../config/model-key-migrations.mjs'
+import { assignAutomaticSessionTitle } from './session-title.mjs'
 
 export const initDefaultSession = async () => {
   const config = await getUserConfig()
   return initSession({
-    sessionName: new Date().toLocaleString(),
+    sessionName: null,
     modelName: config.modelName,
     apiMode: config.apiMode,
     autoClean: false,
@@ -53,6 +54,7 @@ export const getSession = async (sessionId) => {
 }
 
 export const updateSession = async (newSession) => {
+  assignAutomaticSessionTitle(newSession)
   newSession.updatedAt = new Date().toISOString()
   const currentSessions = await getSessions()
   currentSessions[
@@ -71,7 +73,9 @@ export const resetSessions = async () => {
 export const getSessions = async () => {
   const { sessions } = await Browser.storage.local.get('sessions')
   if (Array.isArray(sessions) && sessions.length > 0) {
-    const migratedSessions = sessions.map(canonicalizeSessionModelFields)
+    const migratedSessions = sessions.map((session) =>
+      assignAutomaticSessionTitle(canonicalizeSessionModelFields({ ...session })),
+    )
     if (JSON.stringify(migratedSessions) !== JSON.stringify(sessions)) {
       await Browser.storage.local.set({ sessions: migratedSessions })
     }

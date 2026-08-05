@@ -20,6 +20,7 @@ test('createSession without argument creates a new default session', async () =>
   const { session, currentSessions } = await createSession()
 
   assert.match(session.sessionId, UUID_RE)
+  assert.equal(session.sessionName, null)
   // getSessions auto-initializes a reset session when storage is empty,
   // so the result contains the new session plus the reset default
   assert.ok(currentSessions.length >= 1)
@@ -68,6 +69,7 @@ test('deleteSession resets when last session is removed', async () => {
   // should trigger resetSessions() fallback and return a fresh default session
   assert.equal(result.length, 1)
   assert.notEqual(result[0].sessionId, s.sessionId)
+  assert.equal(result[0].sessionName, null)
 })
 
 test('resetSessions replaces all sessions with one default', async () => {
@@ -79,6 +81,7 @@ test('resetSessions replaces all sessions with one default', async () => {
   const result = await resetSessions()
   assert.equal(result.length, 1)
   assert.match(result[0].sessionId, UUID_RE)
+  assert.equal(result[0].sessionName, null)
 })
 
 test('getSessions initializes when storage is empty', async () => {
@@ -86,6 +89,7 @@ test('getSessions initializes when storage is empty', async () => {
 
   assert.equal(sessions.length, 1)
   assert.match(sessions[0].sessionId, UUID_RE)
+  assert.equal(sessions[0].sessionName, null)
 })
 
 test('getSessions returns existing sessions from storage', async () => {
@@ -94,6 +98,19 @@ test('getSessions returns existing sessions from storage', async () => {
 
   const sessions = await getSessions()
   assert.ok(sessions.some((sess) => sess.sessionId === s.sessionId))
+})
+
+test('getSessions derives a title for an untitled stored conversation', async () => {
+  const untitled = initSession()
+  untitled.conversationRecords = [{ question: 'Explain title generation?', answer: 'Answer' }]
+  globalThis.__TEST_BROWSER_SHIM__.setStorage({ sessions: [untitled] })
+
+  const sessions = await getSessions()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(sessions[0].sessionName, 'Explain title generation')
+  assert.equal(sessions[0].sessionNameSource, 'heuristic')
+  assert.equal(storage.sessions[0].sessionName, 'Explain title generation')
 })
 
 test('getSessions migrates legacy model keys without changing conversation records', async () => {
@@ -150,6 +167,30 @@ test('updateSession sets updatedAt and persists changes', async () => {
   const found = result.find((sess) => sess.sessionId === s.sessionId)
   assert.equal(found.sessionName, 'After')
   assert.ok(found.updatedAt >= s.updatedAt)
+})
+
+test('updateSession derives a title from the first completed question', async () => {
+  const s = initSession()
+  globalThis.__TEST_BROWSER_SHIM__.setStorage({ sessions: [s] })
+  s.conversationRecords = [{ question: '## Review this change?', answer: 'Answer' }]
+
+  const result = await updateSession(s)
+  const found = result.find((sess) => sess.sessionId === s.sessionId)
+
+  assert.equal(found.sessionName, 'Review this change')
+  assert.equal(found.sessionNameSource, 'heuristic')
+})
+
+test('updateSession preserves an existing session name', async () => {
+  const s = initSession({ sessionName: 'Keep this title', sessionNameSource: 'manual' })
+  globalThis.__TEST_BROWSER_SHIM__.setStorage({ sessions: [s] })
+  s.conversationRecords = [{ question: 'Replace the title?', answer: 'Answer' }]
+
+  const result = await updateSession(s)
+  const found = result.find((sess) => sess.sessionId === s.sessionId)
+
+  assert.equal(found.sessionName, 'Keep this title')
+  assert.equal(found.sessionNameSource, 'manual')
 })
 
 test('storage persistence: data survives across calls', async () => {

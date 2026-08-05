@@ -6,6 +6,7 @@ import {
   getSession,
   deleteSession,
 } from '../../services/local-session.mjs'
+import { getSessionDisplayName } from '../../services/session-title.mjs'
 import { useEffect, useRef, useState } from 'react'
 import './styles.scss'
 import { useConfig } from '../../hooks/use-config.mjs'
@@ -120,20 +121,27 @@ function App() {
           </div>
           <hr />
           <div className="chat-list">
-            {sessions.map(
-              (
-                session,
-                index, // TODO editable session name
-              ) => (
+            {sessions.map((session) => {
+              const displayName = getSessionDisplayName(session, t('New Chat'))
+              return (
                 <button
-                  key={index}
+                  key={session.sessionId}
                   className={`normal-button ${sessionId === session.sessionId ? 'active' : ''}`}
                   style="display: flex; align-items: center; justify-content: space-between;"
+                  title={displayName}
                   onClick={() => {
                     setSessionIdSafe(session.sessionId)
                   }}
                 >
-                  {session.sessionName}
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {displayName}
+                  </span>
                   <span className="gpt-util-group">
                     <DeleteButton
                       size={14}
@@ -147,8 +155,8 @@ function App() {
                     />
                   </span>
                 </button>
-              ),
-            )}
+              )
+            })}
           </div>
           <hr />
           <div className="chat-sidebar-button-group">

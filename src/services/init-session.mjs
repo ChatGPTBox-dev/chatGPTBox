@@ -11,6 +11,7 @@ import { t } from 'i18next'
  * @property {string|null} question
  * @property {Object[]|null} conversationRecords
  * @property {string|null} sessionName
+ * @property {'heuristic'|'generated'|'manual'|null} sessionNameSource
  * @property {string|null} sessionId
  * @property {string|null} createdAt
  * @property {string|null} updatedAt
@@ -37,6 +38,7 @@ import { t } from 'i18next'
  * @param {string|null} question
  * @param {Object[]|null} conversationRecords
  * @param {string|null} sessionName
+ * @param {'heuristic'|'generated'|'manual'|null} sessionNameSource
  * @param {string|null} modelName
  * @param {boolean|null} autoClean
  * @param {Object|null} apiMode
@@ -47,6 +49,7 @@ export function initSession({
   question = null,
   conversationRecords = [],
   sessionName = null,
+  sessionNameSource = null,
   modelName = null,
   autoClean = false,
   apiMode = null,
@@ -58,6 +61,7 @@ export function initSession({
     conversationRecords,
 
     sessionName,
+    sessionNameSource,
     sessionId: uuidv4(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

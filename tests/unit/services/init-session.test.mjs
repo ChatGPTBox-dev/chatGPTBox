@@ -10,6 +10,7 @@ test('initSession returns object with all required default/null fields', () => {
   assert.equal(session.question, null)
   assert.deepEqual(session.conversationRecords, [])
   assert.equal(session.sessionName, null)
+  assert.equal(session.sessionNameSource, null)
   assert.equal(session.modelName, null)
   assert.equal(session.apiMode, null)
   assert.equal(session.autoClean, false)
@@ -63,10 +64,15 @@ test('initSession aiName is null when no modelName and no apiMode', () => {
   assert.equal(session.aiName, null)
 })
 
-test('initSession passes through provided question and sessionName', () => {
-  const session = initSession({ question: 'hello', sessionName: 'My Chat' })
+test('initSession passes through provided question, session name, and source', () => {
+  const session = initSession({
+    question: 'hello',
+    sessionName: 'My Chat',
+    sessionNameSource: 'manual',
+  })
   assert.equal(session.question, 'hello')
   assert.equal(session.sessionName, 'My Chat')
+  assert.equal(session.sessionNameSource, 'manual')
 })
 
 test('all provider-specific fields default to null', () => {
