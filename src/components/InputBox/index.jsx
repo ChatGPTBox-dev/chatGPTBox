@@ -11,6 +11,7 @@ import {
   MIN_CONVERSATION_HEIGHT,
   MIN_INPUT_HEIGHT,
 } from './resize.mjs'
+import { shouldHandleInputAction } from './input-action.mjs'
 
 export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
   const { t } = useTranslation()
@@ -93,7 +94,7 @@ export function InputBox({ onSubmit, enabled, postMessage, reverseResizeDir }) {
 
   const handleKeyDownOrClick = (e) => {
     e.stopPropagation()
-    if (e.type === 'click' || (e.keyCode === 13 && e.shiftKey === false)) {
+    if (shouldHandleInputAction(e)) {
       e.preventDefault()
       if (enabled) {
         if (!value) return
