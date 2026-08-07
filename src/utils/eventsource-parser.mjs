@@ -10,6 +10,7 @@ function createParser(onParse) {
   let eventName
   let data
   let extra
+  let discardTrailingNewline
   reset()
   return {
     feed,
@@ -24,6 +25,7 @@ function createParser(onParse) {
     eventId = void 0
     eventName = void 0
     data = ''
+    discardTrailingNewline = false
   }
 
   function feed(chunk) {
@@ -35,7 +37,6 @@ function createParser(onParse) {
     isFirstChunk = false
     const length = buffer.length
     let position = 0
-    let discardTrailingNewline = false
     while (position < length) {
       if (discardTrailingNewline) {
         if (buffer[position] === '\n') {
@@ -46,7 +47,11 @@ function createParser(onParse) {
       let lineLength = -1
       let fieldLength = startingFieldLength
       let character
-      for (let index = startingPosition; lineLength < 0 && index < length; ++index) {
+      for (
+        let index = position + startingPosition;
+        lineLength < 0 && index < length;
+        ++index
+      ) {
         character = buffer[index]
         if (character === ':' && fieldLength < 0) {
           fieldLength = index - position
