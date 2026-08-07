@@ -15,12 +15,13 @@ const restoreXMLHttpRequest = () => {
   }
 }
 
-const installFakeXMLHttpRequest = ({ openError, sendError } = {}) => {
+const installFakeXMLHttpRequest = ({ openError, sendError, status = 200 } = {}) => {
   const requests = []
 
   class FakeXMLHttpRequest {
     constructor() {
       this.aborted = false
+      this.status = status
       requests.push(this)
     }
 
@@ -111,6 +112,65 @@ test('limitedFetch truncates a completed response without aborting it', async ()
 
   assert.equal(await responsePromise, 'abcd')
   assert.equal(request.aborted, false)
+})
+
+test('limitedFetch rejects HTTP errors that complete with response data', async () => {
+  const requests = installFakeXMLHttpRequest({ status: 503 })
+  const responsePromise = limitedFetch('https://example.com/data', 20)
+  const [request] = requests
+
+  request.onload({
+    target: { responseText: 'service unavailable' },
+  })
+
+  await assert.rejects(responsePromise, {
+    name: 'Error',
+    message: '503',
+  })
+  assert.equal(request.aborted, false)
+})
+
+test('limitedFetch rejects and aborts an oversized HTTP error response', async () => {
+  const requests = installFakeXMLHttpRequest({ status: 429 })
+  const responsePromise = limitedFetch('https://example.com/data', 5)
+  const [request] = requests
+
+  request.onprogress({
+    loaded: 5,
+    target: { responseText: 'rate limited' },
+  })
+
+  await assert.rejects(responsePromise, {
+    name: 'Error',
+    message: '429',
+  })
+  assert.equal(request.aborted, true)
+})
+
+test('limitedFetch accepts successful partial-content responses', async () => {
+  const requests = installFakeXMLHttpRequest({ status: 206 })
+  const responsePromise = limitedFetch('https://example.com/data', 4)
+  const [request] = requests
+
+  request.onload({
+    target: { responseText: 'partial content' },
+  })
+
+  assert.equal(await responsePromise, 'part')
+})
+
+test('limitedFetch truncates and aborts partial content at the byte limit', async () => {
+  const requests = installFakeXMLHttpRequest({ status: 206 })
+  const responsePromise = limitedFetch('https://example.com/data', 4)
+  const [request] = requests
+
+  request.onprogress({
+    loaded: 4,
+    target: { responseText: 'partial content' },
+  })
+
+  assert.equal(await responsePromise, 'part')
+  assert.equal(request.aborted, true)
 })
 
 test('limitedFetch rejects with the XHR status when the request fails', async () => {
