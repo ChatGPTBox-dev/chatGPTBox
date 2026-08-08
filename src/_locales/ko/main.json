@@ -84,6 +84,8 @@
   "Confirm": "확인",
   "Clear Conversation": "대화 내용 지우기",
   "Retry": "재시도",
+  "Replace Selection": "선택 영역 바꾸기",
+  "Replace Failed": "바꾸기 실패",
   "Exceeded maximum context length": "최대 컨텍스트 길이를 초과하였습니다. 대화 내용을 지우고 다시 시도해주세요.",
   "Claude reached the response token limit. Increase Max Response Token Length and try again.": "Claude가 응답 토큰 한도에 도달했습니다. 최대 응답 토큰 길이를 늘린 후 다시 시도하세요.",
   "Claude reached the model context window limit. Clear the conversation and try again.": "Claude가 모델의 컨텍스트 창 한도에 도달했습니다. 대화 내용을 지운 후 다시 시도하세요.",
