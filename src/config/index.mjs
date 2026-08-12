@@ -192,7 +192,7 @@ export const googleApiModelKeys = [
   'googleGemini2_5Flash',
   'googleGemini2_5FlashLite',
 ]
-export const xaiApiModelKeys = ['xaiGrok4_5', 'xaiGrok4_3']
+export const xaiApiModelKeys = ['xaiGrok4_6', 'xaiGrok4_5', 'xaiGrok4_3']
 
 export const AlwaysCustomGroups = [
   'ollamaApiModelKeys',
@@ -691,6 +691,10 @@ export const Models = {
     value: 'gemini-2.5-flash-lite',
     desc: 'Google (Gemini 2.5 Flash-Lite)',
   },
+  xaiGrok4_6: {
+    value: 'grok-4.6',
+    desc: 'xAI (Grok 4.6)',
+  },
   xaiGrok4_5: {
     value: 'grok-4.5',
     desc: 'xAI (Grok 4.5)',
@@ -724,6 +728,7 @@ export const defaultApiModeIds = [
   'chatgptApi5_6Sol',
   'chatgptApi5_6Terra',
   'chatgptApi5_6Luna',
+  'xaiGrok4_6',
   'xaiGrok4_5',
   'claudeOpus5Api',
   'claudeSonnet5Api',

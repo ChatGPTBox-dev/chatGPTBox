@@ -2989,6 +2989,7 @@ test('resolveOpenAICompatibleRequest avoids duplicate /v1 for custom provider ba
 })
 
 test('resolveProviderIdForSession resolves legacy xAI model names to xai provider', () => {
+  assert.equal(resolveProviderIdForSession({ modelName: 'xaiGrok4_6' }), 'xai')
   assert.equal(resolveProviderIdForSession({ modelName: 'xaiGrok4_5' }), 'xai')
   assert.equal(resolveProviderIdForSession({ modelName: 'xaiApiModelKeys-custom' }), 'xai')
 })
