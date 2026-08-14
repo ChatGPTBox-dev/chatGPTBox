@@ -29,6 +29,7 @@ import {
   isUsingMistralApiModel,
   isUsingMoonshotWebModel,
   isUsingOpenRouterApiModel,
+  isUsingOrcaRouterApiModel,
   isUsingAimlApiModel,
   isUsingDeepSeekApiModel,
   isUsingNvidiaNimApiModel,
@@ -405,6 +406,7 @@ function isUsingOpenAICompatibleApiSession(session) {
     isUsingNvidiaNimApiModel(session) ||
     isUsingOllamaApiModel(session) ||
     isUsingOpenRouterApiModel(session) ||
+    isUsingOrcaRouterApiModel(session) ||
     isUsingAimlApiModel(session) ||
     isUsingGoogleApiModel(session) ||
     isUsingXaiApiModel(session) ||

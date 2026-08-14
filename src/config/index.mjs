@@ -39,7 +39,7 @@ export const ModelMode = {
 }
 
 // Provider IDs added after custom providers became configurable need one-time secret migration.
-const NEWLY_RESERVED_BUILTIN_PROVIDER_IDS = new Set(['xai', 'nvidia-nim', 'mistral'])
+const NEWLY_RESERVED_BUILTIN_PROVIDER_IDS = new Set(['xai', 'nvidia-nim', 'mistral', 'orcarouter'])
 
 export const chatgptWebModelKeys = [
   'chatgptFree35',
@@ -166,6 +166,30 @@ export const openRouterApiModelKeys = [
   'openRouter_deepseek_v4_pro',
   'openRouter_deepseek_v4_flash',
 ]
+export const orcaRouterApiModelKeys = [
+  'orcaRouter_auto',
+  'orcaRouter_free',
+  'orcaRouter_fusion',
+  'orcaRouter_fusion_flash',
+  'orcaRouter_fusion_mini',
+  'orcaRouter_anthropic_claude_opus5',
+  'orcaRouter_anthropic_claude_sonnet5',
+  'orcaRouter_anthropic_claude_haiku4_5',
+  'orcaRouter_openai_gpt_5_6_sol',
+  'orcaRouter_openai_gpt_5_5',
+  'orcaRouter_openai_gpt_5_5_pro',
+  'orcaRouter_openai_gpt_5_4_mini',
+  'orcaRouter_google_gemini_3_6_flash',
+  'orcaRouter_google_gemini_3_5_flash',
+  'orcaRouter_google_gemini_3_1_pro',
+  'orcaRouter_xai_grok_4_5',
+  'orcaRouter_moonshot_kimi_k3',
+  'orcaRouter_qwen_3_7_max',
+  'orcaRouter_zai_glm_5_2',
+  'orcaRouter_deepseek_v4_pro',
+  'orcaRouter_deepseek_v4_flash',
+  'orcaRouter_minimax_m3',
+]
 export const aimlApiModelKeys = [
   'aiml_claude_sonnet_4_6_20260218',
   'aiml_openai_gpt_5_2',
@@ -270,6 +294,10 @@ export const ModelGroups = {
   openRouterApiModelKeys: {
     value: openRouterApiModelKeys,
     desc: 'OpenRouter (API)',
+  },
+  orcaRouterApiModelKeys: {
+    value: orcaRouterApiModelKeys,
+    desc: 'OrcaRouter (API)',
   },
   aimlModelKeys: {
     value: aimlApiModelKeys,
@@ -603,6 +631,96 @@ export const Models = {
     value: 'openai/gpt-4.1-mini',
     desc: 'OpenRouter (GPT-4.1 Mini)',
   },
+
+  orcaRouter_auto: {
+    value: 'orcarouter/auto',
+    desc: 'OrcaRouter (Auto Router)',
+  },
+  orcaRouter_free: {
+    value: 'orcarouter/free',
+    desc: 'OrcaRouter (Free Models Router)',
+  },
+  orcaRouter_fusion: {
+    value: 'orcarouter/fusion',
+    desc: 'OrcaRouter (Fusion)',
+  },
+  orcaRouter_fusion_flash: {
+    value: 'orcarouter/fusion-flash',
+    desc: 'OrcaRouter (Fusion Flash)',
+  },
+  orcaRouter_fusion_mini: {
+    value: 'orcarouter/fusion-mini',
+    desc: 'OrcaRouter (Fusion Mini)',
+  },
+  orcaRouter_anthropic_claude_opus5: {
+    value: 'anthropic/claude-opus-5',
+    desc: 'OrcaRouter (Claude Opus 5)',
+  },
+  orcaRouter_anthropic_claude_sonnet5: {
+    value: 'anthropic/claude-sonnet-5',
+    desc: 'OrcaRouter (Claude Sonnet 5)',
+  },
+  orcaRouter_anthropic_claude_haiku4_5: {
+    value: 'anthropic/claude-haiku-4.5',
+    desc: 'OrcaRouter (Claude Haiku 4.5)',
+  },
+  orcaRouter_openai_gpt_5_6_sol: {
+    value: 'openai/gpt-5.6-sol',
+    desc: 'OrcaRouter (GPT-5.6 Sol)',
+  },
+  orcaRouter_openai_gpt_5_5: {
+    value: 'openai/gpt-5.5',
+    desc: 'OrcaRouter (GPT-5.5)',
+  },
+  orcaRouter_openai_gpt_5_5_pro: {
+    value: 'openai/gpt-5.5-pro',
+    desc: 'OrcaRouter (GPT-5.5 Pro)',
+  },
+  orcaRouter_openai_gpt_5_4_mini: {
+    value: 'openai/gpt-5.4-mini',
+    desc: 'OrcaRouter (GPT-5.4 Mini)',
+  },
+  orcaRouter_google_gemini_3_6_flash: {
+    value: 'google/gemini-3.6-flash',
+    desc: 'OrcaRouter (Gemini 3.6 Flash)',
+  },
+  orcaRouter_google_gemini_3_5_flash: {
+    value: 'google/gemini-3.5-flash',
+    desc: 'OrcaRouter (Gemini 3.5 Flash)',
+  },
+  orcaRouter_google_gemini_3_1_pro: {
+    value: 'google/gemini-3.1-pro-preview',
+    desc: 'OrcaRouter (Gemini 3.1 Pro)',
+  },
+  orcaRouter_xai_grok_4_5: {
+    value: 'grok/grok-4.5',
+    desc: 'OrcaRouter (Grok 4.5)',
+  },
+  orcaRouter_moonshot_kimi_k3: {
+    value: 'kimi/kimi-k3',
+    desc: 'OrcaRouter (Kimi K3)',
+  },
+  orcaRouter_qwen_3_7_max: {
+    value: 'qwen/qwen3.7-max',
+    desc: 'OrcaRouter (Qwen3.7 Max)',
+  },
+  orcaRouter_zai_glm_5_2: {
+    value: 'z-ai/glm-5.2',
+    desc: 'OrcaRouter (GLM 5.2)',
+  },
+  orcaRouter_deepseek_v4_pro: {
+    value: 'deepseek/deepseek-v4-pro',
+    desc: 'OrcaRouter (DeepSeek V4 Pro)',
+  },
+  orcaRouter_deepseek_v4_flash: {
+    value: 'deepseek/deepseek-v4-flash',
+    desc: 'OrcaRouter (DeepSeek V4 Flash)',
+  },
+  orcaRouter_minimax_m3: {
+    value: 'minimax/minimax-m3',
+    desc: 'OrcaRouter (MiniMax M3)',
+  },
+
   aiml_openai_gpt_5_5: {
     value: 'openai/gpt-5-5',
     desc: 'AIML (GPT-5.5)',
@@ -738,6 +856,8 @@ export const defaultApiModeIds = [
   'mistralMediumLatest',
   'openRouter_auto',
   'openRouter_free',
+  'orcaRouter_auto',
+  'orcaRouter_free',
   'nvidiaNim_nemotron_3_super',
 ]
 
@@ -792,6 +912,7 @@ export const defaultConfig = {
   ollamaKeepAliveTime: '5m',
 
   openRouterApiKey: '',
+  orcaRouterApiKey: '',
   aimlApiKey: '',
   googleApiKey: '',
   xaiApiKey: '',
@@ -978,6 +1099,10 @@ export function isUsingNvidiaNimApiModel(configOrSession) {
 
 export function isUsingOpenRouterApiModel(configOrSession) {
   return isInApiModeGroup(openRouterApiModelKeys, configOrSession)
+}
+
+export function isUsingOrcaRouterApiModel(configOrSession) {
+  return isInApiModeGroup(orcaRouterApiModelKeys, configOrSession)
 }
 
 export function isUsingAimlApiModel(configOrSession) {
