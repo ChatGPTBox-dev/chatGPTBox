@@ -1,0 +1,90 @@
+name: agent-temperature-implementation-v3
+
+on:
+  push:
+    branches:
+      - fix/optional-temperature-override
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/optional-temperature-override
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Apply corrected focused changes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/workflows/agent-temperature-implementation-v2.yml').read_text(
+              encoding='utf-8'
+          )
+          start_marker = "          python3 <<'PY'\n"
+          end_marker = "\n          PY\n\n      - name: Install dependencies"
+          script = source.split(start_marker, 1)[1].split(end_marker, 1)[0]
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in script.splitlines()
+          )
+          old = """enable_override_in_temperature_assertion_tests(
+              'tests/unit/services/apis/openai-api-compat.test.mjs',
+              2,
+          )"""
+          new = """enable_override_in_temperature_assertion_tests(
+              'tests/unit/services/apis/openai-api-compat.test.mjs',
+              3,
+          )"""
+          if script.count(old) != 1:
+              raise RuntimeError('OpenAI temperature test count anchor not found')
+          script = script.replace(old, new, 1)
+          Path('/tmp/apply-temperature.py').write_text(script, encoding='utf-8')
+          PY
+          python3 /tmp/apply-temperature.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format changed files
+        shell: bash
+        run: xargs npx prettier --write < /tmp/temperature-changed-paths.txt
+
+      - name: Validate focused tests
+        shell: bash
+        run: |
+          node --import ./tests/setup/browser-shim.mjs --test \
+            tests/unit/services/apis/temperature-params.test.mjs \
+            tests/unit/services/apis/openai-api-compat.test.mjs \
+            tests/unit/services/apis/azure-openai-api.test.mjs \
+            tests/unit/services/apis/claude-api.test.mjs \
+            tests/unit/config/user-config.test.mjs
+
+      - name: Validate project
+        shell: bash
+        run: |
+          git diff --check
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          xargs git add -- < /tmp/temperature-changed-paths.txt
+          git diff --cached --check
+          git commit -m "Make temperature overrides opt-in"
+          git push origin HEAD:fix/optional-temperature-override
