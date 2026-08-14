@@ -1,0 +1,69 @@
+name: agent-temperature-implementation-v6
+
+on:
+  push:
+    branches:
+      - fix/optional-temperature-override
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/optional-temperature-override
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Apply focused temperature override changes
+        shell: bash
+        run: |
+          cat > /tmp/apply-temperature.py.gz.b64 <<'B64'
+          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
+          B64
+          base64 -d /tmp/apply-temperature.py.gz.b64 | gzip -d > /tmp/apply-temperature.py
+          python3 -m py_compile /tmp/apply-temperature.py
+          python3 /tmp/apply-temperature.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format changed files
+        shell: bash
+        run: xargs npx prettier --write < /tmp/temperature-changed-paths.txt
+
+      - name: Validate focused tests
+        shell: bash
+        run: |
+          node --import ./tests/setup/browser-shim.mjs --test \
+            tests/unit/services/apis/temperature-params.test.mjs \
+            tests/unit/services/apis/openai-api-compat.test.mjs \
+            tests/unit/services/apis/azure-openai-api.test.mjs \
+            tests/unit/services/apis/claude-api.test.mjs \
+            tests/unit/config/user-config.test.mjs
+
+      - name: Validate project
+        shell: bash
+        run: |
+          git diff --check
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          xargs git add -- < /tmp/temperature-changed-paths.txt
+          git diff --cached --check
+          git commit -m "Make temperature overrides opt-in"
+          git push origin HEAD:fix/optional-temperature-override
