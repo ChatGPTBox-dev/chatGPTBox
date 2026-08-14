@@ -1,0 +1,607 @@
+name: agent-temperature-implementation-v2
+
+on:
+  push:
+    branches:
+      - fix/optional-temperature-override
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/optional-temperature-override
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Apply focused temperature override changes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              target = Path(path)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(text, encoding='utf-8')
+
+          def replace_once(path, old, new):
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{path}: expected one replacement, found {count}')
+              write(path, text.replace(old, new, 1))
+
+          def replace_count(path, old, new, expected):
+              text = read(path)
+              count = text.count(old)
+              if count != expected:
+                  raise RuntimeError(f'{path}: expected {expected} replacements, found {count}')
+              write(path, text.replace(old, new))
+
+          def enable_override_in_temperature_assertion_tests(path, expected_blocks):
+              text = read(path)
+              starts = [match.start() for match in re.finditer(r'(?m)^test\(', text)]
+              output = []
+              cursor = 0
+              changed_blocks = 0
+              for index, start in enumerate(starts):
+                  end = starts[index + 1] if index + 1 < len(starts) else len(text)
+                  output.append(text[cursor:start])
+                  block = text[start:end]
+                  if (
+                      'body.temperature' in block
+                      or "Object.hasOwn(body, 'temperature')" in block
+                  ):
+                      def add_flag(match):
+                          indent = match.group(1)
+                          return (
+                              f'{indent}temperatureOverrideEnabled: true,\n'
+                              f'{indent}temperature: {match.group(2)},\n'
+                          )
+
+                      updated, count = re.subn(
+                          r'(?m)^(\s*)temperature: ([^\n,]+),$',
+                          add_flag,
+                          block,
+                      )
+                      if count == 0:
+                          raise RuntimeError(f'{path}: temperature assertion test has no config value')
+                      block = updated
+                      changed_blocks += 1
+                  output.append(block)
+                  cursor = end
+              output.append(text[cursor:])
+              if changed_blocks != expected_blocks:
+                  raise RuntimeError(
+                      f'{path}: expected {expected_blocks} temperature assertion tests, '
+                      f'found {changed_blocks}'
+                  )
+              write(path, ''.join(output))
+
+          replace_once(
+              'src/config/index.mjs',
+              "  maxResponseTokenLength: 2000,\n  maxConversationContextLength: 9,\n  temperature: 1,\n",
+              "  maxResponseTokenLength: 2000,\n  maxConversationContextLength: 9,\n  temperatureOverrideEnabled: false,\n  temperature: 1,\n",
+          )
+
+          replace_once(
+              'src/popup/sections/AdvancedPart.jsx',
+              "import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'\n",
+              "import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'\n"
+              "import { getModelValue } from '../../utils/model-name-convert.mjs'\n"
+              "import { canApplyTemperatureOverride } from '../../services/apis/temperature-params.mjs'\n",
+          )
+          replace_once(
+              'src/popup/sections/AdvancedPart.jsx',
+              "function ApiParams({ config, updateConfig }) {\n  const { t } = useTranslation()\n\n  return (\n",
+              "function ApiParams({ config, updateConfig }) {\n"
+              "  const { t } = useTranslation()\n"
+              "  const temperatureOverrideEnabled = config.temperatureOverrideEnabled === true\n"
+              "  const selectedModel =\n"
+              "    config.modelName === 'customModel' && !config.apiMode\n"
+              "      ? config.customModelName\n"
+              "      : getModelValue(config)\n"
+              "  const temperatureOverrideAvailable = canApplyTemperatureOverride(selectedModel)\n\n"
+              "  return (\n",
+          )
+          replace_once(
+              'src/popup/sections/AdvancedPart.jsx',
+              "      <label>\n"
+              "        {t('Temperature') + `: ${config.temperature}`}\n"
+              "        <input\n"
+              "          type=\"range\"\n"
+              "          min=\"0\"\n"
+              "          max=\"2\"\n"
+              "          step=\"0.1\"\n"
+              "          value={config.temperature}\n"
+              "          onChange={(e) => {\n"
+              "            const value = parseFloatWithClamp(e.target.value, 1, 0, 2)\n"
+              "            updateConfig({ temperature: value })\n"
+              "          }}\n"
+              "        />\n"
+              "      </label>\n",
+              "      <label>\n"
+              "        <input\n"
+              "          type=\"checkbox\"\n"
+              "          checked={temperatureOverrideEnabled}\n"
+              "          onChange={(e) => {\n"
+              "            updateConfig({ temperatureOverrideEnabled: e.target.checked })\n"
+              "          }}\n"
+              "        />\n"
+              "        {t('Override provider temperature')}\n"
+              "      </label>\n"
+              "      {!temperatureOverrideEnabled ? (\n"
+              "        <small>\n"
+              "          {t(\n"
+              "            'The temperature parameter is not sent. The provider or model default is used.',\n"
+              "          )}\n"
+              "        </small>\n"
+              "      ) : !temperatureOverrideAvailable ? (\n"
+              "        <small>\n"
+              "          {t(\n"
+              "            'The current model does not accept a custom temperature. The parameter will not be sent.',\n"
+              "          )}\n"
+              "        </small>\n"
+              "      ) : (\n"
+              "        <label>\n"
+              "          {t('Temperature') + `: ${config.temperature}`}\n"
+              "          <input\n"
+              "            type=\"range\"\n"
+              "            min=\"0\"\n"
+              "            max=\"2\"\n"
+              "            step=\"0.1\"\n"
+              "            value={config.temperature}\n"
+              "            onChange={(e) => {\n"
+              "              const value = parseFloatWithClamp(e.target.value, 1, 0, 2)\n"
+              "              updateConfig({ temperature: value })\n"
+              "            }}\n"
+              "          />\n"
+              "        </label>\n"
+              "      )}\n",
+          )
+
+          write(
+              'src/services/apis/temperature-params.mjs',
+              """const MODELS_WITHOUT_CUSTOM_TEMPERATURE = new Set([
+            'claude-opus-4-7',
+            'claude-opus-4-8',
+            'claude-sonnet-5',
+            'claude-opus-5',
+          ])
+
+          function normalizeModelId(model) {
+            return String(model || '')
+              .trim()
+              .toLowerCase()
+              .replace(/^(?:anthropic|google)\//, '')
+              .replace(/\./g, '-')
+          }
+
+          function isGeminiWithoutCustomTemperature(model) {
+            const match = /^gemini-(\d+)(?:-(\d+))?/.exec(model)
+            if (!match) return false
+
+            const major = Number(match[1])
+            const minor = Number(match[2] || 0)
+            if (major > 3) return true
+            if (major !== 3) return false
+
+            const isGemini35FlashLite =
+              minor === 5 &&
+              (model === 'gemini-3-5-flash-lite' || model.startsWith('gemini-3-5-flash-lite-'))
+            return minor >= 6 || isGemini35FlashLite
+          }
+
+          export function canApplyTemperatureOverride(model) {
+            const normalizedModel = normalizeModelId(model)
+            return (
+              !MODELS_WITHOUT_CUSTOM_TEMPERATURE.has(normalizedModel) &&
+              !isGeminiWithoutCustomTemperature(normalizedModel)
+            )
+          }
+
+          export function getTemperatureParams(config, model) {
+            if (config?.temperatureOverrideEnabled !== true) return {}
+            if (!Number.isFinite(config?.temperature)) return {}
+            if (!canApplyTemperatureOverride(model)) return {}
+            return { temperature: config.temperature }
+          }
+          """,
+          )
+
+          replace_once(
+              'src/services/apis/openai-api.mjs',
+              "  'maxResponseTokenLength',\n  'temperature',\n",
+              "  'maxResponseTokenLength',\n  'temperatureOverrideEnabled',\n  'temperature',\n",
+          )
+          replace_once(
+              'src/services/apis/openai-compatible-core.mjs',
+              "import { getChatCompletionsTokenParams } from './openai-token-params.mjs'\n",
+              "import { getChatCompletionsTokenParams } from './openai-token-params.mjs'\n"
+              "import { getTemperatureParams } from './temperature-params.mjs'\n",
+          )
+          replace_count(
+              'src/services/apis/openai-compatible-core.mjs',
+              '      temperature: config.temperature,\n',
+              '      ...getTemperatureParams(config, model),\n',
+              2,
+          )
+          replace_once(
+              'src/services/apis/azure-openai-api.mjs',
+              "import { getModelValue } from '../../utils/model-name-convert.mjs'\n",
+              "import { getModelValue } from '../../utils/model-name-convert.mjs'\n"
+              "import { getTemperatureParams } from './temperature-params.mjs'\n",
+          )
+          replace_once(
+              'src/services/apis/azure-openai-api.mjs',
+              '        temperature: config.temperature,\n',
+              '        ...getTemperatureParams(config, model),\n',
+          )
+          replace_once(
+              'src/services/apis/claude-api.mjs',
+              "import { getModelValue } from '../../utils/model-name-convert.mjs'\n\n"
+              "function shouldOmitTemperature(model) {\n"
+              "  return (\n"
+              "    model === 'claude-opus-4-7' ||\n"
+              "    model === 'claude-opus-4-8' ||\n"
+              "    model === 'claude-sonnet-5' ||\n"
+              "    model === 'claude-opus-5'\n"
+              "  )\n"
+              "}\n",
+              "import { getModelValue } from '../../utils/model-name-convert.mjs'\n"
+              "import { getTemperatureParams } from './temperature-params.mjs'\n",
+          )
+          replace_once(
+              'src/services/apis/claude-api.mjs',
+              "    stream: true,\n    max_tokens: config.maxResponseTokenLength,\n  }\n",
+              "    stream: true,\n"
+              "    max_tokens: config.maxResponseTokenLength,\n"
+              "    ...getTemperatureParams(config, model),\n"
+              "  }\n",
+          )
+          replace_once(
+              'src/services/apis/claude-api.mjs',
+              "  if (!shouldOmitTemperature(model)) {\n    body.temperature = config.temperature\n  }\n",
+              '',
+          )
+
+          translations = {
+              'en': ('Override provider temperature', 'The temperature parameter is not sent. The provider or model default is used.', 'The current model does not accept a custom temperature. The parameter will not be sent.'),
+              'de': ('Anbieter-Temperatur überschreiben', 'Der Temperaturparameter wird nicht gesendet. Es wird der Standardwert des Anbieters oder Modells verwendet.', 'Das aktuelle Modell akzeptiert keine benutzerdefinierte Temperatur. Der Parameter wird nicht gesendet.'),
+              'es': ('Sobrescribir la temperatura del proveedor', 'El parámetro de temperatura no se envía. Se utiliza el valor predeterminado del proveedor o del modelo.', 'El modelo actual no acepta una temperatura personalizada. El parámetro no se enviará.'),
+              'fr': ('Remplacer la température du fournisseur', 'Le paramètre de température n’est pas envoyé. La valeur par défaut du fournisseur ou du modèle est utilisée.', 'Le modèle actuel n’accepte pas de température personnalisée. Le paramètre ne sera pas envoyé.'),
+              'in': ('Timpa suhu penyedia', 'Parameter suhu tidak dikirim. Nilai bawaan penyedia atau model akan digunakan.', 'Model saat ini tidak menerima suhu khusus. Parameter tidak akan dikirim.'),
+              'it': ('Sovrascrivi la temperatura del provider', 'Il parametro della temperatura non viene inviato. Viene usato il valore predefinito del provider o del modello.', 'Il modello attuale non accetta una temperatura personalizzata. Il parametro non verrà inviato.'),
+              'ja': ('プロバイダーの温度を上書き', '温度パラメーターは送信されません。プロバイダーまたはモデルの既定値が使用されます。', '現在のモデルはカスタム温度を受け付けません。このパラメーターは送信されません。'),
+              'ko': ('공급자 온도 재정의', '온도 매개변수는 전송되지 않습니다. 공급자 또는 모델의 기본값이 사용됩니다.', '현재 모델은 사용자 지정 온도를 허용하지 않습니다. 이 매개변수는 전송되지 않습니다.'),
+              'pt': ('Substituir a temperatura do provedor', 'O parâmetro de temperatura não é enviado. O valor padrão do provedor ou do modelo é utilizado.', 'O modelo atual não aceita uma temperatura personalizada. O parâmetro não será enviado.'),
+              'ru': ('Переопределить температуру провайдера', 'Параметр температуры не отправляется. Используется значение по умолчанию провайдера или модели.', 'Текущая модель не принимает пользовательскую температуру. Параметр не будет отправлен.'),
+              'tr': ('Sağlayıcı sıcaklığını geçersiz kıl', 'Sıcaklık parametresi gönderilmez. Sağlayıcının veya modelin varsayılan değeri kullanılır.', 'Geçerli model özel bir sıcaklık kabul etmiyor. Parametre gönderilmeyecek.'),
+              'zh-hans': ('覆盖提供商的温度参数', '不会发送温度参数，将使用提供商或模型的默认值。', '当前模型不接受自定义温度参数，因此不会发送该参数。'),
+              'zh-hant': ('覆寫供應商的溫度參數', '不會傳送溫度參數，將使用供應商或模型的預設值。', '目前的模型不接受自訂溫度參數，因此不會傳送這個參數。'),
+          }
+          keys = (
+              'Override provider temperature',
+              'The temperature parameter is not sent. The provider or model default is used.',
+              'The current model does not accept a custom temperature. The parameter will not be sent.',
+          )
+          for locale, values in translations.items():
+              path = f'src/_locales/{locale}/main.json'
+              text = read(path)
+              for key in keys:
+                  if json.dumps(key, ensure_ascii=False) + ':' in text:
+                      raise RuntimeError(f'{path}: translation key already exists: {key}')
+              lines = ''.join(
+                  f'  {json.dumps(key, ensure_ascii=False)}: {json.dumps(value, ensure_ascii=False)},\n'
+                  for key, value in zip(keys, values)
+              )
+              text, count = re.subn(
+                  r'(^  "API Params": .*\n)',
+                  lambda match: match.group(1) + lines,
+                  text,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              if count != 1:
+                  raise RuntimeError(f'{path}: API Params anchor not found')
+              json.loads(text)
+              write(path, text)
+
+          write(
+              'tests/unit/services/apis/temperature-params.test.mjs',
+              """import assert from 'node:assert/strict'
+          import { test } from 'node:test'
+          import {
+            canApplyTemperatureOverride,
+            getTemperatureParams,
+          } from '../../../../src/services/apis/temperature-params.mjs'
+
+          test('temperature params require an explicit finite override', () => {
+            assert.deepEqual(getTemperatureParams({}, 'gpt-4.1'), {})
+            assert.deepEqual(
+              getTemperatureParams({ temperatureOverrideEnabled: false, temperature: 0.7 }, 'gpt-4.1'),
+              {},
+            )
+            assert.deepEqual(
+              getTemperatureParams({ temperatureOverrideEnabled: true, temperature: Number.NaN }, 'gpt-4.1'),
+              {},
+            )
+            assert.deepEqual(
+              getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0 }, 'gpt-4.1'),
+              { temperature: 0 },
+            )
+            assert.deepEqual(
+              getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, 'gpt-4.1'),
+              { temperature: 0.7 },
+            )
+          })
+
+          test('temperature overrides omit known Anthropic models across provider ID formats', () => {
+            for (const model of [
+              'claude-opus-4-7',
+              'claude-opus-4-8',
+              'anthropic/claude-opus-4.8',
+              'anthropic/claude-opus-4-8',
+              'claude-sonnet-5',
+              'claude-opus-5',
+            ]) {
+              assert.equal(canApplyTemperatureOverride(model), false, model)
+              assert.deepEqual(
+                getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, model),
+                {},
+                model,
+              )
+            }
+            assert.equal(canApplyTemperatureOverride('claude-opus-4-6'), true)
+          })
+
+          test('temperature overrides omit Gemini models with deprecated sampling parameters', () => {
+            for (const model of [
+              'gemini-3.5-flash-lite',
+              'google/gemini-3.5-flash-lite',
+              'google/gemini-3-5-flash-lite',
+              'gemini-3.6-flash',
+              'google/gemini-3.6-flash',
+              'google/gemini-3-6-flash',
+              'gemini-3.7-flash',
+              'gemini-4-flash',
+            ]) {
+              assert.equal(canApplyTemperatureOverride(model), false, model)
+              assert.deepEqual(
+                getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, model),
+                {},
+                model,
+              )
+            }
+          })
+
+          test('temperature overrides remain available for earlier Gemini models', () => {
+            for (const model of [
+              'gemini-2.5-flash',
+              'gemini-3-flash-preview',
+              'gemini-3.1-pro-preview',
+              'gemini-3.5-flash',
+              'google/gemini-3.5-flash',
+              'google/gemini-3-5-flash',
+            ]) {
+              assert.equal(canApplyTemperatureOverride(model), true, model)
+              assert.deepEqual(
+                getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, model),
+                { temperature: 0.7 },
+                model,
+              )
+            }
+          })
+          """,
+          )
+
+          enable_override_in_temperature_assertion_tests(
+              'tests/unit/services/apis/openai-api-compat.test.mjs',
+              2,
+          )
+          enable_override_in_temperature_assertion_tests(
+              'tests/unit/services/apis/azure-openai-api.test.mjs',
+              1,
+          )
+          enable_override_in_temperature_assertion_tests(
+              'tests/unit/services/apis/claude-api.test.mjs',
+              3,
+          )
+
+          openai_omission_test = """test('generateAnswersWithOpenAiApiCompat uses the provider temperature default', async (t) => {
+            t.mock.method(console, 'debug', () => {})
+            setStorage({
+              maxConversationContextLength: 3,
+              maxResponseTokenLength: 256,
+            })
+            const session = {
+              modelName: 'chatgptApi4oMini',
+              conversationRecords: [],
+              isRetry: false,
+            }
+            const port = createFakePort()
+            let capturedInit
+            t.mock.method(globalThis, 'fetch', async (_input, init) => {
+              capturedInit = init
+              return createMockSseResponse([
+                'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+              ])
+            })
+            await generateAnswersWithOpenAiApiCompat(
+              'https://api.example.com/v1', port, 'CurrentQ', session, 'sk-test',
+            )
+            const body = JSON.parse(capturedInit.body)
+            assert.equal(Object.hasOwn(body, 'temperature'), false)
+          })
+
+          """
+          replace_once(
+              'tests/unit/services/apis/openai-api-compat.test.mjs',
+              "test('generateAnswersWithOpenAiApiCompat emits fallback done message when stream ends without finish reason', async (t) => {\n",
+              openai_omission_test
+              + "test('generateAnswersWithOpenAiApiCompat emits fallback done message when stream ends without finish reason', async (t) => {\n",
+          )
+
+          azure_omission_test = """test('azure-openai: uses the provider temperature default', async (t) => {
+            t.mock.method(console, 'debug', () => {})
+            setStorage({
+              azureEndpoint: 'https://myinstance.openai.azure.com',
+              azureApiKey: 'az-key',
+              azureDeploymentName: 'gpt-4o',
+              maxConversationContextLength: 3,
+              maxResponseTokenLength: 1024,
+            })
+            const session = {
+              modelName: 'azureOpenAi',
+              conversationRecords: [],
+              isRetry: false,
+            }
+            const port = createFakePort()
+            let capturedInit
+            t.mock.method(globalThis, 'fetch', async (_input, init) => {
+              capturedInit = init
+              return createMockSseResponse([
+                'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+              ])
+            })
+            await generateAnswersWithAzureOpenaiApi(port, 'Q', session)
+            const body = JSON.parse(capturedInit.body)
+            assert.equal(Object.hasOwn(body, 'temperature'), false)
+          })
+
+          """
+          replace_once(
+              'tests/unit/services/apis/azure-openai-api.test.mjs',
+              "test('azure-openai: aggregates SSE deltas and pushes record on finish', async (t) => {\n",
+              azure_omission_test
+              + "test('azure-openai: aggregates SSE deltas and pushes record on finish', async (t) => {\n",
+          )
+
+          claude_omission_test = """test('claude-api: uses the provider temperature default', async (t) => {
+            t.mock.method(console, 'debug', () => {})
+            setStorage({
+              customClaudeApiUrl: 'https://api.anthropic.com',
+              claudeApiKey: 'sk-ant-test',
+              maxConversationContextLength: 3,
+              maxResponseTokenLength: 1024,
+            })
+            const session = {
+              modelName: 'claudeSonnet46Api',
+              conversationRecords: [],
+              isRetry: false,
+            }
+            const port = createFakePort()
+            let capturedInit
+            t.mock.method(globalThis, 'fetch', async (_input, init) => {
+              capturedInit = init
+              return createMockSseResponse([
+                'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\n\n',
+                'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+                'data: {"type":"message_stop"}\n\n',
+              ])
+            })
+            await generateAnswersWithClaudeApi(port, 'Q', session)
+            const body = JSON.parse(capturedInit.body)
+            assert.equal(Object.hasOwn(body, 'temperature'), false)
+          })
+
+          """
+          replace_once(
+              'tests/unit/services/apis/claude-api.test.mjs',
+              "test('claude-api: keeps temperature for Opus 4.6', async (t) => {\n",
+              claude_omission_test
+              + "test('claude-api: keeps temperature for Opus 4.6', async (t) => {\n",
+          )
+
+          path = 'tests/unit/config/user-config.test.mjs'
+          text = read(path)
+          if 'keeps a stored temperature but leaves overrides disabled' in text:
+              raise RuntimeError(f'{path}: temperature tests already exist')
+          text = text.rstrip() + """
+
+          test('getUserConfig keeps a stored temperature but leaves overrides disabled by default', async () => {
+            globalThis.__TEST_BROWSER_SHIM__.replaceStorage({ temperature: 0.7 })
+            const config = await getUserConfig()
+            assert.equal(config.temperature, 0.7)
+            assert.equal(config.temperatureOverrideEnabled, false)
+          })
+
+          test('getUserConfig preserves an explicitly enabled temperature override', async () => {
+            globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+              temperatureOverrideEnabled: true,
+              temperature: 0.7,
+            })
+            const config = await getUserConfig()
+            assert.equal(config.temperature, 0.7)
+            assert.equal(config.temperatureOverrideEnabled, true)
+          })
+          """
+          write(path, text)
+
+          changed_paths = [
+              'src/config/index.mjs',
+              'src/popup/sections/AdvancedPart.jsx',
+              'src/services/apis/temperature-params.mjs',
+              'src/services/apis/openai-api.mjs',
+              'src/services/apis/openai-compatible-core.mjs',
+              'src/services/apis/azure-openai-api.mjs',
+              'src/services/apis/claude-api.mjs',
+              'tests/unit/services/apis/temperature-params.test.mjs',
+              'tests/unit/services/apis/openai-api-compat.test.mjs',
+              'tests/unit/services/apis/azure-openai-api.test.mjs',
+              'tests/unit/services/apis/claude-api.test.mjs',
+              'tests/unit/config/user-config.test.mjs',
+              *[f'src/_locales/{locale}/main.json' for locale in translations],
+          ]
+          write('/tmp/temperature-changed-paths.txt', '\n'.join(changed_paths) + '\n')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format changed files
+        shell: bash
+        run: xargs npx prettier --write < /tmp/temperature-changed-paths.txt
+
+      - name: Validate focused tests
+        shell: bash
+        run: |
+          node --import ./tests/setup/browser-shim.mjs --test \
+            tests/unit/services/apis/temperature-params.test.mjs \
+            tests/unit/services/apis/openai-api-compat.test.mjs \
+            tests/unit/services/apis/azure-openai-api.test.mjs \
+            tests/unit/services/apis/claude-api.test.mjs \
+            tests/unit/config/user-config.test.mjs
+
+      - name: Validate project
+        shell: bash
+        run: |
+          git diff --check
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          xargs git add -- < /tmp/temperature-changed-paths.txt
+          git diff --cached --check
+          git commit -m "Make temperature overrides opt-in"
+          git push origin HEAD:fix/optional-temperature-override
