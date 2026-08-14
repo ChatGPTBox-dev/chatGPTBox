@@ -187,6 +187,9 @@ export const aimlApiModelKeys = [
 export const googleApiModelKeys = [
   'googleGemini3_1Pro',
   'googleGemini3_5Flash',
+  'googleGemini3_5FlashLite',
+  'googleGemini3_6Flash',
+  'googleGemini3_7Flash',
   'googleGemini3Flash',
   'googleGemini2_5Pro',
   'googleGemini2_5Flash',
@@ -675,6 +678,18 @@ export const Models = {
     value: 'gemini-3.5-flash',
     desc: 'Google (Gemini 3.5 Flash)',
   },
+  googleGemini3_5FlashLite: {
+    value: 'gemini-3.5-flash-lite',
+    desc: 'Google (Gemini 3.5 Flash-Lite)',
+  },
+  googleGemini3_6Flash: {
+    value: 'gemini-3.6-flash',
+    desc: 'Google (Gemini 3.6 Flash)',
+  },
+  googleGemini3_7Flash: {
+    value: 'gemini-3.7-flash',
+    desc: 'Google (Gemini 3.7 Flash)',
+  },
   googleGemini3Flash: {
     value: 'gemini-3-flash-preview',
     desc: 'Google (Gemini 3 Flash Preview)',
@@ -735,6 +750,9 @@ export const defaultApiModeIds = [
   'claudeHaiku45Api',
   'googleGemini3_1Pro',
   'googleGemini3_5Flash',
+  'googleGemini3_5FlashLite',
+  'googleGemini3_6Flash',
+  'googleGemini3_7Flash',
   'mistralMediumLatest',
   'openRouter_auto',
   'openRouter_free',
