@@ -1,5 +1,10 @@
 import { cropText, limitedFetch } from '../../../utils'
 import { config } from '../index.mjs'
+import {
+  hasGitHubPathChanged,
+  isGitHubIssuePath,
+  isGitHubPullPath,
+} from './path-matching.mjs'
 
 const getPatchUrl = async () => {
   const patchUrl = location.origin + location.pathname + '.patch'
@@ -16,13 +21,9 @@ const getPatchData = async (patchUrl) => {
   return patchData
 }
 
-const isPull = () => {
-  return location.href.match(/\/pull\/\d+$/)
-}
+const isPull = () => isGitHubPullPath(location.pathname)
 
-const isIssue = () => {
-  return location.href.match(/\/issues\/\d+$/)
-}
+const isIssue = () => isGitHubIssuePath(location.pathname)
 
 function parseGitHubIssueData() {
   // Function to parse a single comment
@@ -125,19 +126,20 @@ function createChatGPtSummaryPrompt(issueData, isIssue = true) {
 export default {
   init: async (hostname, userConfig, getInput, mountComponent) => {
     try {
-      let oldUrl = location.href
+      let oldPathname = location.pathname
       const checkUrlChange = async () => {
-        if (location.href !== oldUrl) {
-          oldUrl = location.href
-          if (isPull() || isIssue()) {
-            mountComponent('github', config.github)
-            return
-          }
+        const newPathname = location.pathname
+        if (!hasGitHubPathChanged(oldPathname, newPathname)) return
 
-          const patchUrl = await getPatchUrl()
-          if (patchUrl) {
-            mountComponent('github', config.github)
-          }
+        oldPathname = newPathname
+        if (isPull() || isIssue()) {
+          mountComponent('github', config.github)
+          return
+        }
+
+        const patchUrl = await getPatchUrl()
+        if (patchUrl) {
+          mountComponent('github', config.github)
         }
       }
       window.setInterval(checkUrlChange, 500)
