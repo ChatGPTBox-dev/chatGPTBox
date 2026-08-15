@@ -33,6 +33,7 @@ function resolveModelName(session, config) {
 const OPENAI_COMPATIBLE_RUNTIME_CONFIG_KEYS = [
   'maxConversationContextLength',
   'maxResponseTokenLength',
+  'temperatureOverrideEnabled',
   'temperature',
 ]
 

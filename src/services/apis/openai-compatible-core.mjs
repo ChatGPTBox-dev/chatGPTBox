@@ -3,6 +3,7 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
+import { getTemperatureParams } from './temperature-params.mjs'
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -73,6 +74,8 @@ export async function generateAnswersWithOpenAICompatible({
     ? session.conversationRecords
     : []
   session.conversationRecords = conversationRecords
+  const safeExtraBody = { ...extraBody }
+  delete safeExtraBody.temperature
   if (endpointType === 'completion') {
     const prompt =
       (await getCompletionPromptBase()) +
@@ -83,9 +86,9 @@ export async function generateAnswersWithOpenAICompatible({
       model,
       stream: true,
       max_tokens: config.maxResponseTokenLength,
-      temperature: config.temperature,
+      ...getTemperatureParams(config, model),
       stop: '\nHuman',
-      ...extraBody,
+      ...safeExtraBody,
     }
   } else {
     const messages = getConversationPairs(
@@ -100,14 +103,13 @@ export async function generateAnswersWithOpenAICompatible({
     )
     const conflictingTokenParamKey =
       'max_completion_tokens' in tokenParams ? 'max_tokens' : 'max_completion_tokens'
-    const safeExtraBody = { ...extraBody }
     delete safeExtraBody[conflictingTokenParamKey]
     requestBody = {
       messages,
       model,
       stream: true,
       ...tokenParams,
-      temperature: config.temperature,
+      ...getTemperatureParams(config, model),
       ...safeExtraBody,
     }
   }

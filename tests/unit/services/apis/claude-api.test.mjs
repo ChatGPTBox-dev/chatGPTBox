@@ -76,6 +76,7 @@ test('claude-api: sends model, max_tokens, temperature in body', async (t) => {
     claudeApiKey: 'sk-ant-test',
     maxConversationContextLength: 3,
     maxResponseTokenLength: 1024,
+    temperatureOverrideEnabled: true,
     temperature: 0.9,
   })
 
@@ -105,6 +106,37 @@ test('claude-api: sends model, max_tokens, temperature in body', async (t) => {
   assert.equal(body.stream, true)
 })
 
+test('claude-api: uses the provider temperature default', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customClaudeApiUrl: 'https://api.anthropic.com',
+    claudeApiKey: 'sk-ant-test',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 1024,
+  })
+
+  const session = {
+    modelName: 'claudeSonnet46Api',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ])
+  })
+
+  await generateAnswersWithClaudeApi(port, 'Q', session)
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(Object.hasOwn(body, 'temperature'), false)
+})
+
 test('claude-api: keeps temperature for Opus 4.6', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
@@ -112,6 +144,7 @@ test('claude-api: keeps temperature for Opus 4.6', async (t) => {
     claudeApiKey: 'sk-ant-test',
     maxConversationContextLength: 3,
     maxResponseTokenLength: 1024,
+    temperatureOverrideEnabled: true,
     temperature: 0.9,
   })
 
@@ -156,6 +189,7 @@ test('claude-api: omits temperature for models that reject custom sampling', asy
         claudeApiKey: 'sk-ant-test',
         maxConversationContextLength: 3,
         maxResponseTokenLength: 1024,
+        temperatureOverrideEnabled: true,
         temperature: 0.9,
       })
 

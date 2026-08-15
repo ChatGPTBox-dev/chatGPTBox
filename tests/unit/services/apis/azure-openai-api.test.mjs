@@ -125,6 +125,7 @@ test('azure-openai: sends max_tokens and temperature in body', async (t) => {
     azureDeploymentName: 'gpt-4o',
     maxConversationContextLength: 3,
     maxResponseTokenLength: 1024,
+    temperatureOverrideEnabled: true,
     temperature: 0.9,
   })
 
@@ -149,6 +150,36 @@ test('azure-openai: sends max_tokens and temperature in body', async (t) => {
   assert.equal(body.max_tokens, 1024)
   assert.equal(body.temperature, 0.9)
   assert.equal(body.stream, true)
+})
+
+test('azure-openai: uses the provider temperature default', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    azureEndpoint: 'https://myinstance.openai.azure.com',
+    azureApiKey: 'az-key',
+    azureDeploymentName: 'gpt-4o',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 1024,
+  })
+
+  const session = {
+    modelName: 'azureOpenAi',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithAzureOpenaiApi(port, 'Q', session)
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(Object.hasOwn(body, 'temperature'), false)
 })
 
 test('azure-openai: aggregates SSE deltas and pushes record on finish', async (t) => {

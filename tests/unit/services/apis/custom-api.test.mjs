@@ -18,6 +18,7 @@ test('aggregates delta.content SSE chunks and finishes on finish_reason', async 
   setStorage({
     maxConversationContextLength: 3,
     maxResponseTokenLength: 256,
+    temperatureOverrideEnabled: true,
     temperature: 0.5,
   })
 

@@ -4,15 +4,7 @@ import { FETCH_RESPONSE_STREAM_FAILED, fetchSSE } from '../../utils/fetch-sse.mj
 import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
-
-function shouldOmitTemperature(model) {
-  return (
-    model === 'claude-opus-4-7' ||
-    model === 'claude-opus-4-8' ||
-    model === 'claude-sonnet-5' ||
-    model === 'claude-opus-5'
-  )
-}
+import { getTemperatureParams } from './temperature-params.mjs'
 
 function shouldDisableDefaultThinking(model) {
   return model === 'claude-sonnet-5'
@@ -40,12 +32,10 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     messages: prompt,
     stream: true,
     max_tokens: config.maxResponseTokenLength,
+    ...getTemperatureParams(config, model),
   }
   if (shouldDisableDefaultThinking(model)) {
     body.thinking = { type: 'disabled' }
-  }
-  if (!shouldOmitTemperature(model)) {
-    body.temperature = config.temperature
   }
 
   let answer = ''

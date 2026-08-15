@@ -800,6 +800,7 @@ export const defaultConfig = {
 
   maxResponseTokenLength: 2000,
   maxConversationContextLength: 9,
+  temperatureOverrideEnabled: false,
   temperature: 1,
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',

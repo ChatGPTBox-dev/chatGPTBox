@@ -69,6 +69,7 @@ test('generateAnswersWithOpenAiApiCompat sends expected request and aggregates S
   setStorage({
     maxConversationContextLength: 3,
     maxResponseTokenLength: 256,
+    temperatureOverrideEnabled: true,
     temperature: 0.25,
   })
 
@@ -126,6 +127,39 @@ test('generateAnswersWithOpenAiApiCompat sends expected request and aggregates S
   )
   assert.deepEqual(port.postedMessages.at(-1), { answer: null, done: true, session })
   assert.deepEqual(session.conversationRecords.at(-1), { question: 'CurrentQ', answer: 'Hello' })
+})
+
+test('generateAnswersWithOpenAiApiCompat uses the provider temperature default', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(Object.hasOwn(body, 'temperature'), false)
 })
 
 test('generateAnswersWithOpenAiApiCompat emits fallback done message when stream ends without finish reason', async (t) => {
@@ -818,13 +852,16 @@ test('generateAnswersWithOpenAICompatibleApi uses caller config snapshot for req
   setStorage({
     maxConversationContextLength: 1,
     maxResponseTokenLength: 111,
+    temperatureOverrideEnabled: true,
     temperature: 0.1,
   })
 
   const config = {
     maxConversationContextLength: 2,
     maxResponseTokenLength: 777,
+    temperatureOverrideEnabled: true,
     temperature: 0.7,
+
     customOpenAIProviders: [
       {
         id: 'snapshot-provider',
@@ -2184,6 +2221,7 @@ test('generateAnswersWithGptCompletionApi builds completion prompt and appends a
     customOpenAiApiUrl: 'https://api.example.com',
     maxConversationContextLength: 5,
     maxResponseTokenLength: 300,
+    temperatureOverrideEnabled: true,
     temperature: 0.5,
   })
 
