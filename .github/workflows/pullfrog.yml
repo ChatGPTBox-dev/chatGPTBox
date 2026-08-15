@@ -24,6 +24,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 1
       - name: Run agent
         uses: pullfrog/pullfrog@v0
