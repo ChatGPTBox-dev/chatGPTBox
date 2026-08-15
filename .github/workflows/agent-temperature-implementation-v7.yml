@@ -1,0 +1,88 @@
+name: agent-temperature-implementation-v7
+
+on:
+  pull_request:
+    branches:
+      - fix/optional-temperature-override
+    types:
+      - opened
+      - synchronize
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/optional-temperature-override
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Apply focused temperature override changes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import base64
+          import gzip
+          import re
+
+          workflow = Path('.github/workflows/agent-temperature-implementation-v6.yml').read_text(
+              encoding='utf-8'
+          )
+          match = re.search(
+              r"cat > /tmp/apply-temperature\.py\.gz\.b64 <<'B64'\n\s*(.*?)\n\s*B64",
+              workflow,
+              re.DOTALL,
+          )
+          if not match:
+              raise RuntimeError('embedded implementation payload not found')
+          payload = ''.join(line.strip() for line in match.group(1).splitlines())
+          script = gzip.decompress(base64.b64decode(payload))
+          Path('/tmp/apply-temperature.py').write_bytes(script)
+          PY
+          python3 -m py_compile /tmp/apply-temperature.py
+          python3 /tmp/apply-temperature.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format changed files
+        shell: bash
+        run: xargs npx prettier --write < /tmp/temperature-changed-paths.txt
+
+      - name: Validate focused tests
+        shell: bash
+        run: |
+          node --import ./tests/setup/browser-shim.mjs --test \
+            tests/unit/services/apis/temperature-params.test.mjs \
+            tests/unit/services/apis/openai-api-compat.test.mjs \
+            tests/unit/services/apis/azure-openai-api.test.mjs \
+            tests/unit/services/apis/claude-api.test.mjs \
+            tests/unit/config/user-config.test.mjs
+
+      - name: Validate project
+        shell: bash
+        run: |
+          git diff --check
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          xargs git add -- < /tmp/temperature-changed-paths.txt
+          git diff --cached --check
+          git commit -m "Make temperature overrides opt-in"
+          git push origin HEAD:fix/optional-temperature-override
