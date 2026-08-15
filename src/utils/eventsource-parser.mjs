@@ -47,11 +47,7 @@ function createParser(onParse) {
       let lineLength = -1
       let fieldLength = startingFieldLength
       let character
-      for (
-        let index = position + startingPosition;
-        lineLength < 0 && index < length;
-        ++index
-      ) {
+      for (let index = position + startingPosition; lineLength < 0 && index < length; ++index) {
         character = buffer[index]
         if (character === ':' && fieldLength < 0) {
           fieldLength = index - position

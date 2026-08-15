@@ -4,14 +4,8 @@ import { shouldHandleInputAction } from '../../../src/components/InputBox/input-
 
 test('input actions handle button clicks and both plain Enter forms', () => {
   assert.equal(shouldHandleInputAction({ type: 'click' }), true)
-  assert.equal(
-    shouldHandleInputAction({ type: 'keydown', key: 'Enter', shiftKey: false }),
-    true,
-  )
-  assert.equal(
-    shouldHandleInputAction({ type: 'keydown', keyCode: 13, shiftKey: false }),
-    true,
-  )
+  assert.equal(shouldHandleInputAction({ type: 'keydown', key: 'Enter', shiftKey: false }), true)
+  assert.equal(shouldHandleInputAction({ type: 'keydown', keyCode: 13, shiftKey: false }), true)
 })
 
 test('input actions preserve Shift+Enter line breaks', () => {

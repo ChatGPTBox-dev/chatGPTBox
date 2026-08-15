@@ -1,10 +1,6 @@
 import { cropText, limitedFetch } from '../../../utils'
 import { config } from '../index.mjs'
-import {
-  hasGitHubPathChanged,
-  isGitHubIssuePath,
-  isGitHubPullPath,
-} from './path-matching.mjs'
+import { hasGitHubPathChanged, isGitHubIssuePath, isGitHubPullPath } from './path-matching.mjs'
 
 const getPatchUrl = async () => {
   const patchUrl = location.origin + location.pathname + '.patch'
