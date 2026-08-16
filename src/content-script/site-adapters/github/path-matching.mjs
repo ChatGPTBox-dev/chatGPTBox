@@ -1,5 +1,5 @@
-const issuePathPattern = /\/issues\/\d+\/?$/
-const pullPathPattern = /\/pull\/\d+\/?$/
+const issuePathPattern = /^\/[^/]+\/[^/]+\/issues\/\d+\/?$/
+const pullPathPattern = /^\/[^/]+\/[^/]+\/pull\/\d+\/?$/
 
 function normalizeGitHubPathname(pathname) {
   if (pathname === '/') return pathname

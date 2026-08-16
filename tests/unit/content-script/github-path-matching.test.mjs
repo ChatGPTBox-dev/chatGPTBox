@@ -13,6 +13,20 @@ test('GitHub thread paths allow an optional trailing slash', () => {
   assert.equal(isGitHubPullPath('/owner/repo/pull/456/'), true)
 })
 
+test('GitHub thread matching requires owner and repository path segments', () => {
+  assert.equal(isGitHubIssuePath('/owner-name/repo.name_1/issues/123'), true)
+  assert.equal(isGitHubPullPath('/owner-name/repo.name_1/pull/456'), true)
+
+  assert.equal(isGitHubIssuePath('/issues/123'), false)
+  assert.equal(isGitHubPullPath('/pull/456'), false)
+  assert.equal(isGitHubIssuePath('/owner/issues/123'), false)
+  assert.equal(isGitHubPullPath('/owner/pull/456'), false)
+  assert.equal(isGitHubIssuePath('/prefix/owner/repo/issues/123'), false)
+  assert.equal(isGitHubPullPath('/prefix/owner/repo/pull/456'), false)
+  assert.equal(isGitHubIssuePath('/owner/repo/nested/issues/123'), false)
+  assert.equal(isGitHubPullPath('/owner/repo/nested/pull/456'), false)
+})
+
 test('GitHub thread matching ignores query strings and fragments via pathname', () => {
   const issueUrl = new URL(
     'https://github.com/owner/repo/issues/123?notification_referrer_id=abc#issuecomment-456',
