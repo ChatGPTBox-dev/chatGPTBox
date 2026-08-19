@@ -84,6 +84,8 @@
   "Confirm": "Conferma",
   "Clear Conversation": "Pulisci la conversazione",
   "Retry": "Riprova",
+  "Replace Selection": "Sostituisci selezione",
+  "Replace Failed": "Sostituzione non riuscita",
   "Exceeded maximum context length": "Lunghezza massima del contesto superata, si prega di pulire la conversazione e riprovare",
   "Claude reached the response token limit. Increase Max Response Token Length and try again.": "Claude ha raggiunto il limite di token della risposta. Aumenta la lunghezza massima dei token della risposta e riprova.",
   "Claude reached the model context window limit. Clear the conversation and try again.": "Claude ha raggiunto il limite della finestra di contesto del modello. Cancella la conversazione e riprova.",
