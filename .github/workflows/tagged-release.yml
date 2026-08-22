@@ -79,13 +79,38 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
           git add src/manifest.json src/manifest.v2.json
+          report_sync_warning() {
+            echo "::warning::$1"
+            echo "Release version sync warning: $1" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
+          }
           if git diff --cached --quiet; then
             echo "No release version changes to commit"
+          elif ! git commit -m "release v${VERSION}"; then
+            report_sync_warning "Failed to commit the release version sync; continuing with the release"
           else
-            git commit -m "release v${VERSION}"
-            git fetch origin master
-            git rebase FETCH_HEAD
-            git push origin HEAD:master
+            max_attempts=3
+            for attempt in $(seq 1 "${max_attempts}"); do
+              if ! git fetch origin master; then
+                if [ "${attempt}" -eq "${max_attempts}" ]; then
+                  report_sync_warning "Failed to fetch origin/master; skipping the release version sync"
+                else
+                  echo "Release version sync fetch failed; retrying (${attempt}/${max_attempts})"
+                  sleep $((attempt * 2))
+                fi
+              elif ! git rebase FETCH_HEAD; then
+                git rebase --abort || true
+                report_sync_warning "Release version sync conflicted with origin/master; skipping the master push"
+                break
+              elif git push origin HEAD:master; then
+                echo "Release version sync succeeded" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
+                break
+              elif [ "${attempt}" -eq "${max_attempts}" ]; then
+                report_sync_warning "Failed to push the release version sync; continuing with the release"
+              else
+                echo "Release version sync push rejected; retrying (${attempt}/${max_attempts})"
+                sleep $((attempt * 2))
+              fi
+            done
           fi
 
       - name: Checkout release tag for artifacts
