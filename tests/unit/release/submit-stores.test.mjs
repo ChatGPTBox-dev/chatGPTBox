@@ -107,6 +107,14 @@ test('findMissingEnv treats whitespace-only secrets as missing', () => {
   assert.deepEqual(findMissingEnv(env), ['CHROME_CLIENT_SECRET', 'FIREFOX_JWT_SECRET'])
 })
 
+test('findMissingEnv rejects non-string required secrets', () => {
+  const env = createStoreEnv()
+  env.FIREFOX_EXTENSION_ID = 123
+  env.FIREFOX_JWT_SECRET = false
+
+  assert.deepEqual(findMissingEnv(env), ['FIREFOX_EXTENSION_ID', 'FIREFOX_JWT_SECRET'])
+})
+
 test('findMissingArtifacts reports missing artifacts', async () => {
   const exists = async (file) => file.endsWith('firefox.zip')
   const missing = await findMissingArtifacts({ exists })
@@ -347,7 +355,7 @@ test('submitStores preflight fails when Firefox manifest version is missing or i
   }
 })
 
-test('submitStores dry run and submit fail when Firefox manifest is invalid before publishing', async () => {
+test('submitStores rejects invalid Firefox manifests before publishing', async () => {
   for (const argv of [['--dry-run'], []]) {
     for (const readJson of [
       async () => {

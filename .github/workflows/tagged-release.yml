@@ -83,6 +83,19 @@ jobs:
             echo "::warning::$1"
             echo "Release version sync warning: $1" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
           }
+          release_version_is_newer() {
+            node -e '
+              const [remote, requested] = process.argv.slice(1)
+              const parse = (version) => version.split(".").map(Number)
+              const compare = (left, right) => {
+                for (let index = 0; index < 3; index += 1) {
+                  if (left[index] !== right[index]) return left[index] - right[index]
+                }
+                return 0
+              }
+              process.exit(compare(parse(remote), parse(requested)) > 0 ? 0 : 1)
+            ' "$1" "$2"
+          }
           if git diff --cached --quiet; then
             echo "No release version changes to commit"
           elif ! git commit -m "release v${VERSION}"; then
@@ -97,6 +110,11 @@ jobs:
                   echo "Release version sync fetch failed; retrying (${attempt}/${max_attempts})"
                   sleep $((attempt * 2))
                 fi
+              elif release_version_is_newer \
+                "$(git show FETCH_HEAD:src/manifest.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")" \
+                "$VERSION"; then
+                report_sync_warning "Skipping older release version sync; origin/master is already newer than v${VERSION}"
+                break
               elif ! git rebase FETCH_HEAD; then
                 git rebase --abort || true
                 report_sync_warning "Release version sync conflicted with origin/master; skipping the master push"
@@ -142,7 +160,9 @@ jobs:
           value: ${{ env.VERSION }}
 
       - run: |
-          gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -152,11 +172,11 @@ jobs:
       - run: npm run release:firefox-sources
 
       - run: |
-          gh release upload "$RELEASE_TAG" build/chromium.zip
-          gh release upload "$RELEASE_TAG" build/firefox.zip
-          gh release upload "$RELEASE_TAG" build/safari.dmg
-          gh release upload "$RELEASE_TAG" build/chromium-without-katex-and-tiktoken.zip
-          gh release upload "$RELEASE_TAG" build/firefox-without-katex-and-tiktoken.zip
+          gh release upload "$RELEASE_TAG" --clobber build/chromium.zip
+          gh release upload "$RELEASE_TAG" --clobber build/firefox.zip
+          gh release upload "$RELEASE_TAG" --clobber build/safari.dmg
+          gh release upload "$RELEASE_TAG" --clobber build/chromium-without-katex-and-tiktoken.zip
+          gh release upload "$RELEASE_TAG" --clobber build/firefox-without-katex-and-tiktoken.zip
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}

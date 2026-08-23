@@ -43,10 +43,9 @@ export function parseArgs(args) {
 }
 
 export function findMissingEnv(env = process.env) {
-  return REQUIRED_ENV.filter((name) => {
-    const value = env[name]
-    return typeof value !== 'string' || value.trim().length === 0
-  })
+  return REQUIRED_ENV.filter(
+    (name) => typeof env[name] !== 'string' || env[name].trim().length === 0,
+  )
 }
 
 export async function findMissingArtifacts({ exists = fs.pathExists } = {}) {
