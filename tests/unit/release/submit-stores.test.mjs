@@ -333,6 +333,7 @@ test('submitStores preflight fails when Firefox manifest version is missing or i
     {},
     { version: '' },
     { version: '   ' },
+    { version: ' 2.6.1 ' },
     { version: 123 },
     { version: null },
   ]) {

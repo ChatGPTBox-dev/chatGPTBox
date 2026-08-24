@@ -229,7 +229,12 @@ export async function submitStores({
     throw new Error('Store submission preflight failed', { cause: error })
   }
 
-  if (!manifest || typeof manifest.version !== 'string' || manifest.version.trim().length === 0) {
+  if (
+    !manifest ||
+    typeof manifest.version !== 'string' ||
+    manifest.version.trim().length === 0 ||
+    manifest.version !== manifest.version.trim()
+  ) {
     errorLogger('Missing Firefox manifest version: build/firefox/manifest.json')
     throw new Error('Store submission preflight failed')
   }
