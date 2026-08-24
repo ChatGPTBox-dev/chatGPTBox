@@ -37,6 +37,13 @@ const OPENAI_COMPATIBLE_RUNTIME_CONFIG_KEYS = [
   'temperature',
 ]
 
+const OPENROUTER_API_ORIGIN = 'https://openrouter.ai'
+const OPENROUTER_ATTRIBUTION_HEADERS = {
+  'HTTP-Referer': 'https://github.com/ChatGPTBox-dev/chatGPTBox',
+  'X-OpenRouter-Title': 'ChatGPTBox',
+  'X-OpenRouter-Categories': 'general-chat,writing-assistant',
+}
+
 function hasOpenAICompatibleRuntimeConfig(config) {
   if (!config || typeof config !== 'object') return false
   return OPENAI_COMPATIBLE_RUNTIME_CONFIG_KEYS.every((key) => Object.hasOwn(config, key))
@@ -97,6 +104,15 @@ function shouldUseOpenAIRequestShaping(request) {
 function resolveProviderRequestShapingId(request) {
   if (shouldUseOpenAIRequestShaping(request)) return 'openai'
   return request?.providerId
+}
+
+function getOpenRouterAttributionHeaders(requestUrl) {
+  try {
+    if (new URL(requestUrl).origin !== OPENROUTER_API_ORIGIN) return {}
+  } catch {
+    return {}
+  }
+  return OPENROUTER_ATTRIBUTION_HEADERS
 }
 
 function resolveOllamaKeepAliveBaseUrl(request) {
@@ -313,6 +329,7 @@ export async function generateAnswersWithOpenAICompatibleApi(port, question, ses
     apiKey: request.apiKey,
     config: runtimeConfig,
     provider: providerRequestShapingId,
+    extraHeaders: getOpenRouterAttributionHeaders(request.requestUrl),
     allowLegacyResponseField: request.provider.allowLegacyResponseField,
   })
 
