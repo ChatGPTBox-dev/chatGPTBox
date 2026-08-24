@@ -8,7 +8,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { signHs256Jwt } from '../src/utils/hs256-jwt.mjs'
 
-const REQUIRED_ARTIFACTS = ['build/chromium.zip', 'build/firefox.zip', 'build/firefox-sources.zip']
 const AMO_BASE_URL = 'https://addons.mozilla.org'
 const require = createRequire(import.meta.url)
 export const FIREFOX_COMPATIBILITY = {
@@ -32,7 +31,26 @@ const STORE_ENV = {
   firefox: ['FIREFOX_EXTENSION_ID', 'FIREFOX_JWT_ISSUER', 'FIREFOX_JWT_SECRET'],
   edge: ['EDGE_PRODUCT_ID', 'EDGE_CLIENT_ID', 'EDGE_API_KEY'],
 }
+const STORE_ARTIFACTS = {
+  chrome: ['build/chromium.zip'],
+  firefox: ['build/firefox.zip', 'build/firefox-sources.zip'],
+  edge: ['build/chromium.zip'],
+}
+const STORE_MANIFESTS = {
+  chrome: 'build/chromium/manifest.json',
+  firefox: 'build/firefox/manifest.json',
+  edge: 'build/chromium/manifest.json',
+}
 const STORE_IDS = Object.keys(STORE_ENV)
+
+export function isValidManifestVersion(version) {
+  const parts = typeof version === 'string' ? version.split('.') : []
+  return (
+    parts.length >= 3 &&
+    parts.length <= 4 &&
+    parts.every((part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535)
+  )
+}
 
 export function parseArgs(args) {
   const storeFlag = args.find((arg) => arg.startsWith('--store='))
@@ -62,10 +80,11 @@ export function findMissingEnv(env = process.env, stores = STORE_IDS) {
   )
 }
 
-export async function findMissingArtifacts({ exists = fs.pathExists } = {}) {
+export async function findMissingArtifacts({ exists = fs.pathExists, stores = STORE_IDS } = {}) {
   const missing = []
+  const artifacts = [...new Set(stores.flatMap((store) => STORE_ARTIFACTS[store]))]
 
-  for (const artifact of REQUIRED_ARTIFACTS) {
+  for (const artifact of artifacts) {
     if (!(await exists(artifact))) {
       missing.push(artifact)
     }
@@ -226,7 +245,8 @@ export async function submitStores({
   const { dryRun, preflightOnly, stores } = parseArgs(argv)
   const skipFirefoxMetadata = argv.includes('--skip-firefox-metadata')
   const env = envInput ?? process.env
-  const missingArtifacts = await findMissingArtifacts({ exists })
+  const requiredArtifacts = [...new Set(stores.flatMap((store) => STORE_ARTIFACTS[store]))]
+  const missingArtifacts = await findMissingArtifacts({ exists, stores })
   const missingEnv = preflightOnly ? [] : findMissingEnv(env, stores)
 
   if (missingArtifacts.length > 0 || missingEnv.length > 0) {
@@ -239,31 +259,41 @@ export async function submitStores({
     throw new Error('Store submission preflight failed')
   }
 
-  let manifest
-  try {
-    manifest = await readJson('build/firefox/manifest.json')
-  } catch (error) {
-    errorLogger('Missing or invalid Firefox manifest: build/firefox/manifest.json')
-    throw new Error('Store submission preflight failed', { cause: error })
+  const manifestPaths = [...new Set(stores.map((store) => STORE_MANIFESTS[store]))]
+  const manifests = []
+  for (const manifestPath of manifestPaths) {
+    try {
+      const manifest = await readJson(manifestPath)
+      if (!isValidManifestVersion(manifest?.version)) {
+        errorLogger(`Invalid manifest version: ${manifestPath}`)
+        throw new Error('Store submission preflight failed')
+      }
+      manifests.push({ path: manifestPath, version: manifest.version })
+    } catch (error) {
+      if (error?.message === 'Store submission preflight failed') throw error
+      errorLogger(`Missing or invalid manifest: ${manifestPath}`)
+      throw new Error('Store submission preflight failed', { cause: error })
+    }
   }
 
-  if (
-    !manifest ||
-    typeof manifest.version !== 'string' ||
-    manifest.version.trim().length === 0 ||
-    manifest.version !== manifest.version.trim()
-  ) {
-    errorLogger('Missing Firefox manifest version: build/firefox/manifest.json')
+  const manifestVersion = manifests[0]?.version
+  if (new Set(manifests.map(({ version }) => version)).size > 1) {
+    errorLogger('Manifest versions do not match across selected stores')
     throw new Error('Store submission preflight failed')
   }
 
-  const firefoxReleaseNotes = buildFirefoxReleaseNotes(manifest.version)
+  const firefoxReleaseNotes = stores.includes('firefox')
+    ? buildFirefoxReleaseNotes(manifestVersion)
+    : null
   const mode = preflightOnly ? 'preflight' : dryRun ? 'dry-run' : 'submit'
+  const versionLabel = manifestVersion ? ` ${manifestVersion}` : ''
 
-  logger(`${preflightOnly ? 'Checking' : 'Submitting'} ChatGPTBox ${manifest.version}`)
+  logger(`${preflightOnly ? 'Checking' : 'Submitting'} ChatGPTBox${versionLabel}`)
   logger(`Mode: ${mode}`)
-  logger(`Artifacts: ${REQUIRED_ARTIFACTS.join(', ')}`)
-  logger(`Firefox version notes: ${firefoxReleaseNotes}`)
+  logger(`Artifacts: ${requiredArtifacts.join(', ')}`)
+  if (firefoxReleaseNotes) {
+    logger(`Firefox version notes: ${firefoxReleaseNotes}`)
+  }
 
   if (preflightOnly) {
     logger('Store authentication, upload, and submission are skipped in preflight mode')
@@ -276,7 +306,7 @@ export async function submitStores({
   if (!dryRun && stores.includes('firefox') && !skipFirefoxMetadata) {
     await updateFirefoxVersionNotesImpl({
       extensionId: env.FIREFOX_EXTENSION_ID,
-      version: manifest.version,
+      version: manifestVersion,
       jwtIssuer: env.FIREFOX_JWT_ISSUER,
       jwtSecret: env.FIREFOX_JWT_SECRET,
     })

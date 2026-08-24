@@ -12,6 +12,7 @@ import {
   FIREFOX_COMPATIBILITY,
   findMissingArtifacts,
   findMissingEnv,
+  isValidManifestVersion,
   parseArgs,
   stripFirefoxExtensionId,
   submitStores,
@@ -152,6 +153,24 @@ test('findMissingArtifacts reports missing artifacts', async () => {
   const missing = await findMissingArtifacts({ exists })
 
   assert.deepEqual(missing, ['build/chromium.zip', 'build/firefox-sources.zip'])
+})
+
+test('findMissingArtifacts checks only selected store artifacts', async () => {
+  const missing = await findMissingArtifacts({
+    stores: ['chrome'],
+    exists: async (file) => file === 'build/chromium.zip',
+  })
+
+  assert.deepEqual(missing, [])
+})
+
+test('isValidManifestVersion accepts canonical Chromium versions only', () => {
+  for (const version of ['2.6.1', '2.6.1.1']) {
+    assert.equal(isValidManifestVersion(version), true)
+  }
+  for (const version of ['next', '2.6', '01.2.3', '70000.1.1', ' 2.6.1 ']) {
+    assert.equal(isValidManifestVersion(version), false)
+  }
 })
 
 test('buildPublishExtensionArgs includes all stores and dry run', () => {
@@ -368,13 +387,17 @@ test('submitStores preflight fails when Firefox manifest cannot be read', async 
   assert.deepEqual(publishCalls, [])
 })
 
-test('submitStores preflight fails when Firefox manifest version is missing or invalid', async () => {
+test('submitStores preflight fails when a manifest version is missing or invalid', async () => {
   for (const manifest of [
     null,
     {},
     { version: '' },
     { version: '   ' },
     { version: ' 2.6.1 ' },
+    { version: 'next' },
+    { version: '2.6' },
+    { version: '01.2.3' },
+    { version: '70000.1.1' },
     { version: 123 },
     { version: null },
   ]) {
@@ -526,7 +549,10 @@ test('submitStores can submit one store without other store credentials', async 
       CHROME_REFRESH_TOKEN: 'chrome-refresh',
     },
     exists: async () => true,
-    readJson: async () => ({ version: '2.6.1' }),
+    readJson: async (path) => {
+      assert.equal(path, 'build/chromium/manifest.json')
+      return { version: '2.6.1' }
+    },
     runPublishExtensionImpl: async (args, options) => publishCalls.push({ args, env: options.env }),
     updateFirefoxVersionNotesImpl: async (options) => metadataCalls.push(options),
     logger: () => {},

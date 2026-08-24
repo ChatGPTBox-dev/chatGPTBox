@@ -144,7 +144,8 @@ jobs:
               elif release_version_is_newer \
                 "$(git show FETCH_HEAD:src/manifest.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")" \
                 "$VERSION"; then
-                report_sync_warning "Skipping older release version sync; origin/master is already newer than v${VERSION}"
+                report_sync_warning "Skipping release version sync; origin/master is already newer than v${VERSION}"
+                echo "SUPERSEDED_RELEASE=true" >> "$GITHUB_ENV"
                 break
               elif [ "$?" -eq 2 ]; then
                 report_sync_warning "Skipping release version sync; origin/master has an invalid manifest version"
@@ -166,20 +167,25 @@ jobs:
           fi
 
       - name: Checkout release tag for artifacts
+        if: env.SKIP_RELEASE != 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ github.ref }}
           persist-credentials: false
 
       - uses: actions/setup-python@v7
+        if: env.SKIP_RELEASE != 'true'
         with:
           python-version: '3.10' # for appdmg
       - uses: maxim-lobanov/setup-xcode@v1
+        if: env.SKIP_RELEASE != 'true'
         with:
           xcode-version: 16.2
       - run: npm ci
+        if: env.SKIP_RELEASE != 'true'
 
       - name: Update release artifact manifest.json version
+        if: env.SKIP_RELEASE != 'true'
         uses: jossef/action-set-json-field@v2.2
         with:
           file: src/manifest.json
@@ -187,6 +193,7 @@ jobs:
           value: ${{ env.VERSION }}
 
       - name: Update release artifact manifest.v2.json version
+        if: env.SKIP_RELEASE != 'true'
         uses: jossef/action-set-json-field@v2.2
         with:
           file: src/manifest.v2.json
@@ -194,6 +201,7 @@ jobs:
           value: ${{ env.VERSION }}
 
       - name: Prepare GitHub release
+        if: env.SKIP_RELEASE != 'true'
         run: |
           release_response="$(gh api --include --jq '[.draft, [.assets[].name]]' \
             "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" 2>&1 || true)"
@@ -243,7 +251,12 @@ jobs:
               fi
             fi
           elif [ "$release_status" = "404" ]; then
-            gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
+            if [ "${SUPERSEDED_RELEASE:-}" = "true" ]; then
+              echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
+              echo "Release $RELEASE_TAG is superseded; skipping release creation"
+            else
+              gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
+            fi
           else
             printf '%s\n' "$release_response" >&2
             exit 1
@@ -251,9 +264,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-
-      - run: npm run build
-        if: env.SKIP_RELEASE != 'true' && env.SKIP_STORE_SUBMISSION != 'true'
 
       - run: npm run build:safari
         if: env.SKIP_RELEASE != 'true' && env.SKIP_STORE_SUBMISSION != 'true'
