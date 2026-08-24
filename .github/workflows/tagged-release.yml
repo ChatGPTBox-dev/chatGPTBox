@@ -57,6 +57,13 @@ jobs:
         with:
           node-version: 22
 
+      - name: Validate release tag
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+(\.[0-9]+){2,3}$ ]]; then
+            echo "::error::Release tags must use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH.BUILD"
+            exit 1
+          fi
+
       - name: Resolve release version
         run: printf 'VERSION=%s\n' "${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
@@ -164,17 +171,29 @@ jobs:
 
       - name: Prepare GitHub release
         run: |
-          if release_is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+          release_response="$(gh api --include --jq .draft \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" 2>&1 || true)"
+          release_status="$(printf '%s\n' "$release_response" \
+            | sed -n 's/^HTTP\/[^ ]* \([0-9][0-9][0-9]\) .*/\1/p' \
+            | tail -n 1)"
+          if [ "$release_status" = "200" ]; then
+            release_is_draft="$(printf '%s\n' "$release_response" | tail -n 1)"
             if [ "$release_is_draft" != "true" ]; then
               echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
               echo "Release $RELEASE_TAG is already published; skipping rerun"
             fi
-          else
+          elif [ "$release_status" = "404" ]; then
             gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
+          else
+            printf '%s\n' "$release_response" >&2
+            exit 1
           fi
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
+
+      - run: npm run build
+        if: env.SKIP_RELEASE != 'true'
 
       - run: npm run build:safari
         if: env.SKIP_RELEASE != 'true'
