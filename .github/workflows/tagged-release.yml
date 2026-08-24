@@ -88,8 +88,11 @@ jobs:
               const [remote, requested] = process.argv.slice(1)
               const parse = (version) => version.split(".").map(Number)
               const compare = (left, right) => {
-                for (let index = 0; index < 3; index += 1) {
-                  if (left[index] !== right[index]) return left[index] - right[index]
+                const length = Math.max(left.length, right.length)
+                for (let index = 0; index < length; index += 1) {
+                  const leftPart = left[index] ?? 0
+                  const rightPart = right[index] ?? 0
+                  if (leftPart !== rightPart) return leftPart - rightPart
                 }
                 return 0
               }
@@ -159,8 +162,14 @@ jobs:
           field: version
           value: ${{ env.VERSION }}
 
-      - run: |
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+      - name: Prepare GitHub release
+        run: |
+          if release_is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$release_is_draft" != "true" ]; then
+              echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
+              echo "Release $RELEASE_TAG is already published; skipping rerun"
+            fi
+          else
             gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
           fi
         env:
@@ -168,8 +177,10 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
 
       - run: npm run build:safari
+        if: env.SKIP_RELEASE != 'true'
 
       - run: npm run release:firefox-sources
+        if: env.SKIP_RELEASE != 'true'
 
       - run: |
           gh release upload "$RELEASE_TAG" --clobber build/chromium.zip
@@ -180,9 +191,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
+        if: env.SKIP_RELEASE != 'true'
 
       - name: Submit stores
         run: npm run release:submit
+        if: env.SKIP_RELEASE != 'true'
         env:
           CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
           CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
@@ -202,6 +215,7 @@ jobs:
 
       - run: |
           gh release edit "$RELEASE_TAG" --draft=false
+        if: env.SKIP_RELEASE != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
