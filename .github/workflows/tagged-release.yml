@@ -43,6 +43,9 @@ jobs:
   release:
     if: github.event_name == 'push'
     runs-on: macos-14
+    concurrency:
+      group: tagged-release-${{ github.ref_name }}
+      cancel-in-progress: false
     permissions:
       contents: write
 
@@ -68,10 +71,11 @@ jobs:
               parts.length <= 4 &&
               parts.every(
                 (part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535,
-              )
+              ) &&
+              parts.some((part) => Number(part) > 0)
             if (!valid) process.exit(1)
           ' "$version"; then
-            echo "::error::Release tags must use canonical 3-4 part versions with components from 0 to 65535"
+            echo "::error::Release tags must use canonical 3-4 part versions with components from 0 to 65535 and at least one non-zero component"
             exit 1
           fi
 
@@ -107,11 +111,12 @@ jobs:
               const parse = (version) => {
                 const parts = version.split(".")
                 const valid =
-                  parts.length >= 3 &&
-                  parts.length <= 4 &&
-                  parts.every(
-                    (part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535,
-                  )
+                    parts.length >= 3 &&
+                    parts.length <= 4 &&
+                    parts.every(
+                      (part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535,
+                    ) &&
+                    parts.some((part) => Number(part) > 0)
                 if (!valid) process.exit(2)
                 return parts.map(Number)
               }
@@ -208,7 +213,10 @@ jobs:
           release_status="$(printf '%s\n' "$release_response" \
             | sed -n 's/^HTTP\/[^ ]* \([0-9][0-9][0-9]\) .*/\1/p' \
             | tail -n 1)"
-          if [ "$release_status" = "200" ]; then
+          if [ "${SUPERSEDED_RELEASE:-}" = "true" ]; then
+            echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
+            echo "Release $RELEASE_TAG is superseded; skipping release rerun"
+          elif [ "$release_status" = "200" ]; then
             release_metadata="$(printf '%s\n' "$release_response" | tail -n 1)"
             release_is_draft="$(printf '%s\n' "$release_metadata" | jq -r '.[0]')"
             if [ "$release_is_draft" != "true" ]; then
@@ -251,12 +259,7 @@ jobs:
               fi
             fi
           elif [ "$release_status" = "404" ]; then
-            if [ "${SUPERSEDED_RELEASE:-}" = "true" ]; then
-              echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
-              echo "Release $RELEASE_TAG is superseded; skipping release creation"
-            else
-              gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
-            fi
+            gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
           else
             printf '%s\n' "$release_response" >&2
             exit 1

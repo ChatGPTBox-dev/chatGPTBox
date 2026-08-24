@@ -41,6 +41,11 @@ const STORE_MANIFESTS = {
   firefox: 'build/firefox/manifest.json',
   edge: 'build/chromium/manifest.json',
 }
+const STORE_ZIP_ENV = {
+  chrome: 'CHROME_ZIP',
+  firefox: 'FIREFOX_ZIP',
+  edge: 'EDGE_ZIP',
+}
 const STORE_IDS = Object.keys(STORE_ENV)
 
 export function isValidManifestVersion(version) {
@@ -48,7 +53,8 @@ export function isValidManifestVersion(version) {
   return (
     parts.length >= 3 &&
     parts.length <= 4 &&
-    parts.every((part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535)
+    parts.every((part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535) &&
+    parts.some((part) => Number(part) > 0)
   )
 }
 
@@ -210,15 +216,19 @@ function buildPublishExtensionEnv(env, baseEnv = process.env) {
 
 export async function runPublishExtension(
   args,
-  { env, baseEnv = process.env, spawnImpl = spawn } = {},
+  { env, stores = STORE_IDS, baseEnv = process.env, spawnImpl = spawn } = {},
 ) {
   const childArgs = [resolvePublishExtensionBin(), ...args]
+  const childEnv = { ...(env ?? {}) }
+  for (const store of STORE_IDS) {
+    if (!stores.includes(store)) childEnv[STORE_ZIP_ENV[store]] = ''
+  }
 
   await new Promise((resolve, reject) => {
     const child = spawnImpl(process.execPath, childArgs, {
       stdio: 'inherit',
       shell: false,
-      env: buildPublishExtensionEnv(env, baseEnv),
+      env: buildPublishExtensionEnv(childEnv, baseEnv),
     })
 
     child.once('error', reject)
@@ -301,7 +311,7 @@ export async function submitStores({
   }
 
   const args = buildPublishExtensionArgs({ dryRun, stores })
-  await runPublishExtensionImpl(args, { env })
+  await runPublishExtensionImpl(args, { env, stores })
 
   if (!dryRun && stores.includes('firefox') && !skipFirefoxMetadata) {
     await updateFirefoxVersionNotesImpl({

@@ -168,7 +168,7 @@ test('isValidManifestVersion accepts canonical Chromium versions only', () => {
   for (const version of ['2.6.1', '2.6.1.1']) {
     assert.equal(isValidManifestVersion(version), true)
   }
-  for (const version of ['next', '2.6', '01.2.3', '70000.1.1', ' 2.6.1 ']) {
+  for (const version of ['next', '2.6', '01.2.3', '70000.1.1', ' 2.6.1 ', '0.0.0', '0.0.0.0']) {
     assert.equal(isValidManifestVersion(version), false)
   }
 })
@@ -251,6 +251,30 @@ test('runPublishExtension omits nullish env values before spawning publish-exten
   assert.equal(spawnCalls[0].options.env.BOOLEAN_VALUE, 'false')
   assert.equal('CHROME_EXTENSION_ID' in spawnCalls[0].options.env, false)
   assert.equal('FIREFOX_JWT_SECRET' in spawnCalls[0].options.env, false)
+})
+
+test('runPublishExtension disables unselected store ZIP environment variables', async () => {
+  const child = new EventEmitter()
+  const spawnCalls = []
+
+  await runPublishExtension([], {
+    stores: ['chrome'],
+    baseEnv: {
+      PATH: 'parent-path',
+      CHROME_ZIP: 'chrome.zip',
+      FIREFOX_ZIP: 'firefox.zip',
+      EDGE_ZIP: 'edge.zip',
+    },
+    spawnImpl: (command, args, options) => {
+      spawnCalls.push({ command, args, options })
+      queueMicrotask(() => child.emit('exit', 0))
+      return child
+    },
+  })
+
+  assert.equal(spawnCalls[0].options.env.CHROME_ZIP, 'chrome.zip')
+  assert.equal(spawnCalls[0].options.env.FIREFOX_ZIP, '')
+  assert.equal(spawnCalls[0].options.env.EDGE_ZIP, '')
 })
 
 test('runPublishExtension invokes publish-extension through node', async () => {
@@ -553,7 +577,8 @@ test('submitStores can submit one store without other store credentials', async 
       assert.equal(path, 'build/chromium/manifest.json')
       return { version: '2.6.1' }
     },
-    runPublishExtensionImpl: async (args, options) => publishCalls.push({ args, env: options.env }),
+    runPublishExtensionImpl: async (args, options) =>
+      publishCalls.push({ args, env: options.env, stores: options.stores }),
     updateFirefoxVersionNotesImpl: async (options) => metadataCalls.push(options),
     logger: () => {},
     errorLogger: () => {},
@@ -568,6 +593,7 @@ test('submitStores can submit one store without other store credentials', async 
         CHROME_CLIENT_SECRET: 'chrome-secret',
         CHROME_REFRESH_TOKEN: 'chrome-refresh',
       },
+      stores: ['chrome'],
     },
   ])
   assert.deepEqual(metadataCalls, [])
