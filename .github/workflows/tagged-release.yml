@@ -104,7 +104,17 @@ jobs:
           release_version_is_newer() {
             node -e '
               const [remote, requested] = process.argv.slice(1)
-              const parse = (version) => version.split(".").map(Number)
+              const parse = (version) => {
+                const parts = version.split(".")
+                const valid =
+                  parts.length >= 3 &&
+                  parts.length <= 4 &&
+                  parts.every(
+                    (part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535,
+                  )
+                if (!valid) process.exit(2)
+                return parts.map(Number)
+              }
               const compare = (left, right) => {
                 const length = Math.max(left.length, right.length)
                 for (let index = 0; index < length; index += 1) {
@@ -135,6 +145,9 @@ jobs:
                 "$(git show FETCH_HEAD:src/manifest.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")" \
                 "$VERSION"; then
                 report_sync_warning "Skipping older release version sync; origin/master is already newer than v${VERSION}"
+                break
+              elif [ "$?" -eq 2 ]; then
+                report_sync_warning "Skipping release version sync; origin/master has an invalid manifest version"
                 break
               elif ! git rebase FETCH_HEAD; then
                 git rebase --abort || true
@@ -193,10 +206,41 @@ jobs:
             if [ "$release_is_draft" != "true" ]; then
               echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
               echo "Release $RELEASE_TAG is already published; skipping rerun"
-            elif printf '%s\n' "$release_metadata" \
-              | jq -e '.[1] | index("store-submission-complete.marker") != null' >/dev/null; then
-              echo "SKIP_STORE_SUBMISSION=true" >> "$GITHUB_ENV"
-              echo "Store submission is already complete; resuming release publication"
+            else
+              release_has_asset() {
+                printf '%s\n' "$release_metadata" \
+                  | jq -e --arg asset "$1" '.[1] | index($asset) != null' >/dev/null
+              }
+              skip_chrome_store=false
+              skip_firefox_store=false
+              skip_edge_store=false
+              if release_has_asset "store-submission-complete.marker"; then
+                skip_chrome_store=true
+                skip_firefox_store=true
+                skip_edge_store=true
+              else
+                release_has_asset "store-submission-complete.chrome.marker" \
+                  && skip_chrome_store=true
+                release_has_asset "store-submission-complete.firefox.marker" \
+                  && skip_firefox_store=true
+                release_has_asset "store-submission-complete.edge.marker" \
+                  && skip_edge_store=true
+              fi
+              if [ "$skip_chrome_store" = "true" ]; then
+                echo "SKIP_CHROME_STORE=true" >> "$GITHUB_ENV"
+              fi
+              if [ "$skip_firefox_store" = "true" ]; then
+                echo "SKIP_FIREFOX_STORE=true" >> "$GITHUB_ENV"
+              fi
+              if [ "$skip_edge_store" = "true" ]; then
+                echo "SKIP_EDGE_STORE=true" >> "$GITHUB_ENV"
+              fi
+              if [ "$skip_chrome_store" = "true" ] \
+                && [ "$skip_firefox_store" = "true" ] \
+                && [ "$skip_edge_store" = "true" ]; then
+                echo "SKIP_STORE_SUBMISSION=true" >> "$GITHUB_ENV"
+                echo "All store submissions are complete; resuming release publication"
+              fi
             fi
           elif [ "$release_status" = "404" ]; then
             gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
@@ -228,9 +272,9 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         if: env.SKIP_RELEASE != 'true' && env.SKIP_STORE_SUBMISSION != 'true'
 
-      - name: Submit stores
-        run: npm run release:submit
-        if: env.SKIP_RELEASE != 'true' && env.SKIP_STORE_SUBMISSION != 'true'
+      - name: Submit Chrome store
+        run: npm run release:submit -- --store chrome
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_CHROME_STORE != 'true'
         env:
           CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
           CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
@@ -239,20 +283,56 @@ jobs:
           CHROME_PUBLISH_TARGET: ${{ secrets.CHROME_PUBLISH_TARGET }}
           CHROME_DEPLOY_PERCENTAGE: ${{ secrets.CHROME_DEPLOY_PERCENTAGE }}
           CHROME_REVIEW_EXEMPTION: ${{ secrets.CHROME_REVIEW_EXEMPTION }}
+
+      - name: Mark Chrome store submission complete
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_CHROME_STORE != 'true'
+        run: |
+          printf '%s\n' "$GITHUB_RUN_ID" > build/store-submission-complete.chrome.marker
+          gh release upload "$RELEASE_TAG" --clobber build/store-submission-complete.chrome.marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Submit Firefox store
+        run: npm run release:submit -- --store firefox --skip-firefox-metadata
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_FIREFOX_STORE != 'true'
+        env:
           FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
           FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
           FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
           FIREFOX_CHANNEL: ${{ secrets.FIREFOX_CHANNEL }}
           FIREFOX_COMPATIBILITY: ${{ secrets.FIREFOX_COMPATIBILITY }}
+
+      - name: Mark Firefox store submission complete
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_FIREFOX_STORE != 'true'
+        run: |
+          printf '%s\n' "$GITHUB_RUN_ID" > build/store-submission-complete.firefox.marker
+          gh release upload "$RELEASE_TAG" --clobber build/store-submission-complete.firefox.marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Update Firefox metadata
+        run: npm run release:update-firefox-metadata -- --version "$VERSION"
+        if: env.SKIP_RELEASE != 'true'
+        env:
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+
+      - name: Submit Edge store
+        run: npm run release:submit -- --store edge
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_EDGE_STORE != 'true'
+        env:
           EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
           EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
 
-      - name: Mark store submission complete
-        if: env.SKIP_RELEASE != 'true' && env.SKIP_STORE_SUBMISSION != 'true'
+      - name: Mark Edge store submission complete
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_EDGE_STORE != 'true'
         run: |
-          printf '%s\n' "$GITHUB_RUN_ID" > build/store-submission-complete.marker
-          gh release upload "$RELEASE_TAG" --clobber build/store-submission-complete.marker
+          printf '%s\n' "$GITHUB_RUN_ID" > build/store-submission-complete.edge.marker
+          gh release upload "$RELEASE_TAG" --clobber build/store-submission-complete.edge.marker
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}

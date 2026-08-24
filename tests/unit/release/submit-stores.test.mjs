@@ -39,13 +39,37 @@ const require = createRequire(import.meta.url)
 const publishExtensionCli = require.resolve('publish-browser-extension/cli')
 
 test('parseArgs detects dry run', () => {
-  assert.deepEqual(parseArgs(['--dry-run']), { dryRun: true, preflightOnly: false })
-  assert.deepEqual(parseArgs(['--preflight-only']), { dryRun: false, preflightOnly: true })
+  assert.deepEqual(parseArgs(['--dry-run']), {
+    dryRun: true,
+    preflightOnly: false,
+    stores: ['chrome', 'firefox', 'edge'],
+  })
+  assert.deepEqual(parseArgs(['--preflight-only']), {
+    dryRun: false,
+    preflightOnly: true,
+    stores: ['chrome', 'firefox', 'edge'],
+  })
   assert.deepEqual(parseArgs(['--dry-run', '--preflight-only']), {
     dryRun: true,
     preflightOnly: true,
+    stores: ['chrome', 'firefox', 'edge'],
   })
-  assert.deepEqual(parseArgs([]), { dryRun: false, preflightOnly: false })
+  assert.deepEqual(parseArgs(['--store=firefox']), {
+    dryRun: false,
+    preflightOnly: false,
+    stores: ['firefox'],
+  })
+  assert.deepEqual(parseArgs(['--store', 'edge']), {
+    dryRun: false,
+    preflightOnly: false,
+    stores: ['edge'],
+  })
+  assert.deepEqual(parseArgs([]), {
+    dryRun: false,
+    preflightOnly: false,
+    stores: ['chrome', 'firefox', 'edge'],
+  })
+  assert.throws(() => parseArgs(['--store', 'unknown']), /Unknown store: unknown/)
 })
 
 function createStoreEnv() {
@@ -81,6 +105,14 @@ test('findMissingEnv reports all required secrets', () => {
 
 test('findMissingEnv accepts required secrets', () => {
   assert.deepEqual(findMissingEnv(createStoreEnv()), [])
+})
+
+test('findMissingEnv checks only the selected store', () => {
+  assert.deepEqual(findMissingEnv({}, ['firefox']), [
+    'FIREFOX_EXTENSION_ID',
+    'FIREFOX_JWT_ISSUER',
+    'FIREFOX_JWT_SECRET',
+  ])
 })
 
 test('findMissingEnv rejects blank required secrets', () => {
@@ -135,6 +167,15 @@ test('buildPublishExtensionArgs includes all stores and dry run', () => {
     'build/firefox-sources.zip',
     '--edge-zip',
     'build/chromium.zip',
+  ])
+})
+
+test('buildPublishExtensionArgs can target one store', () => {
+  assert.deepEqual(buildPublishExtensionArgs({ dryRun: false, stores: ['firefox'] }), [
+    '--firefox-zip',
+    'build/firefox.zip',
+    '--firefox-sources-zip',
+    'build/firefox-sources.zip',
   ])
 })
 
@@ -470,6 +511,69 @@ test('submitStores dry run fails without store env before publishing', async () 
 
   assert.equal(manifestRead, false)
   assert.deepEqual(publishCalls, [])
+})
+
+test('submitStores can submit one store without other store credentials', async () => {
+  const publishCalls = []
+  const metadataCalls = []
+
+  await submitStores({
+    argv: ['--store', 'chrome'],
+    env: {
+      CHROME_EXTENSION_ID: 'chrome-id',
+      CHROME_CLIENT_ID: 'chrome-client',
+      CHROME_CLIENT_SECRET: 'chrome-secret',
+      CHROME_REFRESH_TOKEN: 'chrome-refresh',
+    },
+    exists: async () => true,
+    readJson: async () => ({ version: '2.6.1' }),
+    runPublishExtensionImpl: async (args, options) => publishCalls.push({ args, env: options.env }),
+    updateFirefoxVersionNotesImpl: async (options) => metadataCalls.push(options),
+    logger: () => {},
+    errorLogger: () => {},
+  })
+
+  assert.deepEqual(publishCalls, [
+    {
+      args: buildPublishExtensionArgs({ dryRun: false, stores: ['chrome'] }),
+      env: {
+        CHROME_EXTENSION_ID: 'chrome-id',
+        CHROME_CLIENT_ID: 'chrome-client',
+        CHROME_CLIENT_SECRET: 'chrome-secret',
+        CHROME_REFRESH_TOKEN: 'chrome-refresh',
+      },
+    },
+  ])
+  assert.deepEqual(metadataCalls, [])
+})
+
+test('submitStores can defer Firefox metadata after store submission', async () => {
+  const publishCalls = []
+  const metadataCalls = []
+  const env = {
+    FIREFOX_EXTENSION_ID: 'chatgptbox',
+    FIREFOX_JWT_ISSUER: 'firefox-issuer',
+    FIREFOX_JWT_SECRET: 'firefox-secret',
+  }
+
+  await submitStores({
+    argv: ['--store', 'firefox', '--skip-firefox-metadata'],
+    env,
+    exists: async () => true,
+    readJson: async () => ({ version: '2.6.1' }),
+    runPublishExtensionImpl: async (args, options) => publishCalls.push({ args, env: options.env }),
+    updateFirefoxVersionNotesImpl: async (options) => metadataCalls.push(options),
+    logger: () => {},
+    errorLogger: () => {},
+  })
+
+  assert.deepEqual(publishCalls, [
+    {
+      args: buildPublishExtensionArgs({ dryRun: false, stores: ['firefox'] }),
+      env,
+    },
+  ])
+  assert.deepEqual(metadataCalls, [])
 })
 
 test('submitStores submit fails without store env before publishing', async () => {
