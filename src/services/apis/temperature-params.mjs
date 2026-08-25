@@ -34,8 +34,7 @@ function isGeminiWithoutCustomTemperature(model) {
   if (major > 3) return true
   if (major !== 3) return false
 
-  const isGemini35FlashLite =
-    minor === 5 && matchesModelFamily(model, 'gemini-3-5-flash-lite')
+  const isGemini35FlashLite = minor === 5 && matchesModelFamily(model, 'gemini-3-5-flash-lite')
   return minor >= 6 || isGemini35FlashLite
 }
 

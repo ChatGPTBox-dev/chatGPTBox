@@ -23,10 +23,11 @@ test('storage changes merge against the latest queued config state', () => {
   assert.equal(typeof updates[0], 'function')
   assert.equal(typeof updates[1], 'function')
 
-  const config = updates.reduce(
-    (currentConfig, update) => update(currentConfig),
-    { themeMode: 'light', preferredLanguage: 'en', modelName: 'chatgptFree35' },
-  )
+  const config = updates.reduce((currentConfig, update) => update(currentConfig), {
+    themeMode: 'light',
+    preferredLanguage: 'en',
+    modelName: 'chatgptFree35',
+  })
 
   assert.deepEqual(config, {
     themeMode: 'dark',

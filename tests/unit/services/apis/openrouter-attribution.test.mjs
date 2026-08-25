@@ -1,16 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import {
-  generateAnswersWithOpenAICompatibleApi,
-} from '../../../../src/services/apis/openai-api.mjs'
+import { generateAnswersWithOpenAICompatibleApi } from '../../../../src/services/apis/openai-api.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
 
-const ATTRIBUTION_HEADER_NAMES = [
-  'HTTP-Referer',
-  'X-OpenRouter-Title',
-  'X-OpenRouter-Categories',
-]
+const ATTRIBUTION_HEADER_NAMES = ['HTTP-Referer', 'X-OpenRouter-Title', 'X-OpenRouter-Categories']
 
 function createConfig(overrides = {}) {
   return {
@@ -33,12 +27,7 @@ async function captureRequest(t, config, session) {
     ])
   })
 
-  await generateAnswersWithOpenAICompatibleApi(
-    createFakePort(),
-    'CurrentQ',
-    session,
-    config,
-  )
+  await generateAnswersWithOpenAICompatibleApi(createFakePort(), 'CurrentQ', session, config)
 
   return { capturedInput, capturedInit }
 }
