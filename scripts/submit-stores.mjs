@@ -73,7 +73,7 @@ export function buildPublishExtensionArgs({ dryRun }) {
 }
 
 export function buildFirefoxReleaseNotes(version) {
-  return `https://github.com/josStorer/chatGPTBox/releases/tag/v${version}`
+  return `https://github.com/ChatGPTBox-dev/chatGPTBox/releases/tag/v${version}`
 }
 
 export function stripFirefoxExtensionId(extensionId) {

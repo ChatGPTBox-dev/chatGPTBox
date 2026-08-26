@@ -111,7 +111,7 @@ test('buildPublishExtensionArgs includes all stores and dry run', () => {
 test('buildFirefoxReleaseNotes returns the fixed GitHub release URL', () => {
   assert.equal(
     buildFirefoxReleaseNotes('2.6.1'),
-    'https://github.com/josStorer/chatGPTBox/releases/tag/v2.6.1',
+    'https://github.com/ChatGPTBox-dev/chatGPTBox/releases/tag/v2.6.1',
   )
 })
 
@@ -165,7 +165,7 @@ test('updateFirefoxVersionNotes patches release notes and compatibility for the 
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     compatibility: FIREFOX_COMPATIBILITY,
     release_notes: {
-      'en-US': 'https://github.com/josStorer/chatGPTBox/releases/tag/v2.6.1',
+      'en-US': 'https://github.com/ChatGPTBox-dev/chatGPTBox/releases/tag/v2.6.1',
     },
   })
 })

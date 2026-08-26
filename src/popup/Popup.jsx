@@ -135,10 +135,11 @@ function Popup() {
       i18n.changeLanguage(lang)
     })
     setCurrentVersion(Browser.runtime.getManifest().version.replace('v', ''))
-    fetch('https://api.github.com/repos/josstorer/chatGPTBox/releases/latest').then((response) =>
-      response.json().then((data) => {
-        setLatestVersion(data.tag_name.replace('v', ''))
-      }),
+    fetch('https://api.github.com/repos/ChatGPTBox-dev/chatGPTBox/releases/latest').then(
+      (response) =>
+        response.json().then((data) => {
+          setLatestVersion(data.tag_name.replace('v', ''))
+        }),
     )
     const initialConfigLoadGate = initialConfigLoadGateRef.current
     getUserConfig()
