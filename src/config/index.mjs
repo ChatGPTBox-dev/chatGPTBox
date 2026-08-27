@@ -18,6 +18,12 @@ import {
   canonicalizeModelKey,
   canonicalizeModelKeyArray,
 } from './model-key-migrations.mjs'
+import {
+  getNavigatorLanguage,
+  resolvePreferredLanguageKey,
+} from './language-data.mjs'
+
+export { getNavigatorLanguage }
 
 export const TriggerMode = {
   always: 'Always',
@@ -764,7 +770,7 @@ export const defaultConfig = {
   /** @type {keyof ThemeMode}*/
   themeMode: 'auto',
   /** @type {keyof Models}*/
-  modelName: getNavigatorLanguage() === 'zh' ? 'moonshotWebFree' : 'claude2WebFree',
+  modelName: getNavigatorLanguage() === 'zh-Hans' ? 'moonshotWebFree' : 'claude2WebFree',
   apiMode: null,
 
   preferredLanguage: getNavigatorLanguage(),
@@ -928,12 +934,6 @@ export const defaultConfig = {
     'followin',
     'arxiv',
   ],
-}
-
-export function getNavigatorLanguage() {
-  const l = navigator.language.toLowerCase()
-  if (['zh-hk', 'zh-mo', 'zh-tw', 'zh-cht', 'zh-hant'].includes(l)) return 'zhHant'
-  return navigator.language.substring(0, 2)
 }
 
 export function isUsingChatgptWebModel(configOrSession) {
@@ -2151,8 +2151,24 @@ export async function getUserConfig() {
   }
 
   const { migrated, dirty, storageKeysToRemove } = migrateUserConfig(options)
-  if (dirty) {
+  const hasStoredPreferredLanguage = Object.hasOwn(options, 'preferredLanguage')
+  const hasStoredUserLanguage = Object.hasOwn(options, 'userLanguage')
+  const userLanguage = getNavigatorLanguage()
+  const preferredLanguage = resolvePreferredLanguageKey(migrated.preferredLanguage, userLanguage)
+  const languageConfigDirty =
+    (hasStoredPreferredLanguage && options.preferredLanguage !== preferredLanguage) ||
+    (hasStoredUserLanguage && options.userLanguage !== userLanguage)
+  migrated.preferredLanguage = preferredLanguage
+  migrated.userLanguage = userLanguage
+
+  if (dirty || languageConfigDirty) {
     const payload = {}
+    if (hasStoredPreferredLanguage && options.preferredLanguage !== migrated.preferredLanguage) {
+      payload.preferredLanguage = migrated.preferredLanguage
+    }
+    if (hasStoredUserLanguage && options.userLanguage !== migrated.userLanguage) {
+      payload.userLanguage = migrated.userLanguage
+    }
     if (JSON.stringify(options.customApiModes) !== JSON.stringify(migrated.customApiModes)) {
       payload.customApiModes = migrated.customApiModes
     }

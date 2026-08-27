@@ -82,9 +82,9 @@ afterEach(() => {
   restoreNavigator()
 })
 
-test('getNavigatorLanguage returns zhHant for zh-TW style locales', () => {
+test('getNavigatorLanguage returns zh-Hant for zh-TW style locales', () => {
   setNavigatorLanguage('zh-TW')
-  assert.equal(getNavigatorLanguage(), 'zhHant')
+  assert.equal(getNavigatorLanguage(), 'zh-Hant')
 })
 
 test('legacy model key migration targets remain valid model presets', () => {
@@ -114,19 +114,19 @@ test('canonicalized legacy model keys still match their provider predicates', ()
   }
 })
 
-test('getNavigatorLanguage returns first two letters for non-zhHant locales', () => {
+test('getNavigatorLanguage resolves supported regional locales', () => {
   setNavigatorLanguage('en-US')
   assert.equal(getNavigatorLanguage(), 'en')
 })
 
-test('getNavigatorLanguage normalizes mixed-case zh-TW locale to zhHant', () => {
+test('getNavigatorLanguage normalizes mixed-case zh-TW locale to zh-Hant', () => {
   setNavigatorLanguage('ZH-TW')
-  assert.equal(getNavigatorLanguage(), 'zhHant')
+  assert.equal(getNavigatorLanguage(), 'zh-Hant')
 })
 
-test('getNavigatorLanguage treats zh-Hant locale as zhHant', () => {
+test('getNavigatorLanguage keeps canonical zh-Hant locale', () => {
   setNavigatorLanguage('zh-Hant')
-  assert.equal(getNavigatorLanguage(), 'zhHant')
+  assert.equal(getNavigatorLanguage(), 'zh-Hant')
 })
 
 test('isUsingChatgptApiModel matches representative chatgpt API keys', () => {
@@ -328,12 +328,10 @@ describe('getPreferredLanguageKey', () => {
   test('falls back to userLanguage when preference is auto', async () => {
     globalThis.__TEST_BROWSER_SHIM__.setStorage({ preferredLanguage: 'auto' })
     const key = await getPreferredLanguageKey()
-    // defaultConfig.userLanguage is derived from navigator.language ('en-US' → 'en')
     assert.equal(key, 'en')
   })
 
-  test('uses defaultConfig when storage is empty', async () => {
-    // defaultConfig.preferredLanguage = getNavigatorLanguage() which is 'en' in the shim
+  test('uses the browser language when storage is empty', async () => {
     const key = await getPreferredLanguageKey()
     assert.equal(key, 'en')
   })

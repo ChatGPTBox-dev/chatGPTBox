@@ -2,7 +2,7 @@ import de from './de/main.json'
 import en from './en/main.json'
 import es from './es/main.json'
 import fr from './fr/main.json'
-import inTrans from './in/main.json'
+import id from './id/main.json'
 import it from './it/main.json'
 import ja from './ja/main.json'
 import ko from './ko/main.json'
@@ -25,8 +25,8 @@ export const resources = {
   fr: {
     translation: fr,
   },
-  in: {
-    translation: inTrans,
+  id: {
+    translation: id,
   },
   it: {
     translation: it,
@@ -46,10 +46,10 @@ export const resources = {
   tr: {
     translation: tr,
   },
-  zh: {
+  'zh-Hans': {
     translation: zhHans,
   },
-  zhHant: {
+  'zh-Hant': {
     translation: zhHant,
   },
 }

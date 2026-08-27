@@ -58,7 +58,7 @@ before(async () => {
   await i18n.init({
     resources: {
       en: { translation: { [summary]: summary } },
-      zhHant: { translation: { [summary]: '瀏覽器無法完成對 API 端點的請求。' } },
+      'zh-Hant': { translation: { [summary]: '瀏覽器無法完成對 API 端點的請求。' } },
     },
     fallbackLng: 'en',
   })
@@ -122,7 +122,7 @@ test('registerPortListener scopes error translations to each request', async (t)
   setStorage({
     hideContextMenu: true,
     modelName: 'chatgptApi4oMini',
-    preferredLanguage: 'zhHant',
+    preferredLanguage: 'zh-Hant',
     userLanguage: 'en',
   })
   await i18n.changeLanguage('en')
