@@ -1,14 +1,24 @@
 import {
+  claimSessionTitleGeneration,
+  completeSessionTitleGeneration,
   createSession,
-  resetSessions,
-  getSessions,
-  updateSession,
-  getSession,
   deleteSession,
+  failSessionTitleGeneration,
+  getSession,
+  getSessions,
+  isSessionTitleGenerationStale,
+  resetSessions,
+  updateSession,
 } from '../../services/local-session.mjs'
-import { useEffect, useRef, useState } from 'react'
+import {
+  generateConversationTitle,
+  getSessionDisplayName,
+} from '../../services/session-title.mjs'
+import { isConversationTitleModelAvailable } from '../../services/conversation-title-model.mjs'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './styles.scss'
 import { useConfig } from '../../hooks/use-config.mjs'
+import { useConversationTitleConfig } from '../../hooks/use-conversation-title-config.mjs'
 import { useTranslation } from 'react-i18next'
 import ConfirmButton from '../../components/ConfirmButton'
 import ConversationCard from '../../components/ConversationCard'
@@ -21,11 +31,13 @@ function App() {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(true)
   const config = useConfig(null, false)
+  const [conversationTitleConfig] = useConversationTitleConfig()
   const [sessions, setSessions] = useState([])
   const [sessionId, setSessionId] = useState(null)
   const [currentSession, setCurrentSession] = useState(null)
   const [renderContent, setRenderContent] = useState(false)
   const currentPort = useRef(null)
+  const titleGenerationInFlightRef = useRef(new Set())
 
   const setSessionIdSafe = async (sessionId) => {
     if (currentPort.current) {
@@ -41,6 +53,55 @@ function App() {
     if (session) setSessionId(sessionId)
     else if (currentSessions.length > 0) setSessionId(currentSessions[0].sessionId)
   }
+
+  const generateTitleIfNeeded = useCallback(
+    async (session) => {
+      const titleRuntimeConfig = { ...config, ...conversationTitleConfig }
+      if (
+        !conversationTitleConfig.autoGenerateConversationTitle ||
+        !isConversationTitleModelAvailable(titleRuntimeConfig)
+      ) {
+        return
+      }
+      if (!session?.sessionId || titleGenerationInFlightRef.current.has(session.sessionId)) return
+      if (!Array.isArray(session.conversationRecords) || session.conversationRecords.length !== 1) {
+        return
+      }
+
+      const firstRecord = session.conversationRecords[0]
+      if (!String(firstRecord?.question || '').trim() || !String(firstRecord?.answer || '').trim()) {
+        return
+      }
+
+      titleGenerationInFlightRef.current.add(session.sessionId)
+      let generationId
+      try {
+        const claim = await claimSessionTitleGeneration(session.sessionId)
+        if (!claim.claimed) return
+        setSessions([...claim.currentSessions])
+
+        generationId = claim.session.sessionTitleGenerationId
+        const title = await generateConversationTitle({
+          config: titleRuntimeConfig,
+          question: firstRecord.question,
+          answer: firstRecord.answer,
+        })
+        const completed = await completeSessionTitleGeneration(
+          session.sessionId,
+          title,
+          generationId,
+        )
+        setSessions([...completed.currentSessions])
+      } catch (error) {
+        console.warn('[conversation-title] Failed to generate a conversation title:', error)
+        const failed = await failSessionTitleGeneration(session.sessionId, generationId)
+        setSessions([...failed.currentSessions])
+      } finally {
+        titleGenerationInFlightRef.current.delete(session.sessionId)
+      }
+    },
+    [config, conversationTitleConfig],
+  )
 
   useEffect(() => {
     document.documentElement.dataset.theme = config.themeMode
@@ -81,6 +142,31 @@ function App() {
     })()
   }, [sessionId])
 
+  useEffect(() => {
+    const selectedSession = sessions.find((session) => session.sessionId === sessionId)
+    if (selectedSession) setCurrentSession(selectedSession)
+  }, [sessions, sessionId])
+
+  useEffect(() => {
+    const titleRuntimeConfig = { ...config, ...conversationTitleConfig }
+    if (
+      !conversationTitleConfig.autoGenerateConversationTitle ||
+      !isConversationTitleModelAvailable(titleRuntimeConfig)
+    ) {
+      return
+    }
+
+    const selectedSession = sessions.find((session) => session.sessionId === sessionId)
+    const canStartOrRecover =
+      selectedSession &&
+      Array.isArray(selectedSession.conversationRecords) &&
+      selectedSession.conversationRecords.length === 1 &&
+      (selectedSession.sessionTitleGenerationStatus === undefined ||
+        selectedSession.sessionTitleGenerationStatus === 'idle' ||
+        isSessionTitleGenerationStale(selectedSession))
+    if (canStartOrRecover) void generateTitleIfNeeded(selectedSession)
+  }, [config, conversationTitleConfig, generateTitleIfNeeded, sessionId, sessions])
+
   const toggleSidebar = () => {
     setCollapsed(!collapsed)
   }
@@ -120,20 +206,27 @@ function App() {
           </div>
           <hr />
           <div className="chat-list">
-            {sessions.map(
-              (
-                session,
-                index, // TODO editable session name
-              ) => (
+            {sessions.map((session) => {
+              const displayName = getSessionDisplayName(session, t('New Chat'))
+              return (
                 <button
-                  key={index}
+                  key={session.sessionId}
                   className={`normal-button ${sessionId === session.sessionId ? 'active' : ''}`}
                   style="display: flex; align-items: center; justify-content: space-between;"
+                  title={displayName}
                   onClick={() => {
                     setSessionIdSafe(session.sessionId)
                   }}
                 >
-                  {session.sessionName}
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {displayName}
+                  </span>
                   <span className="gpt-util-group">
                     <DeleteButton
                       size={14}
@@ -147,8 +240,8 @@ function App() {
                     />
                   </span>
                 </button>
-              ),
-            )}
+              )
+            })}
           </div>
           <hr />
           <div className="chat-sidebar-button-group">
@@ -173,8 +266,14 @@ function App() {
                 onUpdate={(port, session, cData) => {
                   currentPort.current = port
                   if (cData.length > 0 && cData[cData.length - 1].done) {
-                    updateSession(session).then(setSessions)
-                    setCurrentSession(session)
+                    void (async () => {
+                      const updatedSessions = await updateSession(session)
+                      const savedSession =
+                        updatedSessions.find((item) => item.sessionId === session.sessionId) || session
+                      setSessions(updatedSessions)
+                      setCurrentSession(savedSession)
+                      await generateTitleIfNeeded(savedSession)
+                    })()
                   }
                 }}
               />
