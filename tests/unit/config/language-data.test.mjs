@@ -35,9 +35,9 @@ test('language list uses canonical keys for Chinese and Indonesian', () => {
 })
 
 test('Chinese entries preserve explicit script-specific names', () => {
-  assert.equal(languageList['zh-Hans'].name, 'Chinese (Simplified)')
+  assert.equal(languageList['zh-Hans'].name, 'Simplified Chinese')
   assert.equal(languageList['zh-Hans'].native, '简体中文')
-  assert.equal(languageList['zh-Hant'].name, 'Chinese (Traditional)')
+  assert.equal(languageList['zh-Hant'].name, 'Traditional Chinese')
   assert.equal(languageList['zh-Hant'].native, '正體中文')
 })
 

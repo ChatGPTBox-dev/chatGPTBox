@@ -103,7 +103,7 @@ test('formats preferred language with native name and canonical tag for prompts'
 
   assert.equal(
     await getPreferredLanguage(),
-    'Chinese (Traditional) (正體中文; zh-Hant)',
+    'Traditional Chinese (正體中文; zh-Hant)',
   )
 })
 

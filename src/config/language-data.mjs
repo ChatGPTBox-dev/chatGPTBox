@@ -9,12 +9,12 @@ export const languageList = {
   ...baseLanguages,
   'zh-Hans': {
     ...zh,
-    name: 'Chinese (Simplified)',
+    name: 'Simplified Chinese',
     native: '简体中文',
   },
   'zh-Hant': {
     ...zh,
-    name: 'Chinese (Traditional)',
+    name: 'Traditional Chinese',
     native: '正體中文',
   },
 }

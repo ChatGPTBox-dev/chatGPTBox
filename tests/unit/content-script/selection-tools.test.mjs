@@ -142,7 +142,7 @@ describe('translation tools respect language settings', () => {
   test('Traditional Chinese includes native name and canonical language tag', async () => {
     globalThis.__TEST_BROWSER_SHIM__.setStorage({ preferredLanguage: 'zh-Hant' })
     const result = await config.explain.genPrompt('text')
-    assert.ok(result.startsWith('Reply in Chinese (Traditional) (正體中文; zh-Hant).'))
+    assert.ok(result.startsWith('Reply in Traditional Chinese (正體中文; zh-Hant).'))
   })
 })
 
