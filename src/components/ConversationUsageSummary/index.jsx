@@ -19,10 +19,12 @@ function ConversationUsageSummary({ records }) {
   const summary = summarizeConversationUsage(records)
   if (summary.models.length === 0 && summary.reportedTurns === 0) return null
 
-  const modelText =
-    summary.models.length === 1
-      ? `${t('Model')}: ${summary.models[0].name}`
-      : `${t('Models')}: ${summary.models.length}`
+  const hasModels = summary.models.length > 0
+  const modelText = !hasModels
+    ? ''
+    : summary.models.length === 1
+    ? `${t('Model')}: ${summary.models[0].name}`
+    : `${t('Models')}: ${summary.models.length}`
   const modelTitle = summary.models
     .map(({ name, turns }) => `${name} · ${t('Turns')}: ${turns}`)
     .join('\n')
@@ -80,7 +82,7 @@ function ConversationUsageSummary({ records }) {
         padding: '0 15px 8px',
       }}
     >
-      <span title={modelTitle}>{modelText}</span>
+      {hasModels && <span title={modelTitle}>{modelText}</span>}
       {usageParts.filter(Boolean).map((part) => (
         <span key={part}>{part}</span>
       ))}
