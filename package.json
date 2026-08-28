@@ -20,6 +20,7 @@
     "release:firefox-sources": "node scripts/create-firefox-sources-zip.mjs",
     "release:submit": "node scripts/submit-stores.mjs",
     "release:submit:dry-run": "node scripts/submit-stores.mjs --dry-run",
+    "release:submit:preflight": "node scripts/submit-stores.mjs --preflight-only",
     "release:update-firefox-metadata": "node scripts/update-firefox-metadata.mjs",
     "release:check-edge-api-key": "node scripts/check-edge-api-key-expiry.mjs"
   },

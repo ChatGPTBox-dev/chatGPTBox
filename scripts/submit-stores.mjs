@@ -2,13 +2,14 @@
 
 import fs from 'fs-extra'
 import { spawn } from 'node:child_process'
-import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { signHs256Jwt } from '../src/utils/hs256-jwt.mjs'
 
-const REQUIRED_ARTIFACTS = ['build/chromium.zip', 'build/firefox.zip', 'build/firefox-sources.zip']
 const AMO_BASE_URL = 'https://addons.mozilla.org'
+const require = createRequire(import.meta.url)
 export const FIREFOX_COMPATIBILITY = {
   firefox: {
     min: '58.0',
@@ -20,36 +21,76 @@ export const FIREFOX_COMPATIBILITY = {
   },
 }
 
-const REQUIRED_ENV = [
-  'CHROME_EXTENSION_ID',
-  'CHROME_CLIENT_ID',
-  'CHROME_CLIENT_SECRET',
-  'CHROME_REFRESH_TOKEN',
-  'FIREFOX_EXTENSION_ID',
-  'FIREFOX_JWT_ISSUER',
-  'FIREFOX_JWT_SECRET',
-  'EDGE_PRODUCT_ID',
-  'EDGE_CLIENT_ID',
-  'EDGE_API_KEY',
-]
+const STORE_ENV = {
+  chrome: [
+    'CHROME_EXTENSION_ID',
+    'CHROME_CLIENT_ID',
+    'CHROME_CLIENT_SECRET',
+    'CHROME_REFRESH_TOKEN',
+  ],
+  firefox: ['FIREFOX_EXTENSION_ID', 'FIREFOX_JWT_ISSUER', 'FIREFOX_JWT_SECRET'],
+  edge: ['EDGE_PRODUCT_ID', 'EDGE_CLIENT_ID', 'EDGE_API_KEY'],
+}
+const STORE_ARTIFACTS = {
+  chrome: ['build/chromium.zip'],
+  firefox: ['build/firefox.zip', 'build/firefox-sources.zip'],
+  edge: ['build/chromium.zip'],
+}
+const STORE_MANIFESTS = {
+  chrome: 'build/chromium/manifest.json',
+  firefox: 'build/firefox/manifest.json',
+  edge: 'build/chromium/manifest.json',
+}
+const STORE_ZIP_ENV = {
+  chrome: 'CHROME_ZIP',
+  firefox: 'FIREFOX_ZIP',
+  edge: 'EDGE_ZIP',
+}
+const STORE_IDS = Object.keys(STORE_ENV)
+
+export function isValidManifestVersion(version) {
+  const parts = typeof version === 'string' ? version.split('.') : []
+  return (
+    parts.length >= 3 &&
+    parts.length <= 4 &&
+    parts.every((part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535) &&
+    parts.some((part) => Number(part) > 0)
+  )
+}
 
 export function parseArgs(args) {
+  const storeFlag = args.find((arg) => arg.startsWith('--store='))
+  const storeIndex = args.indexOf('--store')
+  const selectedStore = storeFlag
+    ? storeFlag.slice('--store='.length)
+    : storeIndex >= 0
+    ? args[storeIndex + 1]
+    : null
+
+  if (selectedStore !== null && !STORE_IDS.includes(selectedStore)) {
+    throw new Error(`Unknown store: ${selectedStore || '(missing)'}`)
+  }
+
   return {
     dryRun: args.includes('--dry-run'),
+    preflightOnly: args.includes('--preflight-only'),
+    stores: selectedStore ? [selectedStore] : STORE_IDS,
   }
 }
 
-export function findMissingEnv(env = process.env) {
-  return REQUIRED_ENV.filter((name) => {
-    const value = env[name]
-    return typeof value !== 'string' || value.trim().length === 0
-  })
+export function findMissingEnv(env = process.env, stores = STORE_IDS) {
+  return stores.flatMap((store) =>
+    STORE_ENV[store].filter(
+      (name) => typeof env[name] !== 'string' || env[name].trim().length === 0,
+    ),
+  )
 }
 
-export async function findMissingArtifacts({ exists = fs.pathExists } = {}) {
+export async function findMissingArtifacts({ exists = fs.pathExists, stores = STORE_IDS } = {}) {
   const missing = []
+  const artifacts = [...new Set(stores.flatMap((store) => STORE_ARTIFACTS[store]))]
 
-  for (const artifact of REQUIRED_ARTIFACTS) {
+  for (const artifact of artifacts) {
     if (!(await exists(artifact))) {
       missing.push(artifact)
     }
@@ -58,18 +99,21 @@ export async function findMissingArtifacts({ exists = fs.pathExists } = {}) {
   return missing
 }
 
-export function buildPublishExtensionArgs({ dryRun }) {
-  return [
-    ...(dryRun ? ['--dry-run'] : []),
-    '--chrome-zip',
-    'build/chromium.zip',
-    '--firefox-zip',
-    'build/firefox.zip',
-    '--firefox-sources-zip',
-    'build/firefox-sources.zip',
-    '--edge-zip',
-    'build/chromium.zip',
-  ]
+export function buildPublishExtensionArgs({ dryRun, stores = STORE_IDS }) {
+  const args = dryRun ? ['--dry-run'] : []
+
+  if (stores.includes('chrome')) {
+    args.push('--chrome-zip', 'build/chromium.zip')
+  }
+  if (stores.includes('firefox')) {
+    args.push('--firefox-zip', 'build/firefox.zip')
+    args.push('--firefox-sources-zip', 'build/firefox-sources.zip')
+  }
+  if (stores.includes('edge')) {
+    args.push('--edge-zip', 'build/chromium.zip')
+  }
+
+  return args
 }
 
 export function buildFirefoxReleaseNotes(version) {
@@ -158,18 +202,33 @@ export async function updateFirefoxVersionNotes({
 }
 
 function resolvePublishExtensionBin() {
-  const command = process.platform === 'win32' ? 'publish-extension.cmd' : 'publish-extension'
-  return path.join(process.cwd(), 'node_modules', '.bin', command)
+  return require.resolve('publish-browser-extension/cli')
 }
 
-async function runPublishExtension(args) {
-  const command = resolvePublishExtensionBin()
+function buildPublishExtensionEnv(env, baseEnv = process.env) {
+  const merged = { ...baseEnv, ...(env ?? {}) }
+  return Object.fromEntries(
+    Object.entries(merged)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([name, value]) => [name, String(value)]),
+  )
+}
+
+export async function runPublishExtension(
+  args,
+  { env, stores = STORE_IDS, baseEnv = process.env, spawnImpl = spawn } = {},
+) {
+  const childArgs = [resolvePublishExtensionBin(), ...args]
+  const childEnv = { ...(env ?? {}) }
+  for (const store of STORE_IDS) {
+    if (!stores.includes(store)) childEnv[STORE_ZIP_ENV[store]] = ''
+  }
 
   await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawnImpl(process.execPath, childArgs, {
       stdio: 'inherit',
       shell: false,
-      env: process.env,
+      env: buildPublishExtensionEnv(childEnv, baseEnv),
     })
 
     child.once('error', reject)
@@ -183,36 +242,81 @@ async function runPublishExtension(args) {
   })
 }
 
-export async function submitStores({ argv = process.argv.slice(2), env = process.env } = {}) {
-  const { dryRun } = parseArgs(argv)
-  const missingArtifacts = await findMissingArtifacts()
-  const missingEnv = findMissingEnv(env)
+export async function submitStores({
+  argv = process.argv.slice(2),
+  env: envInput,
+  exists = fs.pathExists,
+  readJson = fs.readJson,
+  runPublishExtensionImpl = runPublishExtension,
+  updateFirefoxVersionNotesImpl = updateFirefoxVersionNotes,
+  logger = console.log,
+  errorLogger = console.error,
+} = {}) {
+  const { dryRun, preflightOnly, stores } = parseArgs(argv)
+  const skipFirefoxMetadata = argv.includes('--skip-firefox-metadata')
+  const env = envInput ?? process.env
+  const requiredArtifacts = [...new Set(stores.flatMap((store) => STORE_ARTIFACTS[store]))]
+  const missingArtifacts = await findMissingArtifacts({ exists, stores })
+  const missingEnv = preflightOnly ? [] : findMissingEnv(env, stores)
 
   if (missingArtifacts.length > 0 || missingEnv.length > 0) {
     if (missingArtifacts.length > 0) {
-      console.error(`Missing release artifacts: ${missingArtifacts.join(', ')}`)
+      errorLogger(`Missing release artifacts: ${missingArtifacts.join(', ')}`)
     }
     if (missingEnv.length > 0) {
-      console.error(`Missing store submission environment variables: ${missingEnv.join(', ')}`)
+      errorLogger(`Missing store submission environment variables: ${missingEnv.join(', ')}`)
     }
     throw new Error('Store submission preflight failed')
   }
 
-  const manifest = await fs.readJson('build/firefox/manifest.json')
-  const args = buildPublishExtensionArgs({ dryRun })
-  const firefoxReleaseNotes = buildFirefoxReleaseNotes(manifest.version)
+  const manifestPaths = [...new Set(stores.map((store) => STORE_MANIFESTS[store]))]
+  const manifests = []
+  for (const manifestPath of manifestPaths) {
+    try {
+      const manifest = await readJson(manifestPath)
+      if (!isValidManifestVersion(manifest?.version)) {
+        errorLogger(`Invalid manifest version: ${manifestPath}`)
+        throw new Error('Store submission preflight failed')
+      }
+      manifests.push({ path: manifestPath, version: manifest.version })
+    } catch (error) {
+      if (error?.message === 'Store submission preflight failed') throw error
+      errorLogger(`Missing or invalid manifest: ${manifestPath}`)
+      throw new Error('Store submission preflight failed', { cause: error })
+    }
+  }
 
-  console.log(`Submitting ChatGPTBox ${manifest.version} to Chrome, Firefox, and Edge`)
-  console.log(`Mode: ${dryRun ? 'dry-run' : 'submit'}`)
-  console.log(`Artifacts: ${REQUIRED_ARTIFACTS.join(', ')}`)
-  console.log(`Firefox version notes: ${firefoxReleaseNotes}`)
+  const manifestVersion = manifests[0]?.version
+  if (new Set(manifests.map(({ version }) => version)).size > 1) {
+    errorLogger('Manifest versions do not match across selected stores')
+    throw new Error('Store submission preflight failed')
+  }
 
-  await runPublishExtension(args)
+  const firefoxReleaseNotes = stores.includes('firefox')
+    ? buildFirefoxReleaseNotes(manifestVersion)
+    : null
+  const mode = preflightOnly ? 'preflight' : dryRun ? 'dry-run' : 'submit'
+  const versionLabel = manifestVersion ? ` ${manifestVersion}` : ''
 
-  if (!dryRun) {
-    await updateFirefoxVersionNotes({
+  logger(`${preflightOnly ? 'Checking' : 'Submitting'} ChatGPTBox${versionLabel}`)
+  logger(`Mode: ${mode}`)
+  logger(`Artifacts: ${requiredArtifacts.join(', ')}`)
+  if (firefoxReleaseNotes) {
+    logger(`Firefox version notes: ${firefoxReleaseNotes}`)
+  }
+
+  if (preflightOnly) {
+    logger('Store authentication, upload, and submission are skipped in preflight mode')
+    return
+  }
+
+  const args = buildPublishExtensionArgs({ dryRun, stores })
+  await runPublishExtensionImpl(args, { env, stores })
+
+  if (!dryRun && stores.includes('firefox') && !skipFirefoxMetadata) {
+    await updateFirefoxVersionNotesImpl({
       extensionId: env.FIREFOX_EXTENSION_ID,
-      version: manifest.version,
+      version: manifestVersion,
       jwtIssuer: env.FIREFOX_JWT_ISSUER,
       jwtSecret: env.FIREFOX_JWT_SECRET,
     })
