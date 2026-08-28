@@ -27,14 +27,14 @@ const wrappedBlock = (text) => `\n'''\n${text}\n'''`
 describe('selection-tools genPrompt', () => {
   test('explain includes language prefix and explanation instruction', async () => {
     const result = await config.explain.genPrompt('some concept')
-    assert.ok(result.startsWith('Reply in English.'))
+    assert.ok(result.startsWith('Reply in English (en).'))
     assert.ok(result.includes('Explain the following content'))
     assert.ok(result.endsWith(wrappedBlock('some concept')))
   })
 
   test('translate produces translation prompt with preferred language', async () => {
     const result = await config.translate.genPrompt('bonjour')
-    assert.ok(result.includes('Translate the following text into English'))
+    assert.ok(result.includes('Translate the following text into English (en)'))
     assert.ok(result.endsWith(wrappedBlock('bonjour')))
     // translate has no language prefix
     assert.ok(!result.startsWith('Reply in'))
@@ -55,14 +55,14 @@ describe('selection-tools genPrompt', () => {
 
   test('translateBidi includes bidirectional fallback instruction', async () => {
     const result = await config.translateBidi.genPrompt('hello')
-    assert.ok(result.includes('Translate the following text into English'))
+    assert.ok(result.includes('Translate the following text into English (en)'))
     assert.ok(result.includes('translate it into English instead'))
     assert.ok(result.endsWith(wrappedBlock('hello')))
   })
 
   test('summary includes summarization instruction with language prefix', async () => {
     const result = await config.summary.genPrompt('long article')
-    assert.ok(result.startsWith('Reply in English.'))
+    assert.ok(result.startsWith('Reply in English (en).'))
     assert.ok(result.includes('Summarize the following content'))
     assert.ok(result.endsWith(wrappedBlock('long article')))
   })
@@ -76,7 +76,7 @@ describe('selection-tools genPrompt', () => {
 
   test('sentiment includes language prefix and analysis instruction', async () => {
     const result = await config.sentiment.genPrompt('I love this')
-    assert.ok(result.startsWith('Reply in English.'))
+    assert.ok(result.startsWith('Reply in English (en).'))
     assert.ok(result.includes('sentiment analysis'))
     assert.ok(result.endsWith(wrappedBlock('I love this')))
   })
@@ -90,14 +90,14 @@ describe('selection-tools genPrompt', () => {
 
   test('code includes language prefix and code explanation instruction', async () => {
     const result = await config.code.genPrompt('const x = 1')
-    assert.ok(result.startsWith('Reply in English.'))
+    assert.ok(result.startsWith('Reply in English (en).'))
     assert.ok(result.includes('Break down the following code'))
     assert.ok(result.endsWith(wrappedBlock('const x = 1')))
   })
 
   test('ask includes language prefix', async () => {
     const result = await config.ask.genPrompt('why is the sky blue?')
-    assert.ok(result.startsWith('Reply in English.'))
+    assert.ok(result.startsWith('Reply in English (en).'))
     assert.ok(result.includes('Analyze the following content'))
     assert.ok(result.endsWith(wrappedBlock('why is the sky blue?')))
   })
@@ -109,14 +109,14 @@ describe('translation tools respect language settings', () => {
   test('translate uses preferred language from config', async () => {
     globalThis.__TEST_BROWSER_SHIM__.setStorage({ preferredLanguage: 'ja' })
     const result = await config.translate.genPrompt('hello')
-    assert.ok(result.includes('Translate the following text into Japanese'))
+    assert.ok(result.includes('Translate the following text into Japanese (日本語; ja)'))
   })
 
   test('translate falls back to navigator language when preference is auto', async () => {
     globalThis.__TEST_BROWSER_SHIM__.setStorage({ preferredLanguage: 'auto' })
     const result = await config.translate.genPrompt('hello')
     // navigator.language is 'en-US' via browser shim → userLanguage 'en' → English
-    assert.ok(result.includes('Translate the following text into English'))
+    assert.ok(result.includes('Translate the following text into English (en)'))
   })
 
   test('translateToEn ignores preferred language', async () => {
@@ -136,7 +136,13 @@ describe('translation tools respect language settings', () => {
   test('explain language prefix reflects preferred language', async () => {
     globalThis.__TEST_BROWSER_SHIM__.setStorage({ preferredLanguage: 'fr' })
     const result = await config.explain.genPrompt('text')
-    assert.ok(result.startsWith('Reply in French.'))
+    assert.ok(result.startsWith('Reply in French (Français; fr).'))
+  })
+
+  test('Traditional Chinese includes native name and canonical language tag', async () => {
+    globalThis.__TEST_BROWSER_SHIM__.setStorage({ preferredLanguage: 'zh-Hant' })
+    const result = await config.explain.genPrompt('text')
+    assert.ok(result.startsWith('Reply in Chinese (Traditional) (正體中文; zh-Hant).'))
   })
 })
 
@@ -162,8 +168,8 @@ describe('bidirectional translation toggle', () => {
   test('translateBidi uses preferred language in bidirectional clause', async () => {
     globalThis.__TEST_BROWSER_SHIM__.setStorage({ preferredLanguage: 'ja' })
     const result = await config.translateBidi.genPrompt('text')
-    assert.ok(result.includes('into Japanese'))
-    assert.ok(result.includes('If the text is already in Japanese'))
+    assert.ok(result.includes('into Japanese (日本語; ja)'))
+    assert.ok(result.includes('If the text is already in Japanese (日本語; ja)'))
   })
 })
 

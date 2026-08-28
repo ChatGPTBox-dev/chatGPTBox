@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'node:test'
 import Browser from 'webextension-polyfill'
 import { getPreferredLanguageKey, getUserConfig } from '../../../src/config/index.mjs'
+import { getPreferredLanguage } from '../../../src/config/language.mjs'
 
 const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
 
@@ -95,6 +96,31 @@ test('auto resolves through the refreshed browser language', async () => {
   assert.equal(config.preferredLanguage, 'auto')
   assert.equal(config.userLanguage, 'zh-Hant')
   assert.equal(await getPreferredLanguageKey(), 'zh-Hant')
+})
+
+test('formats preferred language with native name and canonical tag for prompts', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({ preferredLanguage: 'zh-Hant' })
+
+  assert.equal(
+    await getPreferredLanguage(),
+    'Chinese (Traditional) (正體中文; zh-Hant)',
+  )
+})
+
+test('does not duplicate a native name that matches the English name', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({ preferredLanguage: 'en' })
+
+  assert.equal(await getPreferredLanguage(), 'English (en)')
+})
+
+test('formats auto preferred language from the current browser language', async () => {
+  setNavigatorLanguage('ja-JP')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    preferredLanguage: 'auto',
+    userLanguage: 'en',
+  })
+
+  assert.equal(await getPreferredLanguage(), 'Japanese (日本語; ja)')
 })
 
 test('falls back arbitrary invalid preferences to the browser language', async () => {

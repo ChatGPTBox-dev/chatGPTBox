@@ -1,7 +1,14 @@
-import { getUserConfig } from './index.mjs'
+import { getPreferredLanguageKey, getUserConfig } from './index.mjs'
 import { languageList } from './language-data.mjs'
 
 export { languageList }
+
+function formatLanguageForPrompt(languageKey) {
+  const { name, native } = languageList[languageKey]
+  return native && native !== name
+    ? `${name} (${native}; ${languageKey})`
+    : `${name} (${languageKey})`
+}
 
 export async function getUserLanguage() {
   const config = await getUserConfig()
@@ -14,15 +21,10 @@ export async function getUserLanguageNative() {
 }
 
 export async function getPreferredLanguage() {
-  const config = await getUserConfig()
-  const language =
-    config.preferredLanguage === 'auto' ? config.userLanguage : config.preferredLanguage
-  return languageList[language].name
+  return formatLanguageForPrompt(await getPreferredLanguageKey())
 }
 
 export async function getPreferredLanguageNative() {
-  const config = await getUserConfig()
-  const language =
-    config.preferredLanguage === 'auto' ? config.userLanguage : config.preferredLanguage
+  const language = await getPreferredLanguageKey()
   return languageList[language].native
 }
