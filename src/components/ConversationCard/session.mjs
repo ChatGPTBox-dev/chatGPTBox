@@ -1,9 +1,34 @@
 import { pushRecord } from '../../services/apis/shared.mjs'
 
+export function getLastConversationRecord(records) {
+  if (!Array.isArray(records) || records.length === 0) return null
+  return records[records.length - 1]
+}
+
+export function getCompletedAnswerMetadata({
+  message,
+  restoredRetryAnswer,
+  partialAnswer,
+  retryRecord,
+  requestedModel,
+  fallbackModel,
+}) {
+  if (restoredRetryAnswer !== null) return retryRecord?.meta || null
+
+  const responseMetadata = getLastConversationRecord(
+    message.session?.conversationRecords,
+  )?.meta
+  if (responseMetadata) return responseMetadata
+
+  const selectedModel = requestedModel || fallbackModel
+  if (partialAnswer && selectedModel) return { selectedModel }
+  return undefined
+}
+
 export function finalizeInterruptedSession(session, answer, retryRecord = null) {
   if (!answer) {
     if (!session.isRetry && !retryRecord) return session
-    const lastRecord = session.conversationRecords.at(-1)
+    const lastRecord = getLastConversationRecord(session.conversationRecords)
     const shouldRestoreRetryRecord =
       retryRecord &&
       (lastRecord?.question !== retryRecord.question || lastRecord?.answer !== retryRecord.answer)

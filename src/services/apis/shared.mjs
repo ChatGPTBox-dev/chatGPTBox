@@ -1,3 +1,5 @@
+import { createRecordMetadata } from '../../utils/usage-metadata.mjs'
+
 export const getChatSystemPromptBase = async () => {
   return `You are a helpful, creative, clever, and very friendly assistant. You are familiar with various languages in the world.`
 }
@@ -75,11 +77,19 @@ export function setAbortController(port, onStop, onDisconnect) {
   }
 }
 
-export function pushRecord(session, question, answer) {
+export function pushRecord(session, question, answer, metadata = null) {
+  const recordMetadata = createRecordMetadata(session, metadata)
   const recordLength = session.conversationRecords.length
   let lastRecord
   if (recordLength > 0) lastRecord = session.conversationRecords[recordLength - 1]
 
-  if (session.isRetry && lastRecord && lastRecord.question === question) lastRecord.answer = answer
-  else session.conversationRecords.push({ question: question, answer: answer })
+  if (session.isRetry && lastRecord && lastRecord.question === question) {
+    lastRecord.answer = answer
+    if (recordMetadata) lastRecord.meta = recordMetadata
+    else delete lastRecord.meta
+  } else {
+    const record = { question: question, answer: answer }
+    if (recordMetadata) record.meta = recordMetadata
+    session.conversationRecords.push(record)
+  }
 }
