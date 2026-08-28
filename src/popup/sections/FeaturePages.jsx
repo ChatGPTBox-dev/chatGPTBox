@@ -1,17 +1,47 @@
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
-import { isEdge, isFirefox, isMobile, isSafari, openUrl } from '../../utils/index.mjs'
+import {
+  getApiModesFromConfig,
+  getUniquelySelectedApiModeIndex,
+  isEdge,
+  isFirefox,
+  isMobile,
+  isSafari,
+  openUrl,
+} from '../../utils/index.mjs'
 import Browser from 'webextension-polyfill'
 import PropTypes from 'prop-types'
+import { resolveOpenAICompatibleRequest } from '../../services/apis/provider-registry.mjs'
+import { getApiModeDisplayLabel } from './api-modes-provider-utils.mjs'
+import { useConversationTitleConfig } from '../../hooks/use-conversation-title-config.mjs'
 
 FeaturePages.propTypes = {
   config: PropTypes.object.isRequired,
   updateConfig: PropTypes.func.isRequired,
 }
 
+function getConversationTitleApiModes(config) {
+  return getApiModesFromConfig(config, true).filter((apiMode) => {
+    try {
+      const request = resolveOpenAICompatibleRequest(config, { apiMode })
+      return request?.endpointType === 'chat'
+    } catch {
+      return false
+    }
+  })
+}
+
 export function FeaturePages({ config, updateConfig }) {
   const { t } = useTranslation()
   const [backgroundPermission, setBackgroundPermission] = useState(false)
+  const [conversationTitleConfig, updateConversationTitleConfig] =
+    useConversationTitleConfig()
+  const conversationTitleApiModes = getConversationTitleApiModes(config)
+  const selectedConversationTitleApiModeIndex = getUniquelySelectedApiModeIndex(
+    conversationTitleApiModes,
+    { apiMode: conversationTitleConfig.conversationTitleApiMode },
+    { sessionCompat: true },
+  )
 
   if (!isMobile() && !isFirefox() && !isSafari())
     Browser.permissions.contains({ permissions: ['background'] }).then((result) => {
@@ -90,6 +120,56 @@ export function FeaturePages({ config, updateConfig }) {
           {t('Always Create New Conversation Window')}
         </label>
       )}
+      <label>
+        <input
+          type="checkbox"
+          checked={
+            conversationTitleConfig.autoGenerateConversationTitle &&
+            selectedConversationTitleApiModeIndex !== -1
+          }
+          disabled={selectedConversationTitleApiModeIndex === -1}
+          onChange={(e) => {
+            void updateConversationTitleConfig({
+              autoGenerateConversationTitle: e.target.checked,
+            })
+          }}
+        />
+        {t('Automatically generate conversation titles')}
+      </label>
+      <label>
+        <legend>{t('Conversation title model')}</legend>
+        <select
+          value={selectedConversationTitleApiModeIndex}
+          disabled={conversationTitleApiModes.length === 0}
+          onChange={(e) => {
+            const index = Number(e.target.value)
+            const apiMode = conversationTitleApiModes[index]
+            void updateConversationTitleConfig({
+              conversationTitleApiMode: apiMode ? { ...apiMode, apiKey: '' } : null,
+              ...(apiMode ? {} : { autoGenerateConversationTitle: false }),
+            })
+          }}
+        >
+          <option value={-1}>{t('Select a model')}</option>
+          {conversationTitleApiModes.map((apiMode, index) => (
+            <option
+              value={index}
+              key={`${apiMode.groupName}:${apiMode.itemName}:${apiMode.customName}:${apiMode.providerId}:${index}`}
+            >
+              {getApiModeDisplayLabel(
+                apiMode,
+                t,
+                Array.isArray(config.customOpenAIProviders) ? config.customOpenAIProviders : [],
+              )}
+            </option>
+          ))}
+        </select>
+        <small>
+          {t(
+            'Choose a fast, low-cost OpenAI-compatible chat model. The first completed exchange is sent once per conversation.',
+          )}
+        </small>
+      </label>
     </div>
   )
 }
