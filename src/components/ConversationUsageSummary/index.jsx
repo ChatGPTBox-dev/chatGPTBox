@@ -83,8 +83,8 @@ function ConversationUsageSummary({ records }) {
       }}
     >
       {hasModels && <span title={modelTitle}>{modelText}</span>}
-      {usageParts.filter(Boolean).map((part) => (
-        <span key={part}>{part}</span>
+      {usageParts.filter(Boolean).map((part, index) => (
+        <span key={index}>{part}</span>
       ))}
     </div>
   )
