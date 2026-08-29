@@ -1,14 +1,28 @@
 import {
+  claimSessionTitleGeneration,
+  completeSessionTitleGeneration,
   createSession,
-  resetSessions,
-  getSessions,
-  updateSession,
-  getSession,
   deleteSession,
+  failSessionTitleGeneration,
+  getSession,
+  getSessions,
+  getSessionTitleGenerationStaleDelay,
+  isSessionTitleGenerationStale,
+  resetSessions,
+  updateSession,
 } from '../../services/local-session.mjs'
-import { useEffect, useRef, useState } from 'react'
+import {
+  generateConversationTitle,
+  getSessionDisplayName,
+} from '../../services/session-title.mjs'
+import {
+  isConversationTitleModelAvailable,
+  resolveConversationTitleModelRequest,
+} from '../../services/conversation-title-model.mjs'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './styles.scss'
 import { useConfig } from '../../hooks/use-config.mjs'
+import { useConversationTitleConfig } from '../../hooks/use-conversation-title-config.mjs'
 import { useTranslation } from 'react-i18next'
 import ConfirmButton from '../../components/ConfirmButton'
 import ConversationCard from '../../components/ConversationCard'
@@ -21,11 +35,13 @@ function App() {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(true)
   const config = useConfig(null, false)
+  const [conversationTitleConfig] = useConversationTitleConfig()
   const [sessions, setSessions] = useState([])
   const [sessionId, setSessionId] = useState(null)
   const [currentSession, setCurrentSession] = useState(null)
   const [renderContent, setRenderContent] = useState(false)
   const currentPort = useRef(null)
+  const titleGenerationInFlightRef = useRef(new Set())
 
   const setSessionIdSafe = async (sessionId) => {
     if (currentPort.current) {
@@ -41,6 +57,83 @@ function App() {
     if (session) setSessionId(sessionId)
     else if (currentSessions.length > 0) setSessionId(currentSessions[0].sessionId)
   }
+
+  const generateTitleIfNeeded = useCallback(
+    async (session) => {
+      const titleRuntimeConfig = { ...config, ...conversationTitleConfig }
+      if (
+        !conversationTitleConfig.autoGenerateConversationTitle ||
+        !isConversationTitleModelAvailable(titleRuntimeConfig)
+      ) {
+        return
+      }
+      if (!session?.sessionId || titleGenerationInFlightRef.current.has(session.sessionId)) return
+      if (!Array.isArray(session.conversationRecords) || session.conversationRecords.length === 0) {
+        return
+      }
+
+      const firstRecord = session.conversationRecords[0]
+      if (
+        !String(firstRecord?.question || '').trim() ||
+        !String(firstRecord?.answer || '').trim()
+      ) {
+        return
+      }
+
+      let preparedRequest
+      try {
+        preparedRequest = resolveConversationTitleModelRequest(titleRuntimeConfig)
+      } catch (error) {
+        console.warn('[conversation-title] The configured title model is unavailable:', error)
+        return
+      }
+
+      titleGenerationInFlightRef.current.add(session.sessionId)
+      let generationId
+      try {
+        const expectedTranscript = {
+          lifecycleId: session.sessionLifecycleId,
+          createdAt: session.createdAt,
+          question: firstRecord.question,
+          answer: firstRecord.answer,
+        }
+        const claim = await claimSessionTitleGeneration(session.sessionId, expectedTranscript)
+        if (claim.updated) setSessions([...claim.currentSessions])
+        if (!claim.claimed) return
+
+        const claimedFirstRecord = claim.session.conversationRecords[0]
+        generationId = claim.session.sessionTitleGenerationId
+        const title = await generateConversationTitle({
+          config: titleRuntimeConfig,
+          question: claimedFirstRecord.question,
+          answer: claimedFirstRecord.answer,
+          preparedRequest,
+        })
+        const completed = await completeSessionTitleGeneration(
+          session.sessionId,
+          title,
+          generationId,
+        )
+        setSessions([...completed.currentSessions])
+      } catch (error) {
+        console.warn('[conversation-title] Failed to generate a conversation title:', error)
+        if (generationId) {
+          try {
+            const failed = await failSessionTitleGeneration(session.sessionId, generationId)
+            setSessions([...failed.currentSessions])
+          } catch (persistError) {
+            console.warn(
+              '[conversation-title] Failed to persist the title-generation failure:',
+              persistError,
+            )
+          }
+        }
+      } finally {
+        titleGenerationInFlightRef.current.delete(session.sessionId)
+      }
+    },
+    [config, conversationTitleConfig],
+  )
 
   useEffect(() => {
     document.documentElement.dataset.theme = config.themeMode
@@ -81,6 +174,43 @@ function App() {
     })()
   }, [sessionId])
 
+  useEffect(() => {
+    const selectedSession = sessions.find((session) => session.sessionId === sessionId)
+    if (selectedSession) setCurrentSession(selectedSession)
+  }, [sessions, sessionId])
+
+  useEffect(() => {
+    const titleRuntimeConfig = { ...config, ...conversationTitleConfig }
+    if (
+      !conversationTitleConfig.autoGenerateConversationTitle ||
+      !isConversationTitleModelAvailable(titleRuntimeConfig)
+    ) {
+      return undefined
+    }
+
+    const selectedSession = sessions.find((session) => session.sessionId === sessionId)
+    if (
+      !selectedSession ||
+      !Array.isArray(selectedSession.conversationRecords) ||
+      selectedSession.conversationRecords.length === 0
+    ) {
+      return undefined
+    }
+
+    const status = selectedSession.sessionTitleGenerationStatus
+    if (status === undefined || status === 'idle' || isSessionTitleGenerationStale(selectedSession)) {
+      void generateTitleIfNeeded(selectedSession)
+      return undefined
+    }
+
+    const staleDelay = getSessionTitleGenerationStaleDelay(selectedSession)
+    if (staleDelay === null) return undefined
+    const timerId = setTimeout(() => {
+      void generateTitleIfNeeded(selectedSession)
+    }, staleDelay + 50)
+    return () => clearTimeout(timerId)
+  }, [config, conversationTitleConfig, generateTitleIfNeeded, sessionId, sessions])
+
   const toggleSidebar = () => {
     setCollapsed(!collapsed)
   }
@@ -120,20 +250,29 @@ function App() {
           </div>
           <hr />
           <div className="chat-list">
-            {sessions.map(
-              (
-                session,
-                index, // TODO editable session name
-              ) => (
+            {sessions.map((session) => {
+              const displayName = getSessionDisplayName(session, t('New Chat'))
+              return (
                 <button
-                  key={index}
+                  key={session.sessionId}
                   className={`normal-button ${sessionId === session.sessionId ? 'active' : ''}`}
                   style="display: flex; align-items: center; justify-content: space-between;"
+                  title={displayName}
                   onClick={() => {
                     setSessionIdSafe(session.sessionId)
                   }}
                 >
-                  {session.sessionName}
+                  <span
+                    style={{
+                      flex: '1 1 auto',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {displayName}
+                  </span>
                   <span className="gpt-util-group">
                     <DeleteButton
                       size={14}
@@ -147,8 +286,8 @@ function App() {
                     />
                   </span>
                 </button>
-              ),
-            )}
+              )
+            })}
           </div>
           <hr />
           <div className="chat-sidebar-button-group">
@@ -172,10 +311,24 @@ function App() {
                 pageMode={true}
                 onUpdate={(port, session, cData) => {
                   currentPort.current = port
-                  if (cData.length > 0 && cData[cData.length - 1].done) {
-                    updateSession(session).then(setSessions)
-                    setCurrentSession(session)
-                  }
+                  const isClearedConversation =
+                    Array.isArray(session.conversationRecords) &&
+                    session.conversationRecords.length === 0 &&
+                    cData.length === 0
+                  const hasCompletedResponse =
+                    cData.length > 0 && cData[cData.length - 1].done
+                  if (!isClearedConversation && !hasCompletedResponse) return
+
+                  void (async () => {
+                    const updatedSessions = await updateSession(session)
+                    const savedSession = updatedSessions.find(
+                      (item) => item.sessionId === session.sessionId,
+                    )
+                    setSessions(updatedSessions)
+                    if (!savedSession) return
+                    setCurrentSession(savedSession)
+                    if (hasCompletedResponse) await generateTitleIfNeeded(savedSession)
+                  })()
                 }}
               />
             </div>
