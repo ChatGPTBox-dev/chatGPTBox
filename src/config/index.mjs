@@ -152,6 +152,7 @@ export const openRouterApiModelKeys = [
   'openRouter_openai_o3',
   'openRouter_openai_gpt_4_1_mini',
   'openRouter_fusion',
+  'openRouter_fusion_flash',
   'openRouter_openai_gpt_chat_latest',
   'openRouter_openai_gpt_5_5',
   'openRouter_openai_gpt_5_5_pro',
@@ -515,6 +516,10 @@ export const Models = {
   openRouter_fusion: {
     value: 'openrouter/fusion',
     desc: 'OpenRouter (Fusion)',
+  },
+  openRouter_fusion_flash: {
+    value: 'openrouter/fusion-flash',
+    desc: 'OpenRouter (Fusion Flash)',
   },
   openRouter_openai_gpt_chat_latest: {
     value: 'openai/gpt-chat-latest',
