@@ -359,11 +359,18 @@ test('handles metadata-only SSE chunk without choices or response fields', async
     'model',
   )
 
-  assert.equal(
-    port.postedMessages.some((m) => m.done === false && m.answer === 'Hi'),
-    true,
-  )
-  assert.deepEqual(session.conversationRecords.at(-1), { question: 'Q', answer: 'Hi' })
+  const streamingAnswers = port.postedMessages
+    .filter((message) => message.done === false)
+    .map((message) => message.answer)
+  assert.deepEqual(streamingAnswers, ['Hi'])
+  assert.deepEqual(session.conversationRecords.at(-1), {
+    question: 'Q',
+    answer: 'Hi',
+    meta: {
+      selectedModel: 'model',
+      reportedModel: 'gpt-4',
+    },
+  })
 })
 
 test('throws on non-ok response with JSON error body', async (t) => {

@@ -4,6 +4,7 @@ import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { mergeOpenAIResponseMetadata } from '../../utils/usage-metadata.mjs'
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -28,8 +29,39 @@ function buildMessageAnswer(answer, data, allowLegacyResponseField) {
   return answer
 }
 
+function hasMessageAnswerField(data, allowLegacyResponseField) {
+  if (allowLegacyResponseField && typeof data?.response === 'string') return true
+
+  const choice = data?.choices?.[0]
+  return (
+    typeof choice?.delta?.content === 'string' ||
+    typeof choice?.message?.content === 'string' ||
+    typeof choice?.text === 'string'
+  )
+}
+
 function hasFinished(data) {
   return Boolean(data?.choices?.[0]?.finish_reason)
+}
+
+function getRequestUrl(requestUrl) {
+  try {
+    return new URL(requestUrl)
+  } catch {
+    return null
+  }
+}
+
+function isNativeOpenAIChatCompletionsRequest(requestUrl, endpointType) {
+  if (endpointType !== 'chat') return false
+  const url = getRequestUrl(requestUrl)
+  if (!url || url.hostname.toLowerCase() !== 'api.openai.com') return false
+  return url.pathname.replace(/\/+$/, '') === '/v1/chat/completions'
+}
+
+function isOpenRouterRequest(requestUrl, provider) {
+  if (provider === 'openrouter') return true
+  return getRequestUrl(requestUrl)?.origin === 'https://openrouter.ai'
 }
 
 /**
@@ -112,14 +144,27 @@ export async function generateAnswersWithOpenAICompatible({
       ...getTemperatureParams(config, model),
       ...safeExtraBody,
     }
+    if (isNativeOpenAIChatCompletionsRequest(requestUrl, endpointType)) {
+      requestBody.stream_options = {
+        ...(requestBody.stream_options && typeof requestBody.stream_options === 'object'
+          ? requestBody.stream_options
+          : {}),
+        include_usage: true,
+      }
+    }
   }
 
   let answer = ''
+  let responseMetadata = null
+  let sawFinishReason = false
   let finished = false
+  const waitForFinalUsage =
+    isNativeOpenAIChatCompletionsRequest(requestUrl, endpointType) ||
+    isOpenRouterRequest(requestUrl, provider)
   const finish = () => {
     if (finished) return
     finished = true
-    pushRecord(session, question, answer)
+    pushRecord(session, question, answer, responseMetadata)
     port.postMessage({ answer: null, done: true, session: session })
   }
 
@@ -142,10 +187,20 @@ export async function generateAnswersWithOpenAICompatible({
         return
       }
 
+      responseMetadata = mergeOpenAIResponseMetadata(responseMetadata, data, model)
+      const previousAnswer = answer
+      const hasAnswerField = hasMessageAnswerField(data, allowLegacyResponseField)
       answer = buildMessageAnswer(answer, data, allowLegacyResponseField)
-      port.postMessage({ answer: answer, done: false, session: null })
+      if (answer !== previousAnswer || hasAnswerField) {
+        port.postMessage({ answer: answer, done: false, session: null })
+      }
 
-      if (hasFinished(data)) {
+      const chunkFinished = hasFinished(data)
+      const hasUsage = Boolean(data?.usage && typeof data.usage === 'object')
+      if (chunkFinished) sawFinishReason = true
+      if (chunkFinished && (!waitForFinalUsage || hasUsage)) {
+        finish()
+      } else if (sawFinishReason && waitForFinalUsage && hasUsage) {
         finish()
       }
     },
@@ -157,13 +212,14 @@ export async function generateAnswersWithOpenAICompatible({
             const shouldPostSession = Boolean(answer) || session.isRetry
             if (shouldPostSession && isCurrentSessionRequest()) {
               if (answer) {
-                pushRecord(session, question, answer)
+                pushRecord(session, question, answer, responseMetadata)
               }
               session.isRetry = false
               try {
                 const stoppedGenerationId = getStopGenerationId()
                 port.postMessage({
                   session,
+                  ...(answer && responseMetadata ? { done: true } : {}),
                   ...(stoppedGenerationId === undefined ? {} : { stoppedGenerationId }),
                 })
               } catch (e) {
@@ -182,6 +238,10 @@ export async function generateAnswersWithOpenAICompatible({
     async onError(resp) {
       port.onMessage.removeListener(messageListener)
       port.onDisconnect.removeListener(disconnectListener)
+      if (sawFinishReason && waitForFinalUsage) {
+        finish()
+        return
+      }
       if (resp instanceof Error) throw resp
       const error = await resp.json().catch(() => ({}))
       throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)

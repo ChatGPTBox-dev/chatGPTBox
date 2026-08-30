@@ -5,6 +5,7 @@ import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { mergeClaudeResponseMetadata } from '../../utils/usage-metadata.mjs'
 
 function shouldDisableDefaultThinking(model) {
   return model === 'claude-sonnet-5'
@@ -16,7 +17,13 @@ function shouldDisableDefaultThinking(model) {
  * @param {Session} session
  */
 export async function generateAnswersWithClaudeApi(port, question, session) {
-  const { controller, messageListener, disconnectListener } = setAbortController(port)
+  const {
+    controller,
+    messageListener,
+    disconnectListener,
+    getStopGenerationId,
+    isCurrentSessionRequest,
+  } = setAbortController(port)
   const config = await getUserConfig()
   const apiUrl = config.customAnthropicApiUrl
   const model = getModelValue(session)
@@ -39,6 +46,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
   }
 
   let answer = ''
+  let responseMetadata = null
   let stopReason = ''
   let completionError
   let wasAborted = false
@@ -70,6 +78,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
         throw error
       }
       if (completedSuccessfully) return
+      responseMetadata = mergeClaudeResponseMetadata(responseMetadata, data, model)
       if (data?.type === 'message_delta') {
         stopReason = data?.delta?.stop_reason || stopReason
         return
@@ -95,7 +104,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
           controller.abort()
           throw completionError
         }
-        pushRecord(session, question, answer)
+        pushRecord(session, question, answer, responseMetadata)
         console.debug('conversation history', { content: session.conversationRecords })
         port.postMessage({ answer: null, done: true, session: session })
         completedSuccessfully = true
@@ -125,7 +134,24 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
       throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
     },
   }).catch((error) => error)
-  if (wasAborted) return
+  if (wasAborted) {
+    const shouldPostSession = Boolean(answer) || session.isRetry
+    if (shouldPostSession && isCurrentSessionRequest()) {
+      if (answer) pushRecord(session, question, answer, responseMetadata)
+      session.isRetry = false
+      try {
+        const stoppedGenerationId = getStopGenerationId()
+        port.postMessage({
+          session,
+          ...(answer && responseMetadata ? { done: true } : {}),
+          ...(stoppedGenerationId === undefined ? {} : { stoppedGenerationId }),
+        })
+      } catch (error) {
+        console.warn('[claude-api] Failed to post session on abort:', error)
+      }
+    }
+    return
+  }
   if (completionError) throw completionError
   if (
     streamError &&
