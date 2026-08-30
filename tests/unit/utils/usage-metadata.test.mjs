@@ -117,11 +117,18 @@ test('Claude metadata treats cache reads and writes as parts of the full input',
   })
 })
 
-test('record metadata falls back to the session model label', () => {
-  assert.deepEqual(createRecordMetadata({ aiName: 'OpenAI (GPT-5.6)' }, null), {
-    selectedModel: 'OpenAI (GPT-5.6)',
-  })
-  assert.equal(createRecordMetadata({}, null), null)
+test('record metadata falls back to the stable session model identifier', () => {
+  assert.deepEqual(
+    createRecordMetadata(
+      {
+        modelName: 'chatgptApi5_6',
+        aiName: 'OpenAI (GPT-5.6)',
+      },
+      null,
+    ),
+    { selectedModel: 'chatgptApi5_6' },
+  )
+  assert.equal(createRecordMetadata({ aiName: 'OpenAI (GPT-5.6)' }, null), null)
 })
 
 test('conversation summary totals only complete reported usage and preserves model history', () => {

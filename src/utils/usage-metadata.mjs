@@ -143,7 +143,7 @@ export function mergeClaudeResponseMetadata(currentMetadata, data, selectedModel
 
 export function createRecordMetadata(session, metadata) {
   return mergeResponseMetadata(metadata, {
-    selectedModel: metadata?.selectedModel || session?.aiName,
+    selectedModel: metadata?.selectedModel || session?.modelName,
   })
 }
 

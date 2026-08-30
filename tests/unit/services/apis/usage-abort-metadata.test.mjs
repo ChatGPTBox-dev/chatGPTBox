@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
-import { generateAnswersWithOpenAICompatible } from '../../../../src/services/apis/openai-compatible-core.mjs'
+import { beforeEach, test } from 'node:test'
+import { generateAnswersWithClaudeApi } from '../../../../src/services/apis/claude-api.mjs'
+import {
+  generateAnswersWithOpenAICompatible,
+} from '../../../../src/services/apis/openai-compatible-core.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
 
 const baseConfig = {
@@ -12,7 +15,35 @@ function sseData(data) {
   return `data: ${JSON.stringify(data)}\n\n`
 }
 
-test('aborted OpenAI-compatible stream reposts retained metadata with terminal session', async (t) => {
+function assertMetadataSessionFollowsStopAcknowledgement(port, session) {
+  const acknowledgementIndex = port.postedMessages.findIndex(
+    (message) => message.done === true && message.session === undefined,
+  )
+  const sessionIndex = port.postedMessages.findIndex((message) => message.session === session)
+
+  assert.notEqual(acknowledgementIndex, -1)
+  assert.notEqual(sessionIndex, -1)
+  assert.equal(port.postedMessages[sessionIndex].done, true)
+  assert.equal(acknowledgementIndex < sessionIndex, true)
+}
+
+if (!globalThis.__TEST_BROWSER_SHIM__) {
+  globalThis.__TEST_BROWSER_SHIM__ = {
+    storage: {},
+    clearStorage() {
+      this.storage = {}
+    },
+    replaceStorage(values) {
+      this.storage = { ...values }
+    },
+  }
+}
+
+beforeEach(() => {
+  globalThis.__TEST_BROWSER_SHIM__.clearStorage()
+})
+
+test('OpenAI-compatible abort reposts retained metadata in a terminal session', async (t) => {
   t.mock.method(console, 'debug', () => {})
   const session = {
     aiName: 'Custom provider',
@@ -88,10 +119,92 @@ test('aborted OpenAI-compatible stream reposts retained metadata with terminal s
       },
     },
   ])
+  assertMetadataSessionFollowsStopAcknowledgement(port, session)
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
 
-  const terminalMessages = port.postedMessages.filter((message) => message.done === true)
-  assert.equal(terminalMessages.length, 2)
-  assert.equal(terminalMessages[0].session, undefined)
-  assert.equal(terminalMessages[1].session, session)
+test('aborted Claude stream reposts retained metadata with terminal session', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    customAnthropicApiUrl: 'https://api.anthropic.com',
+    anthropicApiKey: 'sk-ant-test',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+  })
+  const session = {
+    aiName: 'Anthropic (Claude Sonnet 5)',
+    modelName: 'claudeSonnet5Api',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  const encoder = new TextEncoder()
+
+  t.mock.method(globalThis, 'fetch', async () => {
+    let readCount = 0
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      body: {
+        getReader() {
+          return {
+            async read() {
+              readCount += 1
+              if (readCount === 1) {
+                return {
+                  done: false,
+                  value: encoder.encode(
+                    sseData({
+                      type: 'message_start',
+                      message: {
+                        model: 'claude-sonnet-5-20260801',
+                        usage: {
+                          input_tokens: 10,
+                          cache_read_input_tokens: 20,
+                          cache_creation_input_tokens: 30,
+                          output_tokens: 1,
+                        },
+                      },
+                    }) +
+                      sseData({
+                        type: 'content_block_delta',
+                        delta: { type: 'text_delta', text: 'Partial' },
+                      }),
+                  ),
+                }
+              }
+
+              port.emitMessage({ stop: true })
+              const error = new Error('aborted')
+              error.name = 'AbortError'
+              throw error
+            },
+          }
+        },
+      },
+    }
+  })
+
+  await generateAnswersWithClaudeApi(port, 'Hello', session)
+
+  assert.deepEqual(session.conversationRecords, [
+    {
+      question: 'Hello',
+      answer: 'Partial',
+      meta: {
+        selectedModel: 'claude-sonnet-5',
+        reportedModel: 'claude-sonnet-5-20260801',
+        usage: {
+          inputTokens: 60,
+          outputTokens: 1,
+          totalTokens: 61,
+          cacheReadInputTokens: 20,
+          cacheWriteInputTokens: 30,
+        },
+      },
+    },
+  ])
+  assertMetadataSessionFollowsStopAcknowledgement(port, session)
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })

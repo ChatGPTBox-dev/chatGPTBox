@@ -17,7 +17,13 @@ function shouldDisableDefaultThinking(model) {
  * @param {Session} session
  */
 export async function generateAnswersWithClaudeApi(port, question, session) {
-  const { controller, messageListener, disconnectListener } = setAbortController(port)
+  const {
+    controller,
+    messageListener,
+    disconnectListener,
+    getStopGenerationId,
+    isCurrentSessionRequest,
+  } = setAbortController(port)
   const config = await getUserConfig()
   const apiUrl = config.customAnthropicApiUrl
   const model = getModelValue(session)
@@ -128,7 +134,24 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
       throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
     },
   }).catch((error) => error)
-  if (wasAborted) return
+  if (wasAborted) {
+    const shouldPostSession = Boolean(answer) || session.isRetry
+    if (shouldPostSession && isCurrentSessionRequest()) {
+      if (answer) pushRecord(session, question, answer, responseMetadata)
+      session.isRetry = false
+      try {
+        const stoppedGenerationId = getStopGenerationId()
+        port.postMessage({
+          session,
+          ...(answer && responseMetadata ? { done: true } : {}),
+          ...(stoppedGenerationId === undefined ? {} : { stoppedGenerationId }),
+        })
+      } catch (error) {
+        console.warn('[claude-api] Failed to post session on abort:', error)
+      }
+    }
+    return
+  }
   if (completionError) throw completionError
   if (
     streamError &&

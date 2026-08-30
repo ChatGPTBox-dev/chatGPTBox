@@ -5,6 +5,7 @@ import ReadButton from '../ReadButton'
 import PropTypes from 'prop-types'
 import MarkdownRender from '../MarkdownRender/markdown.jsx'
 import { useTranslation } from 'react-i18next'
+import { modelNameToDesc } from '../../utils/model-name-convert.mjs'
 import { formatTokenCount, getRecordModel } from '../../utils/usage-metadata.mjs'
 
 function getUsageText(meta, t) {
@@ -28,14 +29,21 @@ function getUsageText(meta, t) {
 
 function AnswerTitle({ descName, meta }) {
   const { t } = useTranslation()
-  const model = getRecordModel(meta, descName)
+  const model = modelNameToDesc(getRecordModel(meta, descName), t)
   const usageText = getUsageText(meta, t)
   const selectedModel = meta?.selectedModel
+    ? modelNameToDesc(meta.selectedModel, t)
+    : ''
   const reportedModel = meta?.reportedModel
-  const modelTitle =
-    selectedModel && reportedModel && selectedModel !== reportedModel
-      ? `${t('Selected model')}: ${selectedModel}\n${t('Reported model')}: ${reportedModel}`
-      : model
+    ? modelNameToDesc(meta.reportedModel, t)
+    : ''
+  const hasDifferentReportedModel =
+    meta?.selectedModel &&
+    meta?.reportedModel &&
+    meta.selectedModel !== meta.reportedModel
+  const modelTitle = hasDifferentReportedModel
+    ? `${t('Selected model')}: ${selectedModel}\n${t('Reported model')}: ${reportedModel}`
+    : model
 
   return (
     <div style={{ minWidth: 0 }}>

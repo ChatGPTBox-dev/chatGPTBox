@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types'
 import { useTranslation } from 'react-i18next'
+import { modelNameToDesc } from '../../utils/model-name-convert.mjs'
 import {
   formatTokenCount,
   summarizeConversationUsage,
@@ -19,56 +20,83 @@ function ConversationUsageSummary({ records }) {
   const summary = summarizeConversationUsage(records)
   if (summary.models.length === 0 && summary.reportedTurns === 0) return null
 
-  const hasModels = summary.models.length > 0
+  const models = summary.models.map(({ name, turns }) => ({
+    name: modelNameToDesc(name, t),
+    turns,
+  }))
+  const hasModels = models.length > 0
+  const modelReportedTurns = models.reduce((total, { turns }) => total + turns, 0)
+  const modelCoverage =
+    modelReportedTurns === summary.totalTurns
+      ? ''
+      : ` (${t('Turns')}: ${modelReportedTurns}/${summary.totalTurns})`
   const modelText = !hasModels
     ? ''
-    : summary.models.length === 1
-    ? `${t('Model')}: ${summary.models[0].name}`
-    : `${t('Models')}: ${summary.models.length}`
-  const modelTitle = summary.models
+    : models.length === 1
+    ? `${t('Model')}: ${models[0].name}${modelCoverage}`
+    : `${t('Models')}: ${models.length}${modelCoverage}`
+  const modelTitle = models
     .map(({ name, turns }) => `${name} · ${t('Turns')}: ${turns}`)
     .join('\n')
-  const usageParts = []
-  if (summary.reportedTurns > 0) {
-    usageParts.push(`${t('Reported usage')}: ${summary.reportedTurns}/${summary.totalTurns}`)
-    usageParts.push(
-      getMetricText(
+  const usageParts = [
+    {
+      key: 'reported-usage',
+      text:
+        summary.reportedTurns > 0
+          ? `${t('Reported usage')}: ${summary.reportedTurns}/${summary.totalTurns}`
+          : null,
+    },
+    {
+      key: 'input-tokens',
+      text: getMetricText(
         t('Input tokens'),
         summary.inputTokens,
         summary.inputReportedTurns,
         summary.reportedTurns,
         t,
       ),
-      getMetricText(
+    },
+    {
+      key: 'output-tokens',
+      text: getMetricText(
         t('Output tokens'),
         summary.outputTokens,
         summary.outputReportedTurns,
         summary.reportedTurns,
         t,
       ),
-      getMetricText(
+    },
+    {
+      key: 'total-tokens',
+      text: getMetricText(
         t('Total tokens'),
         summary.totalTokens,
         summary.totalReportedTurns,
         summary.reportedTurns,
         t,
       ),
-      getMetricText(
+    },
+    {
+      key: 'cache-read-tokens',
+      text: getMetricText(
         t('Cached input tokens'),
         summary.cacheReadInputTokens,
         summary.cacheReadReportedTurns,
         summary.reportedTurns,
         t,
       ),
-      getMetricText(
+    },
+    {
+      key: 'cache-write-tokens',
+      text: getMetricText(
         t('Cache write tokens'),
         summary.cacheWriteInputTokens,
         summary.cacheWriteReportedTurns,
         summary.reportedTurns,
         t,
       ),
-    )
-  }
+    },
+  ]
 
   return (
     <div
@@ -83,9 +111,10 @@ function ConversationUsageSummary({ records }) {
       }}
     >
       {hasModels && <span title={modelTitle}>{modelText}</span>}
-      {usageParts.filter(Boolean).map((part, index) => (
-        <span key={index}>{part}</span>
-      ))}
+      {usageParts.map(({ key, text }) => {
+        if (!text) return null
+        return <span key={key}>{text}</span>
+      })}
     </div>
   )
 }

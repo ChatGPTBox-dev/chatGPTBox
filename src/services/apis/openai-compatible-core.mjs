@@ -219,7 +219,7 @@ export async function generateAnswersWithOpenAICompatible({
                 const stoppedGenerationId = getStopGenerationId()
                 port.postMessage({
                   session,
-                  done: true,
+                  ...(answer && responseMetadata ? { done: true } : {}),
                   ...(stoppedGenerationId === undefined ? {} : { stoppedGenerationId }),
                 })
               } catch (e) {
