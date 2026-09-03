@@ -178,6 +178,8 @@ test('claude-api: omits temperature for models that reject custom sampling', asy
   t.mock.method(console, 'debug', () => {})
 
   for (const [modelName, model] of [
+    ['claudeFable5Api', 'claude-fable-5'],
+    ['claudeFable51Api', 'claude-fable-5-1'],
     ['claudeOpus47Api', 'claude-opus-4-7'],
     ['claudeOpus48Api', 'claude-opus-4-8'],
     ['claudeOpus5Api', 'claude-opus-5'],
