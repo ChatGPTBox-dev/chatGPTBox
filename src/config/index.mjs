@@ -91,6 +91,8 @@ export const customApiModelKeys = ['customModel']
 export const ollamaApiModelKeys = ['ollamaModel']
 export const azureOpenAiApiModelKeys = ['azureOpenAi']
 export const claudeApiModelKeys = [
+  'claudeFable5Api',
+  'claudeFable51Api',
   'claudeOpus41Api',
   'claudeOpus45Api',
   'claudeOpus46Api',
@@ -338,6 +340,14 @@ export const Models = {
   chatgptApi4_1_nano: { value: 'gpt-4.1-nano', desc: 'OpenAI (GPT-4.1 nano)' },
 
   claude2WebFree: { value: '', desc: 'Claude.ai (Web)' },
+  claudeFable5Api: {
+    value: 'claude-fable-5',
+    desc: 'Anthropic (Claude Fable 5)',
+  },
+  claudeFable51Api: {
+    value: 'claude-fable-5-1',
+    desc: 'Anthropic (Claude Fable 5.1)',
+  },
   claudeOpus41Api: {
     value: 'claude-opus-4-1-20250805',
     desc: 'Anthropic (Claude Opus 4.1)',
@@ -751,6 +761,7 @@ export const defaultApiModeIds = [
   'chatgptApi5_6Luna',
   'xaiGrok4_6',
   'xaiGrok4_5',
+  'claudeFable51Api',
   'claudeOpus5Api',
   'claudeSonnet5Api',
   'claudeHaiku45Api',
