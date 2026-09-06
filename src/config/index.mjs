@@ -18,10 +18,7 @@ import {
   canonicalizeModelKey,
   canonicalizeModelKeyArray,
 } from './model-key-migrations.mjs'
-import {
-  getNavigatorLanguage,
-  resolvePreferredLanguageKey,
-} from './language-data.mjs'
+import { getNavigatorLanguage, resolvePreferredLanguageKey } from './language-data.mjs'
 
 export { getNavigatorLanguage }
 

@@ -34,10 +34,7 @@ test('findMatchingVoice prefers the vendor voice within the matching script', ()
   const genericSimplified = { name: 'Generic Simplified', lang: 'zh-CN' }
   const xiaoyi = { name: 'Microsoft Xiaoyi Online', lang: 'zh-CN' }
 
-  assert.equal(
-    findMatchingVoice([genericSimplified, xiaoyi], 'zh-Hans', 'xiaoyi'),
-    xiaoyi,
-  )
+  assert.equal(findMatchingVoice([genericSimplified, xiaoyi], 'zh-Hans', 'xiaoyi'), xiaoyi)
 })
 
 test('findMatchingVoice normalizes the preferred vendor name', () => {
@@ -50,10 +47,7 @@ test('findMatchingVoice does not let a vendor voice override the requested scrip
   const xiaoyiSimplified = { name: 'Microsoft Xiaoyi Online', lang: 'zh-CN' }
   const traditional = { name: 'Traditional Chinese', lang: 'zh-TW' }
 
-  assert.equal(
-    findMatchingVoice([xiaoyiSimplified, traditional], 'zh-Hant', 'xiaoyi'),
-    traditional,
-  )
+  assert.equal(findMatchingVoice([xiaoyiSimplified, traditional], 'zh-Hant', 'xiaoyi'), traditional)
 })
 
 test('findMatchingVoice falls back to the base language', () => {

@@ -101,10 +101,7 @@ test('auto resolves through the refreshed browser language', async () => {
 test('formats preferred language with native name and canonical tag for prompts', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({ preferredLanguage: 'zh-Hant' })
 
-  assert.equal(
-    await getPreferredLanguage(),
-    'Traditional Chinese (正體中文; zh-Hant)',
-  )
+  assert.equal(await getPreferredLanguage(), 'Traditional Chinese (正體中文; zh-Hant)')
 })
 
 test('does not duplicate a native name that matches the English name', async () => {
