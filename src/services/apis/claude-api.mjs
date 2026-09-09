@@ -1,10 +1,11 @@
 import { getUserConfig } from '../../config/index.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import { pushRecord, setAbortController, setPortResponseMetadata } from './shared.mjs'
 import { FETCH_RESPONSE_STREAM_FAILED, fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { mergeClaudeResponseMetadata } from '../../utils/usage-metadata.mjs'
 
 function shouldDisableDefaultThinking(model) {
   return model === 'claude-sonnet-5'
@@ -39,6 +40,8 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
   }
 
   let answer = ''
+  let responseMetadata = { selectedModel: model }
+  setPortResponseMetadata(port, responseMetadata)
   let stopReason = ''
   let completionError
   let wasAborted = false
@@ -70,6 +73,8 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
         throw error
       }
       if (completedSuccessfully) return
+      responseMetadata = mergeClaudeResponseMetadata(responseMetadata, data, model)
+      setPortResponseMetadata(port, responseMetadata)
       if (data?.type === 'message_delta') {
         stopReason = data?.delta?.stop_reason || stopReason
         return
@@ -97,7 +102,12 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
         }
         pushRecord(session, question, answer)
         console.debug('conversation history', { content: session.conversationRecords })
-        port.postMessage({ answer: null, done: true, session: session })
+        port.postMessage({
+          answer: null,
+          done: true,
+          session,
+          meta: responseMetadata,
+        })
         completedSuccessfully = true
         return
       }
@@ -105,7 +115,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
       const delta = data?.delta?.text
       if (delta) {
         answer += delta
-        port.postMessage({ answer: answer, done: false, session: null })
+        port.postMessage({ answer, done: false, session: null })
       }
     },
     async onStart() {},

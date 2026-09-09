@@ -15,11 +15,27 @@ export const getCustomApiPromptBase = async () => {
   return `I am a helpful, creative, clever, and very friendly assistant. I am familiar with various languages in the world.`
 }
 
+function getPortResponseMetadata(port) {
+  const responseMetadata = port._responseMetadata
+  if (!responseMetadata || responseMetadata.generation !== port._sessionRequestGeneration) return null
+  return responseMetadata.value
+}
+
+export function setPortResponseMetadata(port, metadata) {
+  if (!metadata) return
+  port._responseMetadata = {
+    generation: port._sessionRequestGeneration,
+    value: metadata,
+  }
+}
+
 export function acknowledgePortStop(port, message) {
   if (message.stopAcknowledged || port._stopAcknowledged) return false
   try {
+    const responseMetadata = getPortResponseMetadata(port)
     port.postMessage({
       done: true,
+      ...(responseMetadata ? { meta: responseMetadata } : {}),
       ...(message.stopGenerationId === undefined
         ? {}
         : { stoppedGenerationId: message.stopGenerationId }),
@@ -80,6 +96,9 @@ export function pushRecord(session, question, answer) {
   let lastRecord
   if (recordLength > 0) lastRecord = session.conversationRecords[recordLength - 1]
 
-  if (session.isRetry && lastRecord && lastRecord.question === question) lastRecord.answer = answer
-  else session.conversationRecords.push({ question: question, answer: answer })
+  if (session.isRetry && lastRecord && lastRecord.question === question) {
+    lastRecord.answer = answer
+  } else {
+    session.conversationRecords.push({ question: question, answer: answer })
+  }
 }

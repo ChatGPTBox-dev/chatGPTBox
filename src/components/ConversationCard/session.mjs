@@ -1,9 +1,32 @@
 import { pushRecord } from '../../services/apis/shared.mjs'
+import { mergeResponseMetadata } from '../../utils/usage-metadata.mjs'
+
+export function getLastConversationRecord(records) {
+  if (!Array.isArray(records) || records.length === 0) return null
+  return records[records.length - 1]
+}
+
+export function getCompletedAnswerMetadata({
+  message,
+  restoredRetryAnswer,
+  retryRecord,
+}) {
+  if (restoredRetryAnswer !== null) return retryRecord?.meta || null
+
+  const responseRecord = getLastConversationRecord(message.session?.conversationRecords)
+  let metadata = mergeResponseMetadata(responseRecord?.meta, message.meta)
+  const selectedModel = metadata?.selectedModel || message.session?.modelName
+  if (selectedModel) {
+    metadata = mergeResponseMetadata(metadata, { selectedModel })
+  }
+  if (metadata && responseRecord) responseRecord.meta = metadata
+  return metadata || undefined
+}
 
 export function finalizeInterruptedSession(session, answer, retryRecord = null) {
   if (!answer) {
     if (!session.isRetry && !retryRecord) return session
-    const lastRecord = session.conversationRecords.at(-1)
+    const lastRecord = getLastConversationRecord(session.conversationRecords)
     const shouldRestoreRetryRecord =
       retryRecord &&
       (lastRecord?.question !== retryRecord.question || lastRecord?.answer !== retryRecord.answer)
