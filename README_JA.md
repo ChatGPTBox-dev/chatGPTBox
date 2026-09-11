@@ -79,7 +79,7 @@
 
 - https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api のようなプロジェクトを使用して、LLM APIをOpenAI形式に変換し、それらをChatGPTBoxの `カスタムモデル` モードと組み合わせて使用することができます
 
-- ChatGPTBoxの `カスタムモデル` モードを使用する際には、[Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models / [Requesty](https://requesty.ai/) もご利用いただけます
+- ChatGPTBoxの `カスタムモデル` モードを使用する際には、[Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / [OpenRouter](https://openrouter.ai/docs#models) / [Requesty](https://requesty.ai/) もご利用いただけます
 
 ## ✨ 機能
 
