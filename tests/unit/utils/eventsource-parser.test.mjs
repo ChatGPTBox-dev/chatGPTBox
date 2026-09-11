@@ -193,6 +193,25 @@ test('createParser reset discards pending decoder bytes', () => {
   )
 })
 
+test('createParser reset discards pending event metadata', () => {
+  const parsed = []
+  const parser = createParser((event) => parsed.push(event))
+
+  parser.feed(toBytes('meta: {"source":"stale"}\n'))
+  parser.reset()
+  parser.feed(toBytes('data: clean\n\n'))
+
+  assert.deepEqual(parsed, [
+    {
+      type: 'event',
+      id: undefined,
+      event: undefined,
+      data: 'clean',
+      extra: undefined,
+    },
+  ])
+})
+
 test('createParser handles \\r only line endings', () => {
   const parsed = []
   const parser = createParser((event) => parsed.push(event))
