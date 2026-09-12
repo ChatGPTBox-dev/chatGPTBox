@@ -137,6 +137,20 @@ function ApiUrl({ config, updateConfig }) {
         />
       </label>
       <label>
+        {t('OpenAI API Protocol')}
+        <select
+          value={config.openaiApiProtocol === 'responses' ? 'responses' : 'chat'}
+          onChange={(e) => {
+            updateConfig({
+              openaiApiProtocol: e.target.value === 'responses' ? 'responses' : 'chat',
+            })
+          }}
+        >
+          <option value="chat">{t('Chat Completions')}</option>
+          <option value="responses">{t('Responses')}</option>
+        </select>
+      </label>
+      <label>
         {t('Custom Anthropic API Url')}
         <input
           type="text"

@@ -61,7 +61,14 @@ function annotateResponseStreamError(resource, err) {
 }
 
 export async function fetchSSE(resource, options) {
-  const { onMessage, onStart, onEnd, onError, ...fetchOptions } = options
+  const {
+    onMessage,
+    onStart,
+    onEnd,
+    onError,
+    bufferJsonResponse = false,
+    ...fetchOptions
+  } = options
   if (!getHttpRequestUrl(resource)) {
     await onError(createInvalidApiEndpointError())
     return
@@ -106,6 +113,11 @@ export async function fetchSSE(resource, options) {
     await onError(annotateResponseStreamError(resource, err))
   }
   let hasStarted = false
+  // Opt-in JSON responses are decoded across reads and parsed only at EOF.
+  const jsonDecoder = bufferJsonResponse ? new TextDecoder() : null
+  let responseFormat
+  let jsonText = ''
+  let pendingChunks = []
   let reader
   try {
     reader = resp.body.getReader()
@@ -136,24 +148,61 @@ export async function fetchSSE(resource, options) {
         await handleCallbackError(err)
       }
 
-      let fakeSseData
-      try {
-        const commonResponse = JSON.parse(str)
-        fakeSseData = 'data: ' + JSON.stringify(commonResponse) + '\n\ndata: [DONE]\n\n'
-      } catch (error) {
-        console.debug('not common response', error)
-      }
-      if (fakeSseData) {
+      if (!bufferJsonResponse) {
+        let fakeSseData
         try {
-          parser.feed(new TextEncoder().encode(fakeSseData))
-        } catch (err) {
-          await handleCallbackError(err)
+          const commonResponse = JSON.parse(str)
+          fakeSseData = 'data: ' + JSON.stringify(commonResponse) + '\n\ndata: [DONE]\n\n'
+        } catch (error) {
+          console.debug('not common response', error)
         }
-        break
+        if (fakeSseData) {
+          try {
+            parser.feed(new TextEncoder().encode(fakeSseData))
+          } catch (err) {
+            await handleCallbackError(err)
+          }
+          break
+        }
       }
+    }
+    if (bufferJsonResponse && responseFormat !== 'sse') {
+      const decodedChunk = jsonDecoder.decode(chunk, { stream: true })
+      jsonText += decodedChunk
+      if (!responseFormat) {
+        pendingChunks.push(chunk)
+        const firstCharacter = decodedChunk.trimStart()[0]
+        if (!firstCharacter) continue
+        responseFormat = firstCharacter === '{' || firstCharacter === '[' ? 'json' : 'sse'
+        if (responseFormat === 'sse') {
+          try {
+            for (const pendingChunk of pendingChunks) parser.feed(pendingChunk)
+          } catch (err) {
+            await handleCallbackError(err)
+          }
+          jsonText = ''
+        }
+        pendingChunks = []
+      }
+      continue
     }
     try {
       parser.feed(chunk)
+    } catch (err) {
+      await handleCallbackError(err)
+    }
+  }
+  if (bufferJsonResponse && responseFormat !== 'sse') {
+    let commonResponse
+    try {
+      commonResponse = JSON.parse(jsonText + jsonDecoder.decode())
+    } catch (err) {
+      await onError(err)
+      return
+    }
+    try {
+      await onMessage(JSON.stringify(commonResponse))
+      await onMessage('[DONE]')
     } catch (err) {
       await handleCallbackError(err)
     }

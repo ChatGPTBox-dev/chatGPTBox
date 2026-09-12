@@ -318,6 +318,114 @@ test('getUserConfig persists provider lineage and path normalization by itself',
   assert.deepEqual(storedProvider.legacyProviderIds, ['old-id'])
 })
 
+for (const { name, storedFields, normalizedFields, expectedWrites } of [
+  {
+    name: 'mixed-case Responses protocol',
+    storedFields: { apiProtocol: 'ReSpOnSeS' },
+    normalizedFields: { apiProtocol: 'responses' },
+    expectedWrites: 1,
+  },
+  {
+    name: 'Responses protocol whitespace',
+    storedFields: { apiProtocol: ' responses \t' },
+    normalizedFields: { apiProtocol: 'responses' },
+    expectedWrites: 1,
+  },
+  {
+    name: 'Responses URL whitespace',
+    storedFields: { responsesUrl: ' https://proxy.example.com/v1/Responses?key=AbC \t' },
+    normalizedFields: { responsesUrl: 'https://proxy.example.com/v1/Responses?key=AbC' },
+    expectedWrites: 1,
+  },
+  {
+    name: 'whitespace-only Responses fields',
+    storedFields: { apiProtocol: ' \t', responsesUrl: ' \t' },
+    normalizedFields: {},
+    expectedWrites: 1,
+  },
+  {
+    name: 'empty Responses fields',
+    storedFields: { apiProtocol: '', responsesUrl: '' },
+    normalizedFields: {},
+    expectedWrites: 1,
+  },
+  {
+    name: 'explicit chat protocol',
+    storedFields: { apiProtocol: 'chat' },
+    normalizedFields: { apiProtocol: 'chat' },
+    expectedWrites: 0,
+  },
+  {
+    name: 'mixed-case Chat protocol whitespace',
+    storedFields: { apiProtocol: ' ChAt \t' },
+    normalizedFields: { apiProtocol: 'chat' },
+    expectedWrites: 1,
+  },
+  {
+    name: 'unrecognized protocol inheritance',
+    storedFields: { apiProtocol: 'default' },
+    normalizedFields: {},
+    expectedWrites: 1,
+  },
+  {
+    name: 'absent Responses fields',
+    storedFields: {},
+    normalizedFields: {},
+    expectedWrites: 0,
+  },
+  {
+    name: 'normalized Responses fields',
+    storedFields: {
+      apiProtocol: 'responses',
+      responsesUrl: 'https://proxy.example.com/v1/Responses?key=AbC',
+    },
+    normalizedFields: {
+      apiProtocol: 'responses',
+      responsesUrl: 'https://proxy.example.com/v1/Responses?key=AbC',
+    },
+    expectedWrites: 0,
+  },
+]) {
+  test(`getUserConfig persists ${name} normalization only once`, async (t) => {
+    globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+      customOpenAIProviders: [
+        {
+          id: 'proxy',
+          name: 'Proxy',
+          baseUrl: 'https://proxy.example.com',
+        },
+      ],
+    })
+    // Finish unrelated migrations so only the Responses fields can trigger a write.
+    await getUserConfig()
+    const provider = globalThis.__TEST_BROWSER_SHIM__.getStorage().customOpenAIProviders[0]
+    globalThis.__TEST_BROWSER_SHIM__.setStorage({
+      customOpenAIProviders: [{ ...provider, ...storedFields }],
+    })
+    const setMock = t.mock.method(Browser.storage.local, 'set')
+    const expectedProviders = [{ ...provider, ...normalizedFields }]
+
+    const firstConfig = await getUserConfig()
+
+    assert.deepEqual(firstConfig.customOpenAIProviders, expectedProviders)
+    assert.deepEqual(
+      globalThis.__TEST_BROWSER_SHIM__.getStorage().customOpenAIProviders,
+      expectedProviders,
+    )
+    assert.equal(setMock.mock.callCount(), expectedWrites)
+    if (expectedWrites) {
+      assert.deepEqual(setMock.mock.calls[0].arguments, [
+        { customOpenAIProviders: expectedProviders },
+      ])
+    }
+
+    const secondConfig = await getUserConfig()
+
+    assert.deepEqual(secondConfig.customOpenAIProviders, expectedProviders)
+    assert.equal(setMock.mock.callCount(), expectedWrites)
+  })
+}
+
 test('getUserConfig remaps preserved custom sourceProviderId when provider ids are renamed', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 0,
