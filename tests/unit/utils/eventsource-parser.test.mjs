@@ -193,6 +193,56 @@ test('createParser reset discards pending decoder bytes', () => {
   )
 })
 
+test('createParser rejects invalid maxBufferSize values', () => {
+  assert.throws(
+    () => createParser(() => {}, { maxBufferSize: -1 }),
+    /maxBufferSize must be a non-negative safe integer/,
+  )
+  assert.throws(
+    () => createParser(() => {}, { maxBufferSize: 1.5 }),
+    /maxBufferSize must be a non-negative safe integer/,
+  )
+})
+
+test('createParser limits an unfinished line buffered across chunks', () => {
+  const parser = createParser(() => {}, { maxBufferSize: 12 })
+
+  parser.feed(toBytes('data: 12345'))
+  assert.throws(
+    () => parser.feed(toBytes('67')),
+    (err) => err instanceof RangeError && err.code === 'SSE_BUFFER_LIMIT_EXCEEDED',
+  )
+})
+
+test('createParser limits accumulated multiline event data', () => {
+  const parser = createParser(() => {}, { maxBufferSize: 10 })
+
+  parser.feed(toBytes('data: 12345\n'))
+  assert.throws(
+    () => parser.feed(toBytes('data: 67890\n')),
+    (err) => err instanceof RangeError && err.code === 'SSE_BUFFER_LIMIT_EXCEEDED',
+  )
+})
+
+test('createParser reset recovers after exceeding maxBufferSize', () => {
+  const parsed = []
+  const parser = createParser((event) => parsed.push(event), { maxBufferSize: 8 })
+
+  assert.throws(
+    () => parser.feed(toBytes('data: 123')),
+    (err) => err instanceof RangeError && err.code === 'SSE_BUFFER_LIMIT_EXCEEDED',
+  )
+  assert.throws(() => parser.feed(toBytes('data: stale\n\n')), /Cannot feed parser/)
+
+  parser.reset()
+  parser.feed(toBytes('data: ok\n\n'))
+
+  assert.deepEqual(
+    parsed.map((event) => event.data),
+    ['ok'],
+  )
+})
+
 test('createParser handles \\r only line endings', () => {
   const parsed = []
   const parser = createParser((event) => parsed.push(event))

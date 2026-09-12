@@ -1,6 +1,18 @@
 // https://www.npmjs.com/package/eventsource-parser/v/1.1.1
 
-function createParser(onParse) {
+// Bytes per decode, independent of the retained-state limit.
+const MAX_DECODE_CHUNK_SIZE = 64 * 1024
+const MAX_KNOWN_FIELD_NAME_LENGTH = 'event'.length
+
+// maxBufferSize counts retained UTF-16 code units, not bytes or total heap usage.
+function createParser(onParse, { maxBufferSize } = {}) {
+  if (
+    maxBufferSize !== undefined &&
+    (!Number.isSafeInteger(maxBufferSize) || maxBufferSize < 0)
+  ) {
+    throw new TypeError('maxBufferSize must be a non-negative safe integer')
+  }
+
   let isFirstChunk
   let decoder
   let buffer
@@ -10,7 +22,9 @@ function createParser(onParse) {
   let eventName
   let data
   let extra
+  let extraLength
   let discardTrailingNewline
+  let terminated
   reset()
   return {
     feed,
@@ -25,11 +39,46 @@ function createParser(onParse) {
     eventId = void 0
     eventName = void 0
     data = ''
+    extra = void 0
+    extraLength = 0
     discardTrailingNewline = false
+    terminated = false
   }
 
   function feed(chunk) {
-    buffer += decoder.decode(chunk, { stream: true })
+    if (terminated) {
+      const err = new RangeError(
+        'Cannot feed parser after exceeding max buffer size; call reset() to resume parsing',
+      )
+      err.code = 'SSE_BUFFER_LIMIT_EXCEEDED'
+      throw err
+    }
+
+    if (maxBufferSize === undefined) {
+      processDecodedChunk(decoder.decode(chunk, { stream: true }))
+      return
+    }
+
+    const bytes = ArrayBuffer.isView(chunk)
+      ? new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+      : new Uint8Array(chunk)
+
+    if (bytes.byteLength === 0) {
+      processDecodedChunk(decoder.decode(bytes, { stream: true }))
+      return
+    }
+
+    let offset = 0
+    while (offset < bytes.byteLength) {
+      const end = Math.min(bytes.byteLength, offset + MAX_DECODE_CHUNK_SIZE)
+      const slice = offset === 0 && end === bytes.byteLength ? bytes : bytes.subarray(offset, end)
+      processDecodedChunk(decoder.decode(slice, { stream: true }), end === bytes.byteLength)
+      offset = end
+    }
+  }
+
+  function processDecodedChunk(decodedChunk, isLastSlice = true) {
+    buffer += decodedChunk
     if (isFirstChunk && hasBom(buffer)) {
       buffer = buffer.slice(BOM.length)
     }
@@ -73,6 +122,63 @@ function createParser(onParse) {
     } else if (position > 0) {
       buffer = buffer.slice(position)
     }
+    if (isLastSlice) {
+      checkBufferSize(buffer.length)
+    } else {
+      checkTransientLineSize()
+    }
+  }
+
+  function getRetainedSize(pendingBufferLength = buffer.length, additionalSize = 0) {
+    return (
+      pendingBufferLength +
+      data.length +
+      (eventId?.length ?? 0) +
+      (eventName?.length ?? 0) +
+      (extra ? extraLength : 0) +
+      additionalSize
+    )
+  }
+
+  function getTransientLineSize() {
+    if (buffer.length === 0 || startingFieldLength < 0) return buffer.length
+    if (startingFieldLength > MAX_KNOWN_FIELD_NAME_LENGTH) return buffer.length
+
+    const field = buffer.slice(0, startingFieldLength)
+    if (!['', 'data', 'event', 'id', 'retry', 'meta'].includes(field)) return buffer.length
+
+    let valuePosition = startingFieldLength + 1
+    if (buffer[valuePosition] === ' ') ++valuePosition
+    return Math.max(0, buffer.length - valuePosition)
+  }
+
+  function checkTransientLineSize() {
+    if (maxBufferSize === undefined) return
+
+    // Bound live parser-retained text, not only the eventual logical event state.
+    // Until an event/id replacement line is complete, its partial value and the
+    // currently retained eventName/eventId coexist and are intentionally both counted.
+    if (getRetainedSize(getTransientLineSize()) <= maxBufferSize) return
+
+    throwBufferLimitError()
+  }
+
+  function checkBufferSize(pendingBufferLength = buffer.length, additionalSize = 0) {
+    if (maxBufferSize === undefined) return
+    if (getRetainedSize(pendingBufferLength, additionalSize) <= maxBufferSize) return
+
+    throwBufferLimitError()
+  }
+
+  function throwBufferLimitError() {
+    reset()
+    terminated = true
+
+    const err = new RangeError(
+      `SSE parser retained state exceeded ${maxBufferSize} UTF-16 code units`,
+    )
+    err.code = 'SSE_BUFFER_LIMIT_EXCEEDED'
+    throw err
   }
 
   function parseEventStreamLine(lineBuffer, index, fieldLength, lineLength) {
@@ -90,6 +196,7 @@ function createParser(onParse) {
         data = ''
         eventId = void 0
         extra = void 0
+        extraLength = 0
       }
       eventName = void 0
       return
@@ -108,10 +215,14 @@ function createParser(onParse) {
     const valueLength = lineLength - step
     const value = lineBuffer.slice(position, position + valueLength).toString()
     if (field === 'data') {
+      const addedLength = value ? value.length + 1 : 1
+      checkBufferSize(0, addedLength)
       data += value ? ''.concat(value, '\n') : '\n'
     } else if (field === 'event') {
+      checkBufferSize(0, value.length)
       eventName = value
     } else if (field === 'id' && !value.includes('\0')) {
+      checkBufferSize(0, value.length)
       eventId = value
     } else if (field === 'retry') {
       const retry = parseInt(value, 10)
@@ -122,9 +233,14 @@ function createParser(onParse) {
         })
       }
     } else if (field === 'meta') {
+      checkBufferSize(0, lineLength)
       const str = `{"${field}":${value}}`
-      extra = extra ?? []
+      if (!extra) {
+        extra = []
+        extraLength = 0
+      }
       extra.push(JSON.parse(str))
+      extraLength += lineLength
     }
   }
 }
