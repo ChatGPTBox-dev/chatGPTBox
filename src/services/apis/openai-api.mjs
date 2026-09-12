@@ -2,6 +2,11 @@ import { getUserConfig } from '../../config/index.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { generateAnswersWithOpenAICompatible } from './openai-compatible-core.mjs'
 import {
+  getOpenRouterAttributionHeaders,
+  isNativeOllamaChatRequestUrl,
+  resolveProviderRequestShapingId,
+} from './openai-compatible-request-helpers.mjs'
+import {
   getOpenAICompatibleRequestDiagnostic,
   resolveOpenAICompatibleRequest,
 } from './provider-registry.mjs'
@@ -37,13 +42,6 @@ const OPENAI_COMPATIBLE_RUNTIME_CONFIG_KEYS = [
   'temperature',
 ]
 
-const OPENROUTER_API_ORIGIN = 'https://openrouter.ai'
-const OPENROUTER_ATTRIBUTION_HEADERS = {
-  'HTTP-Referer': 'https://github.com/ChatGPTBox-dev/chatGPTBox',
-  'X-OpenRouter-Title': 'ChatGPTBox',
-  'X-OpenRouter-Categories': 'general-chat,writing-assistant',
-}
-
 function hasOpenAICompatibleRuntimeConfig(config) {
   if (!config || typeof config !== 'object') return false
   return OPENAI_COMPATIBLE_RUNTIME_CONFIG_KEYS.every((key) => Object.hasOwn(config, key))
@@ -76,45 +74,6 @@ function buildOpenAICompatibleResolutionErrorMessage(diagnostic) {
   )
 }
 
-function hasNativeOpenAIRequestUrl(requestUrl) {
-  const normalizedRequestUrl = normalizeBaseUrl(requestUrl)
-  if (!normalizedRequestUrl) return false
-  try {
-    const parsedRequestUrl = new URL(normalizedRequestUrl)
-    const normalizedPathname = parsedRequestUrl.pathname.replace(/\/+$/, '') || '/'
-    return (
-      parsedRequestUrl.hostname.toLowerCase() === 'api.openai.com' &&
-      (normalizedPathname === '/v1/chat/completions' || normalizedPathname === '/v1/completions')
-    )
-  } catch {
-    return false
-  }
-}
-
-function shouldUseOpenAIRequestShaping(request) {
-  if (request?.providerId === 'openai') return true
-
-  const hasOpenAILineage =
-    request?.provider?.sourceProviderId === 'openai' || request?.secretProviderId === 'openai'
-  if (!hasOpenAILineage) return false
-
-  return hasNativeOpenAIRequestUrl(request?.requestUrl)
-}
-
-function resolveProviderRequestShapingId(request) {
-  if (shouldUseOpenAIRequestShaping(request)) return 'openai'
-  return request?.providerId
-}
-
-function getOpenRouterAttributionHeaders(requestUrl) {
-  try {
-    if (new URL(requestUrl).origin !== OPENROUTER_API_ORIGIN) return {}
-  } catch {
-    return {}
-  }
-  return OPENROUTER_ATTRIBUTION_HEADERS
-}
-
 function resolveOllamaKeepAliveBaseUrl(request) {
   const requestUrl = normalizeBaseUrl(request?.requestUrl)
   if (requestUrl) {
@@ -142,18 +101,6 @@ function resolveOllamaKeepAliveBaseUrl(request) {
   }
 
   return normalizeBaseUrlWithoutVersionSuffix(request?.provider?.baseUrl, 'http://127.0.0.1:11434')
-}
-
-function hasNativeOllamaChatApiPath(requestUrl) {
-  const normalizedRequestUrl = normalizeBaseUrl(requestUrl)
-  if (!normalizedRequestUrl) return false
-  try {
-    const parsedRequestUrl = new URL(normalizedRequestUrl)
-    const normalizedPathname = parsedRequestUrl.pathname.replace(/\/+$/, '') || '/'
-    return /(^|\/)api\/chat$/i.test(normalizedPathname)
-  } catch {
-    return false
-  }
 }
 
 function hasOllamaMessagesPath(requestUrl) {
@@ -311,7 +258,7 @@ export async function generateAnswersWithOpenAICompatibleApi(port, question, ses
     console.warn('[openai-compatible] Failed to resolve provider request', diagnostic)
     throw new Error(buildOpenAICompatibleResolutionErrorMessage(diagnostic))
   }
-  if (hasNativeOllamaChatApiPath(request.requestUrl)) {
+  if (isNativeOllamaChatRequestUrl(request.requestUrl)) {
     throw new Error(
       'Unsupported native Ollama chat endpoint. Use the OpenAI-compatible /v1/chat/completions endpoint instead.',
     )
