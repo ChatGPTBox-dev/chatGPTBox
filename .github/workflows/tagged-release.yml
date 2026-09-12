@@ -3,62 +3,97 @@ on:
   workflow_dispatch:
     inputs:
       submit_stores:
-        description: "Run Chrome, Firefox, and Edge store submission preflight"
+        description: 'Run store submission artifact preflight without store credentials'
         required: false
-        default: "false"
+        default: 'false'
         type: choice
         options:
-          - "false"
-          - "true"
-      dry_run:
-        description: "Validate store submission without uploading artifacts"
-        required: false
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
+          - 'false'
+          - 'true'
   push:
     tags:
-      - "v*"
-
-permissions:
-  id-token: "write"
-  contents: "write"
-env:
-  GH_TOKEN: ${{ github.token }}
+      - 'v*'
 
 jobs:
-  build_and_release:
+  manual_preflight:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-14
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'push' && 'master' || github.ref_name }}
+          ref: ${{ github.ref }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.10' # for appdmg
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 16.2
       - run: npm ci
 
-      - name: Resolve release version
+      - run: npm run build
+
+      - run: npm run release:firefox-sources
+
+      - name: Submit stores preflight
+        if: inputs.submit_stores == 'true'
+        run: npm run release:submit:preflight
+
+  release:
+    if: github.event_name == 'push'
+    runs-on: macos-14
+    concurrency:
+      group: tagged-release
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Validate release tag provenance
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
-          else
-            version="$(node -p "require('./src/manifest.json').version")"
-            echo "VERSION=${version}" >> $GITHUB_ENV
+          set -euo pipefail
+          git fetch origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::Release tag commit is not contained in origin/master"
+            exit 1
           fi
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Validate release tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! node -e '
+            const version = process.argv[1]
+            const parts = version.split(".")
+            const valid =
+              parts.length >= 3 &&
+              parts.length <= 4 &&
+              parts.every(
+                (part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535,
+              ) &&
+              parts.some((part) => Number(part) > 0)
+            if (!valid) process.exit(1)
+          ' "$version"; then
+            echo "::error::Release tags must use canonical 3-4 part versions with" \
+              "components from 0 to 65535 and at least one non-zero component"
+            exit 1
+          fi
+
+      - name: Resolve release version
+        run: printf 'VERSION=%s\n' "${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
       - name: Update manifest.json version
-        if: github.event_name == 'push'
         uses: jossef/action-set-json-field@v2.2
         with:
           file: src/manifest.json
@@ -66,7 +101,6 @@ jobs:
           value: ${{ env.VERSION }}
 
       - name: Update manifest.v2.json version
-        if: github.event_name == 'push'
         uses: jossef/action-set-json-field@v2.2
         with:
           file: src/manifest.v2.json
@@ -74,46 +108,271 @@ jobs:
           value: ${{ env.VERSION }}
 
       - name: Push files
-        if: github.event_name == 'push'
-        continue-on-error: true
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          git commit -am "release v${{ env.VERSION }}"
-          git push
+          git add src/manifest.json src/manifest.v2.json
+          report_sync_warning() {
+            echo "::warning::$1"
+            echo "Release version sync warning: $1" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
+          }
+          release_version_requires_skip() {
+            node -e '
+              const [remote, requested] = process.argv.slice(1)
+              const parse = (version) => {
+                const parts = version.split(".")
+                const valid =
+                    parts.length >= 3 &&
+                    parts.length <= 4 &&
+                    parts.every(
+                      (part) => /^(0|[1-9][0-9]*)$/.test(part) && Number(part) <= 65535,
+                    ) &&
+                    parts.some((part) => Number(part) > 0)
+                if (!valid) process.exit(2)
+                return parts.map(Number)
+              }
+              const compare = (left, right) => {
+                const length = Math.max(left.length, right.length)
+                for (let index = 0; index < length; index += 1) {
+                  const leftPart = left[index] ?? 0
+                  const rightPart = right[index] ?? 0
+                  if (leftPart !== rightPart) return leftPart - rightPart
+                }
+                return 0
+              }
+              const comparison = compare(parse(remote), parse(requested))
+              process.exit(
+                comparison > 0 || (comparison === 0 && remote !== requested) ? 0 : 1,
+              )
+            ' "$1" "$2"
+          }
+          if git diff --cached --quiet; then
+            echo "No release version changes to commit"
+          elif ! git commit -m "release v${VERSION}"; then
+            echo "::error::Failed to commit the release version sync; cannot verify release version state"
+            exit 1
+          else
+            max_attempts=3
+            for attempt in $(seq 1 "${max_attempts}"); do
+              if ! git fetch origin master; then
+                if [ "${attempt}" -eq "${max_attempts}" ]; then
+                  echo "::error::Failed to fetch origin/master; cannot verify release version state"
+                  exit 1
+                else
+                  echo "Release version sync fetch failed; retrying (${attempt}/${max_attempts})"
+                  sleep $((attempt * 2))
+                fi
+              elif ! remote_version="$(
+                git show FETCH_HEAD:src/manifest.json \
+                  | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version"
+              )"; then
+                if [ "${attempt}" -eq "${max_attempts}" ]; then
+                  echo "::error::Failed to read the origin/master manifest version"
+                  exit 1
+                else
+                  echo "Release version read failed; retrying (${attempt}/${max_attempts})"
+                  sleep $((attempt * 2))
+                fi
+              elif release_version_requires_skip "$remote_version" "$VERSION"; then
+                report_sync_warning "Skipping release version sync; origin/master already has an equivalent or newer version than v${VERSION}"
+                echo "SUPERSEDED_RELEASE=true" >> "$GITHUB_ENV"
+                break
+              elif [ "$?" -eq 2 ]; then
+                echo "::error::Cannot verify release version state; origin/master has an invalid manifest version"
+                exit 1
+              elif ! git rebase FETCH_HEAD; then
+                git rebase --abort || true
+                report_sync_warning "Release version sync conflicted with origin/master; skipping the master push"
+                break
+              elif git push origin HEAD:master; then
+                echo "Release version sync succeeded" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" || true
+                break
+              elif [ "${attempt}" -eq "${max_attempts}" ]; then
+                report_sync_warning "Failed to push the release version sync; continuing with the release"
+              else
+                echo "Release version sync push rejected; retrying (${attempt}/${max_attempts})"
+                sleep $((attempt * 2))
+              fi
+            done
+          fi
 
-      - if: github.event_name == 'push'
+      - name: Checkout release tag for artifacts
+        if: env.SKIP_RELEASE != 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+
+      - name: Prepare GitHub release
+        if: env.SKIP_RELEASE != 'true'
         run: |
-          gh release create ${{github.ref_name}} -d -F CURRENT_CHANGE.md -t ${{github.ref_name}}
-
-      - if: github.event_name == 'push'
-        run: npm run build:safari
-
-      - if: github.event_name != 'push'
-        run: npm run build
-
-      - run: npm run release:firefox-sources
-
-      - if: github.event_name == 'push'
-        run: |
-          gh release upload ${{github.ref_name}} build/chromium.zip
-          gh release upload ${{github.ref_name}} build/firefox.zip
-          gh release upload ${{github.ref_name}} build/safari.dmg
-          gh release upload ${{github.ref_name}} build/chromium-without-katex-and-tiktoken.zip
-          gh release upload ${{github.ref_name}} build/firefox-without-katex-and-tiktoken.zip
-
-      - name: Submit stores
-        if: github.event_name == 'push' || inputs.submit_stores == 'true'
-        run: |
-          args=()
-          if [ "${{ github.event_name }}" != "push" ]; then
-            if [ "${{ inputs.dry_run }}" != "true" ]; then
-              echo "::error::Manual store submission only supports dry_run=true. Push a v* tag for a real submission."
+          set -euo pipefail
+          if [ "${SUPERSEDED_RELEASE:-}" = "true" ]; then
+            echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
+            echo "Release $RELEASE_TAG is superseded; skipping release rerun"
+            exit 0
+          fi
+          release_metadata=''
+          for attempt in 1 2 3; do
+            if release_metadata="$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              | jq -c -s --arg tag "$RELEASE_TAG" '
+                [ .[][] | select(.tag_name == $tag) ]
+                | if length > 1 then error("Multiple releases found for tag")
+                  elif length == 0 then empty
+                  else .[0] | [ .draft, [ .assets[].name ] ]
+                  end
+              ')"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Failed to inspect GitHub release state after ${attempt} attempts"
               exit 1
             fi
-            args+=(--dry-run)
+            echo "GitHub release state lookup failed; retrying (${attempt}/3)"
+            sleep $((attempt * 2))
+          done
+          if [ -n "$release_metadata" ]; then
+            release_is_draft="$(printf '%s\n' "$release_metadata" | jq -r '.[0]')"
+            if [ "$release_is_draft" != "true" ]; then
+              echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
+              echo "Release $RELEASE_TAG is already published; skipping rerun"
+            else
+              release_has_asset() {
+                printf '%s\n' "$release_metadata" \
+                  | jq -e --arg asset "$1" '.[1] | index($asset) != null' >/dev/null
+              }
+              skip_chrome_store=false
+              skip_firefox_store=false
+              skip_edge_store=false
+              if release_has_asset "store-submission-complete.marker"; then
+                skip_chrome_store=true
+                skip_firefox_store=true
+                skip_edge_store=true
+              else
+                release_has_asset "store-submission-complete.chrome.marker" \
+                  && skip_chrome_store=true
+                release_has_asset "store-submission-complete.firefox.marker" \
+                  && skip_firefox_store=true
+                release_has_asset "store-submission-complete.edge.marker" \
+                  && skip_edge_store=true
+              fi
+              if [ "$skip_chrome_store" = "true" ]; then
+                echo "SKIP_CHROME_STORE=true" >> "$GITHUB_ENV"
+              fi
+              if [ "$skip_firefox_store" = "true" ]; then
+                echo "SKIP_FIREFOX_STORE=true" >> "$GITHUB_ENV"
+              fi
+              if [ "$skip_edge_store" = "true" ]; then
+                echo "SKIP_EDGE_STORE=true" >> "$GITHUB_ENV"
+              fi
+              if [ "$skip_chrome_store" = "true" ] \
+                || [ "$skip_firefox_store" = "true" ] \
+                || [ "$skip_edge_store" = "true" ]; then
+                if ! [ "$skip_chrome_store" = "true" ] \
+                  || ! [ "$skip_firefox_store" = "true" ] \
+                  || ! [ "$skip_edge_store" = "true" ]; then
+                  for asset in \
+                    chromium.zip \
+                    firefox.zip \
+                    safari.dmg \
+                    chromium-without-katex-and-tiktoken.zip \
+                    firefox-without-katex-and-tiktoken.zip; do
+                    if ! release_has_asset "$asset"; then
+                      echo "::error::Cannot resume partial release: missing asset $asset"
+                      exit 1
+                    fi
+                  done
+                  echo "REUSE_RELEASE_ARTIFACTS=true" >> "$GITHUB_ENV"
+                fi
+              fi
+              if [ "$skip_chrome_store" = "true" ] \
+                && [ "$skip_firefox_store" = "true" ] \
+                && [ "$skip_edge_store" = "true" ]; then
+                echo "SKIP_STORE_SUBMISSION=true" >> "$GITHUB_ENV"
+                echo "All store submissions are complete; resuming release publication"
+              fi
+            fi
+          else
+            gh release create "$RELEASE_TAG" -d -F CURRENT_CHANGE.md -t "$RELEASE_TAG"
           fi
-          npm run release:submit -- "${args[@]}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - uses: actions/setup-python@v7
+        if: env.SKIP_RELEASE != 'true'
+        with:
+          python-version: '3.10' # for appdmg
+      - uses: maxim-lobanov/setup-xcode@v1
+        if: env.SKIP_RELEASE != 'true'
+        with:
+          xcode-version: 16.2
+      - run: npm ci
+        if: env.SKIP_RELEASE != 'true'
+
+      - name: Update release artifact manifest.json version
+        if: env.SKIP_RELEASE != 'true'
+        uses: jossef/action-set-json-field@v2.2
+        with:
+          file: src/manifest.json
+          field: version
+          value: ${{ env.VERSION }}
+
+      - name: Update release artifact manifest.v2.json version
+        if: env.SKIP_RELEASE != 'true'
+        uses: jossef/action-set-json-field@v2.2
+        with:
+          file: src/manifest.v2.json
+          field: version
+          value: ${{ env.VERSION }}
+
+      - name: Restore release artifacts for partial rerun
+        if: env.SKIP_RELEASE != 'true' && env.REUSE_RELEASE_ARTIFACTS == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          gh release download "$RELEASE_TAG" \
+            --pattern 'chromium.zip' \
+            --pattern 'firefox.zip' \
+            --pattern 'safari.dmg' \
+            --pattern 'chromium-without-katex-and-tiktoken.zip' \
+            --pattern 'firefox-without-katex-and-tiktoken.zip' \
+            --dir build
+          mkdir -p build/chromium build/firefox
+          unzip -p build/chromium.zip manifest.json > build/chromium/manifest.json
+          unzip -p build/firefox.zip manifest.json > build/firefox/manifest.json
+          for manifest in build/chromium/manifest.json build/firefox/manifest.json; do
+            restored_version="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version' "$manifest")"
+            if [ "$restored_version" != "$VERSION" ]; then
+              echo "::error::Restored $manifest has version $restored_version, expected $VERSION"
+              exit 1
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - run: npm run build:safari
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_STORE_SUBMISSION != 'true' && env.REUSE_RELEASE_ARTIFACTS != 'true'
+
+      - run: npm run release:firefox-sources
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_FIREFOX_STORE != 'true'
+
+      - run: |
+          gh release upload "$RELEASE_TAG" --clobber build/chromium.zip
+          gh release upload "$RELEASE_TAG" --clobber build/firefox.zip
+          gh release upload "$RELEASE_TAG" --clobber build/safari.dmg
+          gh release upload "$RELEASE_TAG" --clobber build/chromium-without-katex-and-tiktoken.zip
+          gh release upload "$RELEASE_TAG" --clobber build/firefox-without-katex-and-tiktoken.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_STORE_SUBMISSION != 'true' && env.REUSE_RELEASE_ARTIFACTS != 'true'
+
+      - name: Submit Chrome store
+        run: npm run release:submit -- --store chrome
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_CHROME_STORE != 'true'
         env:
           CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
           CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
@@ -122,15 +381,96 @@ jobs:
           CHROME_PUBLISH_TARGET: ${{ secrets.CHROME_PUBLISH_TARGET }}
           CHROME_DEPLOY_PERCENTAGE: ${{ secrets.CHROME_DEPLOY_PERCENTAGE }}
           CHROME_REVIEW_EXEMPTION: ${{ secrets.CHROME_REVIEW_EXEMPTION }}
+
+      - name: Mark Chrome store submission complete
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_CHROME_STORE != 'true'
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$GITHUB_RUN_ID" > build/store-submission-complete.chrome.marker
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$RELEASE_TAG" --clobber build/store-submission-complete.chrome.marker; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::Failed to upload the Chrome store completion marker after ${attempt} attempts"
+              exit 1
+            fi
+            echo "Chrome store completion marker upload failed; retrying (${attempt}/5)"
+            sleep $((attempt * 2))
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Submit Firefox store
+        run: npm run release:submit -- --store firefox --skip-firefox-metadata
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_FIREFOX_STORE != 'true'
+        env:
           FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
           FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
           FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
           FIREFOX_CHANNEL: ${{ secrets.FIREFOX_CHANNEL }}
           FIREFOX_COMPATIBILITY: ${{ secrets.FIREFOX_COMPATIBILITY }}
+
+      - name: Mark Firefox store submission complete
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_FIREFOX_STORE != 'true'
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$GITHUB_RUN_ID" > build/store-submission-complete.firefox.marker
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$RELEASE_TAG" --clobber build/store-submission-complete.firefox.marker; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::Failed to upload the Firefox store completion marker after ${attempt} attempts"
+              exit 1
+            fi
+            echo "Firefox store completion marker upload failed; retrying (${attempt}/5)"
+            sleep $((attempt * 2))
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Update Firefox metadata
+        run: npm run release:update-firefox-metadata -- --version "$VERSION"
+        if: env.SKIP_RELEASE != 'true'
+        env:
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+
+      - name: Submit Edge store
+        run: npm run release:submit -- --store edge
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_EDGE_STORE != 'true'
+        env:
           EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
           EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
 
-      - if: github.event_name == 'push'
+      - name: Mark Edge store submission complete
+        if: env.SKIP_RELEASE != 'true' && env.SKIP_EDGE_STORE != 'true'
         run: |
-          gh release edit ${{github.ref_name}} --draft=false
+          set -euo pipefail
+          printf '%s\n' "$GITHUB_RUN_ID" > build/store-submission-complete.edge.marker
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$RELEASE_TAG" --clobber build/store-submission-complete.edge.marker; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::Failed to upload the Edge store completion marker after ${attempt} attempts"
+              exit 1
+            fi
+            echo "Edge store completion marker upload failed; retrying (${attempt}/5)"
+            sleep $((attempt * 2))
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - run: |
+          gh release edit "$RELEASE_TAG" --draft=false
+        if: env.SKIP_RELEASE != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
