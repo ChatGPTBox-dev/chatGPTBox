@@ -41,6 +41,7 @@ import {
   getConversationAiName,
 } from '../../popup/sections/api-modes-provider-utils.mjs'
 import { getDisplayErrorText } from '../../utils/error-text.mjs'
+import { canSendImages, validateSessionImages } from '../../services/apis/images.mjs'
 import {
   createConversationPortMessage,
   createRetrySession,
@@ -60,11 +61,12 @@ class ConversationItemData extends Object {
    * @param {string} content
    * @param {bool} done
    */
-  constructor(type, content, done = false) {
+  constructor(type, content, done = false, images = []) {
     super()
     this.type = type
     this.content = content
     this.done = done
+    this.images = images
   }
 }
 
@@ -84,6 +86,7 @@ function ConversationCard(props) {
   const [completeDraggable, setCompleteDraggable] = useState(false)
   const useForegroundFetch = isUsingBingWebModel(session)
   const [apiModes, setApiModes] = useState([])
+  const [inputResetKey, setInputResetKey] = useState(0)
 
   /**
    * @type {[ConversationItemData[], (conversationItemData: ConversationItemData[]) => void]}
@@ -120,7 +123,7 @@ function ConversationCard(props) {
     } else {
       const ret = []
       for (const record of session.conversationRecords) {
-        ret.push(new ConversationItemData('question', record.question, true))
+        ret.push(new ConversationItemData('question', record.question, true, record.images))
         ret.push(new ConversationItemData('answer', record.answer, true))
       }
       setConversationItemData(ret)
@@ -151,7 +154,7 @@ function ConversationCard(props) {
   useEffect(async () => {
     // when the page is responsive, session may accumulate redundant data and needs to be cleared after remounting and before making a new request
     if (props.question && triggered) {
-      const newSession = initSession({ ...session, question: props.question })
+      const newSession = initSession({ ...session, question: props.question, images: [] })
       partialAnswerRef.current = ''
       retryRecordRef.current = null
       setSession(newSession)
@@ -386,6 +389,19 @@ function ConversationCard(props) {
   }, [port, conversationItemData])
 
   const getRetryFn = (session) => async () => {
+    try {
+      validateSessionImages(session)
+      if (
+        (session.images?.length ||
+          session.conversationRecords.some((record) => record.images?.length)) &&
+        !canSendImages(config, session)
+      ) {
+        throw new Error(t('Images require an OpenAI-compatible vision API.'))
+      }
+    } catch (error) {
+      updateAnswer(error.message, false, 'error')
+      return
+    }
     updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
     setIsReady(false)
 
@@ -581,9 +597,11 @@ function ConversationCard(props) {
                 },
               })
               setConversationItemData([])
+              setInputResetKey((key) => key + 1)
               const newSession = initSession({
                 ...session,
                 question: null,
+                images: [],
                 conversationRecords: [],
               })
               newSession.sessionId = session.sessionId
@@ -661,6 +679,7 @@ function ConversationCard(props) {
         {conversationItemData.map((data, idx) => (
           <ConversationItem
             content={data.content}
+            images={data.images}
             key={idx}
             type={data.type}
             descName={data.type === 'answer' && currentAiName}
@@ -689,11 +708,22 @@ function ConversationCard(props) {
         </p>
       ) : (
         <InputBox
+          imagesAllowed={canSendImages(config, session)}
+          resetKey={inputResetKey}
           enabled={isReady}
           postMessage={postMessage}
           reverseResizeDir={props.pageMode}
-          onSubmit={async (question) => {
-            const newQuestion = new ConversationItemData('question', question)
+          onSubmit={async (question, images = []) => {
+            const newSession = { ...session, question, images, isRetry: false }
+            validateSessionImages(newSession)
+            if (
+              (images.length ||
+                session.conversationRecords.some((record) => record.images?.length)) &&
+              !canSendImages(config, newSession)
+            ) {
+              throw new Error(t('Images require an OpenAI-compatible vision API.'))
+            }
+            const newQuestion = new ConversationItemData('question', question, false, images)
             const newAnswer = new ConversationItemData(
               'answer',
               `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
@@ -703,7 +733,6 @@ function ConversationCard(props) {
             setConversationItemData([...conversationItemData, newQuestion, newAnswer])
             setIsReady(false)
 
-            const newSession = { ...session, question, isRetry: false }
             setSession(newSession)
             try {
               await postMessage({ session: newSession })

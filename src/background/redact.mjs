@@ -7,6 +7,7 @@ const SENSITIVE_KEYWORDS = [
   'credential',
   'jwt',
   'session',
+  'images',
 ]
 
 export function isPromptOrSelectionLikeKey(lowerKey) {

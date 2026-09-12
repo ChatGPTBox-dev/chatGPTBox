@@ -20,6 +20,7 @@ import {
   normalizeApiMode,
 } from '../utils/model-name-convert.mjs'
 import { acknowledgePortStop } from './apis/shared.mjs'
+import { IMAGE_UNSUPPORTED_ERROR, canSendImages, validateSessionImages } from './apis/images.mjs'
 
 export async function getChatGptAccessToken() {
   await clearOldAccessToken()
@@ -224,8 +225,12 @@ export function registerPortListener(executor) {
           translate,
           config.customModelName,
         )
-      requestPort.postMessage({ session })
       try {
+        const imageState = validateSessionImages(session)
+        if (imageState.hasImages && !canSendImages(config, session)) {
+          throw new Error(IMAGE_UNSUPPORTED_ERROR)
+        }
+        requestPort.postMessage({ session })
         await executor(
           session,
           requestPort,

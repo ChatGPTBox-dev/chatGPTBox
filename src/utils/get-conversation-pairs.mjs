@@ -1,3 +1,5 @@
+import { buildOpenAIMessageContent } from '../services/apis/images.mjs'
+
 export function getConversationPairs(records, isCompletion) {
   let pairs
   if (isCompletion) {
@@ -8,7 +10,10 @@ export function getConversationPairs(records, isCompletion) {
   } else {
     pairs = []
     for (const record of records) {
-      pairs.push({ role: 'user', content: record['question'] })
+      pairs.push({
+        role: 'user',
+        content: buildOpenAIMessageContent(record['question'], record.images),
+      })
       pairs.push({ role: 'assistant', content: record['answer'] })
     }
   }

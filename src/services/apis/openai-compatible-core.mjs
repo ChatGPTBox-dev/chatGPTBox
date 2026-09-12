@@ -4,6 +4,12 @@ import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import {
+  IMAGE_UNSUPPORTED_ERROR,
+  buildOpenAIMessageContent,
+  isNativeOllamaImageEndpoint,
+  validateSessionImages,
+} from './images.mjs'
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -61,6 +67,14 @@ export async function generateAnswersWithOpenAICompatible({
   extraHeaders = {},
   allowLegacyResponseField = false,
 }) {
+  const imageState = validateSessionImages(session)
+  if (
+    imageState.hasImages &&
+    (endpointType !== 'chat' || isNativeOllamaImageEndpoint(requestUrl))
+  ) {
+    throw new Error(IMAGE_UNSUPPORTED_ERROR)
+  }
+
   const {
     controller,
     messageListener,
@@ -95,7 +109,10 @@ export async function generateAnswersWithOpenAICompatible({
       conversationRecords.slice(-config.maxConversationContextLength),
       false,
     )
-    messages.push({ role: 'user', content: question })
+    messages.push({
+      role: 'user',
+      content: buildOpenAIMessageContent(question, imageState.images),
+    })
     const tokenParams = getChatCompletionsTokenParams(
       provider,
       model,

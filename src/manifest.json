@@ -2,6 +2,7 @@
   "name": "ChatGPTBox",
   "description": "Integrating ChatGPT into your browser deeply, everything you need is here",
   "version": "2.7.1",
+  "version_name": "2.7.1 image-support sidebar-2",
   "manifest_version": 3,
   "icons": {
     "16": "logo.png",
@@ -38,7 +39,7 @@
     "default_popup": "popup.html"
   },
   "side_panel": {
-    "default_path": "IndependentPanel.html"
+    "default_path": "IndependentPanel.html?surface=sidebar&revision=images-2"
   },
   "declarative_net_request": {
     "rule_resources": [

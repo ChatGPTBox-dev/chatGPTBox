@@ -16,7 +16,7 @@ AnswerTitle.propTypes = {
   descName: PropTypes.string,
 }
 
-export function ConversationItem({ type, content, descName, onRetry }) {
+export function ConversationItem({ type, content, descName, onRetry, images = [] }) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -49,6 +49,21 @@ export function ConversationItem({ type, content, descName, onRetry }) {
             </div>
           </div>
           {!collapsed && <MarkdownRender>{content}</MarkdownRender>}
+          {!collapsed &&
+            (Array.isArray(images) ? images : [])
+              .filter(
+                (image) =>
+                  typeof image === 'string' &&
+                  /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(image),
+              )
+              .map((image, index) => (
+                <img
+                  key={index}
+                  src={image}
+                  alt={`${t('Image')} ${index + 1}`}
+                  style={{ maxWidth: '100%', maxHeight: '240px', objectFit: 'contain' }}
+                />
+              ))}
         </div>
       )
     case 'answer':
@@ -130,6 +145,7 @@ ConversationItem.propTypes = {
   content: PropTypes.string.isRequired,
   descName: PropTypes.string,
   onRetry: PropTypes.func,
+  images: PropTypes.arrayOf(PropTypes.string),
 }
 
 export default memo(ConversationItem)

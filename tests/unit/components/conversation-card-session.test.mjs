@@ -10,6 +10,17 @@ import {
   isSupersededRequestMessage,
 } from '../../../src/components/ConversationCard/session.mjs'
 
+test('retry restores the target images and interruption preserves them in history', () => {
+  const image = 'data:image/png;base64,aGVsbG8='
+  const record = { question: 'Describe', answer: 'Old', images: [image] }
+  const session = { question: 'Describe', images: [], conversationRecords: [record] }
+  const retry = createRetrySession(session, [], record)
+  assert.deepEqual(retry.images, [image])
+  const interrupted = finalizeInterruptedSession(retry, 'Partial', record)
+  assert.deepEqual(interrupted.conversationRecords[0].images, [image])
+  assert.deepEqual(session.images, [])
+})
+
 test('finalizeInterruptedSession appends a partial answer without mutating the source session', () => {
   const session = {
     question: 'Q1',

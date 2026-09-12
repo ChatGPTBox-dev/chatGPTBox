@@ -85,6 +85,31 @@
 
 - 离线/自托管模型 现已支持, 在`自定义模型`模式下使用, 具体查看 [Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / [RWKV-Runner](https://github.com/josStorer/RWKV-Runner), 你还可以部署wenda (https://github.com/wenda-LLM/wenda), 配合自定义模型模式使用, 从而调用各类本地模型, 参考 [#397](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/397) 修改API URL
 
+## 图片支持更新
+
+此 fork 为 ChatGPTBox 对话增加了图片输入，并改善了 Chromium 浏览器在 PDF 页面中的原生侧栏行为。
+
+- 可从输入框选择 PNG、JPEG、WebP 或 GIF，也支持粘贴截图和拖入图片。
+- 发送前可以预览和删除图片，并支持仅发送图片。
+- 后续提问、历史消息和重试会保留相应图片。
+- 通过 OpenAI 兼容的 Chat Completions API 发送多模态 `image_url` 内容。
+- Edge/Chrome 的 PDF 查看器即使没有向右键菜单回调提供窗口 ID，也可以打开侧栏；适用于 Blackboard 等嵌入式或需要登录的 PDF 查看器。
+- 窄侧栏中图片按钮与输入区域保持可见，不会被裁切。
+
+图片功能用于 OpenAI 兼容 API 模式，所选模型和 API 服务必须支持视觉输入。此 fork 暂不支持网页登录模式和旧式文本 Completions 接口的图片附件。限制为每次最多 4 张、每张最多 4 MiB、单次合计最多 12 MiB。
+
+构建 Chromium 版本：
+
+```powershell
+npm ci --ignore-scripts
+npm test
+npm run build
+```
+
+打开 `edge://extensions` 或 `chrome://extensions`，启用开发人员模式，选择“加载解压缩的扩展”，然后选择 `build/chromium`。详细用法、隐私说明、故障排查和验证记录见 [IMAGE-SUPPORT.zh-CN.md](IMAGE-SUPPORT.zh-CN.md)。
+
+![支持附加图片的原生侧栏](screenshots/sidebar-image-support.png)
+
 ## ✨ Features
 
 - 🌈 在任何页面随时呼出聊天对话框 (<kbd>Ctrl</kbd>+<kbd>B</kbd>)

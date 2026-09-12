@@ -103,7 +103,7 @@ describe('closeAllChats', () => {
 })
 
 describe('openSidePanel', () => {
-  test('opens the side panel synchronously with the active tab identifiers', async (t) => {
+  test('opens the global panel synchronously without the PDF tab id', async (t) => {
     const originalSidePanel = globalThis.chrome.sidePanel
     let called = false
     const open = t.mock.fn(() => {
@@ -118,8 +118,10 @@ describe('openSidePanel', () => {
     const result = config.openSidePanel.action(true, { id: 7, windowId: 9 })
 
     assert.equal(called, true)
-    assert.deepEqual(open.mock.calls[0].arguments, [{ windowId: 9, tabId: 7 }])
+    assert.deepEqual(open.mock.calls[0].arguments, [{ windowId: 9 }])
     await result
+    await config.openSidePanel.action(true, { windowId: 9 })
+    assert.deepEqual(open.mock.calls[1].arguments, [{ windowId: 9 }])
   })
 
   test('rejects when the side-panel API is unavailable', async (t) => {
@@ -134,12 +136,12 @@ describe('openSidePanel', () => {
     })
   })
 
-  for (const [name, tab] of [
-    ['tab', undefined],
-    ['tab id', { windowId: 9 }],
-    ['window id', { id: 7 }],
+  for (const [name, tab, expected] of [
+    ['tab', undefined, { windowId: -2 }],
+    ['window id', { id: 7 }, { windowId: -2 }],
+    ['invalid window id', { id: 7, windowId: -1 }, { windowId: -2 }],
   ]) {
-    test(`rejects when the ${name} is missing`, async (t) => {
+    test(`opens synchronously when the ${name} is missing`, async (t) => {
       const originalSidePanel = globalThis.chrome.sidePanel
       const open = t.mock.fn(() => Promise.resolve())
       globalThis.chrome.sidePanel = { open }
@@ -147,10 +149,9 @@ describe('openSidePanel', () => {
         globalThis.chrome.sidePanel = originalSidePanel
       })
 
-      await assert.rejects(config.openSidePanel.action(true, tab), {
-        message: 'chrome.sidePanel.open requires a tab with windowId and id',
-      })
-      assert.equal(open.mock.callCount(), 0)
+      const result = config.openSidePanel.action(true, tab)
+      assert.deepEqual(open.mock.calls[0].arguments, [expected])
+      await result
     })
   }
 })

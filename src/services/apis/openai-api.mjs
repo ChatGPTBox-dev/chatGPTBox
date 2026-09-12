@@ -5,6 +5,7 @@ import {
   getOpenAICompatibleRequestDiagnostic,
   resolveOpenAICompatibleRequest,
 } from './provider-registry.mjs'
+import { IMAGE_UNSUPPORTED_ERROR, canSendImages, validateSessionImages } from './images.mjs'
 
 function normalizeBaseUrl(baseUrl) {
   return String(baseUrl || '')
@@ -305,6 +306,10 @@ export async function generateAnswersWithOpenAiApiCompat(
  */
 export async function generateAnswersWithOpenAICompatibleApi(port, question, session, config) {
   const runtimeConfig = await resolveOpenAICompatibleRuntimeConfig(config)
+  const imageState = validateSessionImages(session)
+  if (imageState.hasImages && !canSendImages(runtimeConfig, session)) {
+    throw new Error(IMAGE_UNSUPPORTED_ERROR)
+  }
   const request = resolveOpenAICompatibleRequest(runtimeConfig, session)
   if (!request) {
     const diagnostic = getOpenAICompatibleRequestDiagnostic(runtimeConfig, session)
