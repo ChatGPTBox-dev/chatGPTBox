@@ -1,0 +1,41 @@
+const { spawn } = require('node:child_process')
+const process = require('node:process')
+const { clearInterval, setInterval, setTimeout } = require('node:timers')
+
+const mode = process.argv[2]
+if (mode === 'early-exit') {
+  process.stdout.write('stdout before exit\n')
+  process.stderr.write('stderr before exit\n')
+  process.exitCode = 7
+} else if (mode === 'descendant') {
+  const child = spawn(process.execPath, [__filename, 'ignore-term'], {
+    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+  })
+  child.on('message', (message) => {
+    if (message === 'ready') {
+      process.stdout.write(`DESCENDANT ${child.pid}\n`, () => process.exit(0))
+    }
+  })
+  child.on('error', () => process.exit(1))
+} else {
+  if (mode === 'ignore-term') {
+    process.on('SIGTERM', () => process.stdout.write('IGNORED TERM\n'))
+  }
+  function announce() {
+    process.stdout.write(`READY ${process.pid}\n`)
+    process.stderr.write('stderr ready\n')
+    if (process.send) process.send('ready')
+  }
+  if (mode === 'flood') {
+    Promise.all([
+      new Promise((resolve) => process.stdout.write('O'.repeat(2 * 1024 * 1024), resolve)),
+      new Promise((resolve) => process.stderr.write('E'.repeat(2 * 1024 * 1024), resolve)),
+    ]).then(announce)
+  } else announce()
+  const timer = setInterval(() => {}, 1000)
+  // Fixture safety net: a failed test cannot leave a live process indefinitely.
+  setTimeout(() => {
+    clearInterval(timer)
+    process.exit(99)
+  }, 15000).unref()
+}

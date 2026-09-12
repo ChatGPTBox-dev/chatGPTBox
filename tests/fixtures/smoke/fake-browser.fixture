@@ -1,0 +1,11 @@
+#!/usr/bin/env node
+// A deliberately unready browser used to exercise the production runner's cleanup.
+const process = require('node:process')
+const profile = process.argv
+  .find((arg) => arg.startsWith('--user-data-dir='))
+  ?.slice('--user-data-dir='.length)
+process.on('SIGTERM', () => {})
+// Failure-only safety net; successful tests must observe runner cleanup first.
+setTimeout(() => process.exit(99), 30000).unref()
+process.stdout.write(`${JSON.stringify({ pid: process.pid, profile })}\n`)
+setInterval(() => {}, 1000)
