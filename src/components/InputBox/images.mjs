@@ -18,6 +18,15 @@ export const IMAGE_FILE_ERROR = Object.freeze({
   TOTAL_SIZE: 'total-size',
 })
 
+export function hasDraggedFiles(dataTransfer) {
+  if (Array.from(dataTransfer?.files ?? []).length > 0) return true
+  return Array.from(dataTransfer?.types ?? []).includes('Files')
+}
+
+export function getDroppedFiles(dataTransfer) {
+  return Array.from(dataTransfer?.files ?? [])
+}
+
 function getFileSize(file) {
   return typeof file?.size === 'number' && Number.isFinite(file.size) && file.size >= 0
     ? file.size

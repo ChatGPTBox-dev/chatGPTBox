@@ -89,7 +89,7 @@ This fork adds image input to ChatGPTBox conversations and improves the Chromium
 - Preview and remove images before sending; image-only messages are supported.
 - Preserve images in conversation history, follow-up requests, and retries.
 - Send multimodal `image_url` content through OpenAI-compatible Chat Completions APIs.
-- Open the Edge/Chrome side panel when a PDF viewer context-menu callback omits its window ID, including embedded or authenticated PDF viewers such as Blackboard.
+- Open the Edge/Chrome side panel when a PDF viewer context-menu callback omits its window ID.
 - Keep the native side panel usable at narrow widths without clipping the attachment controls.
 
 Image input is enabled for OpenAI-compatible API modes. The selected model and API endpoint must support vision. Web-login modes and legacy text Completions endpoints do not support attachments in this fork. Limits are 4 images per message, 4 MiB per image, and 12 MiB total per message.

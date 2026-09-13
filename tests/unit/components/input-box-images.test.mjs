@@ -5,6 +5,8 @@ import {
   MAX_IMAGE_COUNT,
   MAX_IMAGE_SIZE,
   MAX_TOTAL_IMAGE_SIZE,
+  getDroppedFiles,
+  hasDraggedFiles,
   readImageAsDataUrl,
   validateImageFile,
   validateImageFiles,
@@ -37,6 +39,17 @@ describe('input image validation', () => {
     assert.equal(overTotal.accepted.length, 0)
     assert.equal(overTotal.rejected[0].reason, IMAGE_FILE_ERROR.TOTAL_SIZE)
   })
+})
+
+test('only treats file drags and drops as image attachment input', () => {
+  assert.equal(hasDraggedFiles({ files: [], types: ['text/plain'] }), false)
+  assert.equal(hasDraggedFiles({ files: [], types: ['text/uri-list'] }), false)
+  assert.equal(hasDraggedFiles({ files: [], types: ['Files'] }), true)
+
+  const files = [image()]
+  assert.equal(hasDraggedFiles({ files, types: [] }), true)
+  assert.deepEqual(getDroppedFiles({ files }), files)
+  assert.deepEqual(getDroppedFiles({ files: [] }), [])
 })
 
 test('reads an image as a typed data URL when FileReader is unavailable', async () => {

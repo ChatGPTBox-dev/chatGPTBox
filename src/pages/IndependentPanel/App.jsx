@@ -154,7 +154,7 @@ function App() {
           <div className="chat-sidebar-button-group">
             <ConfirmButton text={t('Clear conversations')} onConfirm={clearConversations} />
             <small
-              style="font-size: 10px; overflow-wrap: anywhere; text-align: center;"
+              style={{ fontSize: '10px', overflowWrap: 'anywhere', textAlign: 'center' }}
               title={Browser.runtime.id}
             >
               {new URLSearchParams(window.location.search).get('surface') === 'sidebar'

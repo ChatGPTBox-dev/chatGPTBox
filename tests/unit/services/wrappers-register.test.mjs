@@ -116,6 +116,34 @@ test('registerPortListener calls executor with session, port, and config', async
   assert.equal(port.postedMessages[0].session, result.session)
 })
 
+test('registerPortListener redacts image payloads before debug logging', async (t) => {
+  const debug = t.mock.fn()
+  t.mock.method(console, 'debug', debug)
+  setStorage({ modelName: 'chatgptApi4oMini' })
+
+  let resolveExec
+  const execDone = new Promise((resolve) => {
+    resolveExec = resolve
+  })
+  registerPortListener(async () => resolveExec())
+  const port = createFakePort()
+  triggerConnect(port)
+  port.emitMessage({
+    session: {
+      conversationRecords: [],
+      images: ['data:image/png;base64,cHJpdmF0ZQ=='],
+    },
+  })
+  await execDone
+
+  const received = debug.mock.calls.find(
+    ({ arguments: args }) => args[0] === 'received msg (redacted)',
+  )
+  assert.ok(received)
+  assert.equal(received.arguments[1].session, 'REDACTED')
+  assert.doesNotMatch(JSON.stringify(received.arguments), /cHJpdmF0ZQ/)
+})
+
 test('registerPortListener scopes error translations to each request', async (t) => {
   t.mock.method(console, 'debug', () => {})
   t.mock.method(console, 'error', () => {})

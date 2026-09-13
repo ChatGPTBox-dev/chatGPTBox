@@ -20,7 +20,7 @@ test('handles the waking side-panel click before asynchronous menu setup finishe
       hasListener: (listener) => listeners.has(listener),
     },
     removeAll: (callback) => {
-      removal.then(() => callback())
+      return removal.then(() => callback())
     },
     create: () => {},
   }

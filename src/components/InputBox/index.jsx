@@ -15,6 +15,8 @@ import { shouldHandleInputAction } from './input-action.mjs'
 import {
   IMAGE_ACCEPT,
   IMAGE_FILE_ERROR,
+  getDroppedFiles,
+  hasDraggedFiles,
   readImageAsDataUrl,
   validateImageFiles,
 } from './images.mjs'
@@ -184,13 +186,16 @@ export function InputBox({
   }
 
   const handleDragOver = (e) => {
+    if (!hasDraggedFiles(e.dataTransfer)) return
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = imagesAllowed ? 'copy' : 'none'
   }
 
   const handleDrop = (e) => {
+    const files = getDroppedFiles(e.dataTransfer)
+    if (files.length === 0) return
     e.preventDefault()
-    addImageFiles(e.dataTransfer?.files)
+    addImageFiles(files)
   }
 
   const handleKeyDownOrClick = (e) => {
