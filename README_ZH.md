@@ -108,7 +108,13 @@ npm run build
 
 打开 `edge://extensions` 或 `chrome://extensions`，启用开发人员模式，选择“加载解压缩的扩展”，然后选择 `build/chromium`。详细用法、隐私说明、故障排查和验证记录见 [IMAGE-SUPPORT.zh-CN.md](IMAGE-SUPPORT.zh-CN.md)。
 
-![支持附加图片的原生侧栏](screenshots/sidebar-image-support.png)
+**Blackboard PDF 中的原生侧栏**
+
+![原生侧栏正在处理附加的 PDF 截图](screenshots/blackboard-pdf-native-side-panel.png)
+
+**同一 PDF 上的独立对话窗口**
+
+![独立对话窗口正在处理附加的 PDF 截图](screenshots/blackboard-pdf-independent-window.png)
 
 ## ✨ Features
 

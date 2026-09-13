@@ -104,7 +104,13 @@ npm run build
 
 Open `edge://extensions` or `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `build/chromium`. See [IMAGE-SUPPORT.zh-CN.md](IMAGE-SUPPORT.zh-CN.md) for detailed usage, privacy, troubleshooting, and validation notes.
 
-![Native side panel with image attachment controls](screenshots/sidebar-image-support.png)
+**Native side panel on a Blackboard-hosted PDF**
+
+![Native side panel processing attached PDF screenshots](screenshots/blackboard-pdf-native-side-panel.png)
+
+**Independent conversation window on the same PDF**
+
+![Independent conversation window processing attached PDF screenshots](screenshots/blackboard-pdf-independent-window.png)
 
 ## ✨ Features
 
