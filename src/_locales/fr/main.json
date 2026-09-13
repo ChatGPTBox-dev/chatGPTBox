@@ -174,5 +174,10 @@
   "The response stream from the API endpoint was interrupted.": "Le flux de réponse du point de terminaison de l’API a été interrompu.",
   "Check the API endpoint URL and service availability, then try again.": "Vérifiez l’URL du point de terminaison de l’API et la disponibilité du service, puis réessayez.",
   "API endpoint: %s": "Point de terminaison de l’API : %s",
-  "Browser message: %s": "Message du navigateur : %s"
+  "Browser message: %s": "Message du navigateur : %s",
+  "Automatically generate conversation titles": "Générer automatiquement les titres des conversations",
+  "Conversation title model": "Modèle de titre de conversation",
+  "Select a model": "Sélectionner un modèle",
+  "Choose a fast, low-cost OpenAI-compatible chat model.": "Choisissez un modèle de chat rapide, économique et compatible avec OpenAI.",
+  "The first completed exchange is sent once per conversation.": "Le premier échange terminé est envoyé une seule fois par conversation."
 }
