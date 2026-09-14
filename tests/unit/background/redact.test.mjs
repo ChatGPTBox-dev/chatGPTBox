@@ -15,6 +15,7 @@ describe('redactSensitiveFields', () => {
       credential: 'cred-value',
       jwt: 'eyJ...',
       session: 'sess-xyz',
+      images: ['data:image/png;base64,cHJpdmF0ZQ=='],
       kimimoonshotrefreshtoken: 'refresh-val',
     }
     const result = redactSensitiveFields(input)

@@ -56,6 +56,7 @@ export function createRetrySession(session, conversationRecords, retryRecord) {
   return {
     ...session,
     conversationRecords,
+    ...(retryRecord ? { images: retryRecord.images || [] } : {}),
     isRetry: retryRecord === null,
   }
 }

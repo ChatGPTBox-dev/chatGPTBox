@@ -108,45 +108,49 @@ const onClickMenu = (info, tab) => {
     })
 }
 export function refreshMenu() {
-  if (Browser.contextMenus.onClicked.hasListener(onClickMenu))
-    Browser.contextMenus.onClicked.removeListener(onClickMenu)
-  Browser.contextMenus.removeAll().then(async () => {
-    if ((await getUserConfig()).hideContextMenu) return
+  // A service worker may be starting because this very menu was clicked.
+  // Subscribe before storage/localization/menu creation can yield, otherwise
+  // the waking click can be delivered before its listener exists.
+  if (!Browser.contextMenus.onClicked.hasListener(onClickMenu))
+    Browser.contextMenus.onClicked.addListener(onClickMenu)
+  return Browser.contextMenus
+    .removeAll()
+    .then(async () => {
+      if ((await getUserConfig()).hideContextMenu) return
 
-    await getPreferredLanguageKey().then((lang) => {
-      changeLanguage(lang)
-    })
-    Browser.contextMenus.create({
-      id: menuId,
-      title: 'ChatGPTBox',
-      contexts: ['all'],
-    })
-
-    for (const [k, v] of Object.entries(menuConfig)) {
+      await getPreferredLanguageKey().then((lang) => {
+        changeLanguage(lang)
+      })
       Browser.contextMenus.create({
-        id: menuId + k,
-        parentId: menuId,
-        title: t(v.label),
+        id: menuId,
+        title: 'ChatGPTBox',
         contexts: ['all'],
       })
-    }
-    Browser.contextMenus.create({
-      id: menuId + 'separator1',
-      parentId: menuId,
-      contexts: ['selection'],
-      type: 'separator',
-    })
-    for (const index in defaultConfig.selectionTools) {
-      const key = defaultConfig.selectionTools[index]
-      const desc = defaultConfig.selectionToolsDesc[index]
-      Browser.contextMenus.create({
-        id: menuId + key,
-        parentId: menuId,
-        title: t(desc),
-        contexts: ['selection'],
-      })
-    }
 
-    Browser.contextMenus.onClicked.addListener(onClickMenu)
-  })
+      for (const [k, v] of Object.entries(menuConfig)) {
+        Browser.contextMenus.create({
+          id: menuId + k,
+          parentId: menuId,
+          title: t(v.label),
+          contexts: ['all'],
+        })
+      }
+      Browser.contextMenus.create({
+        id: menuId + 'separator1',
+        parentId: menuId,
+        contexts: ['selection'],
+        type: 'separator',
+      })
+      for (const index in defaultConfig.selectionTools) {
+        const key = defaultConfig.selectionTools[index]
+        const desc = defaultConfig.selectionToolsDesc[index]
+        Browser.contextMenus.create({
+          id: menuId + key,
+          parentId: menuId,
+          title: t(desc),
+          contexts: ['selection'],
+        })
+      }
+    })
+    .catch((error) => console.error('failed to refresh context menus', error))
 }

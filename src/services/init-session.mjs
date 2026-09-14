@@ -45,6 +45,7 @@ import { t } from 'i18next'
  */
 export function initSession({
   question = null,
+  images = [],
   conversationRecords = [],
   sessionName = null,
   modelName = null,
@@ -55,6 +56,7 @@ export function initSession({
   return {
     // common
     question,
+    images,
     conversationRecords,
 
     sessionName,
