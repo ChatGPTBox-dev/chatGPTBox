@@ -16,8 +16,19 @@ import {
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
 
-const imageDataUrl = (mime = 'image/png', bytes = 3) =>
-  `data:${mime};base64,${Buffer.alloc(bytes, 0xab).toString('base64')}`
+const imageSignatures = {
+  'image/png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  'image/jpeg': Buffer.from([0xff, 0xd8, 0xff]),
+  'image/webp': Buffer.from('RIFF0000WEBP', 'ascii'),
+  'image/gif': Buffer.from('GIF89a', 'ascii'),
+}
+
+const imageDataUrl = (mime = 'image/png', bytes = 12) => {
+  const signature = imageSignatures[mime] ?? Buffer.alloc(0)
+  const content = Buffer.alloc(Math.max(bytes, signature.length), 0xab)
+  signature.copy(content)
+  return `data:${mime};base64,${content.toString('base64')}`
+}
 
 const setStorage = (values) => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage(values)
@@ -47,6 +58,10 @@ test('validates supported image data URLs and attachment limits', () => {
   assert.throws(
     () => validateImageDataUrls(['data:image/png;base64,not base64']),
     (error) => error.code === 'INVALID_IMAGE_DATA',
+  )
+  assert.throws(
+    () => validateImageDataUrls([imageDataUrl('image/jpeg').replace('image/jpeg', 'image/png')]),
+    (error) => error.code === 'INVALID_IMAGE_DATA' && error.message.includes('does not match'),
   )
 })
 

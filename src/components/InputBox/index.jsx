@@ -44,6 +44,7 @@ export function InputBox({
   const mountedRef = useRef(true)
   const draftRevisionRef = useRef(0)
   const submittingRef = useRef(false)
+  const submissionGenerationRef = useRef(0)
   const resizedRef = useRef(false)
   const resizeHandleRef = useRef(null)
   const resizeStartRef = useRef(null)
@@ -78,6 +79,7 @@ export function InputBox({
   }
 
   const clearDraft = () => {
+    submissionGenerationRef.current += 1
     clearImages()
     setValue('')
     setImageError('')
@@ -222,20 +224,32 @@ export function InputBox({
     if (!question) return
 
     const submittedRevision = draftRevisionRef.current
+    const submissionGeneration = ++submissionGenerationRef.current
     submittingRef.current = true
     setIsSubmitting(true)
     Promise.resolve()
       .then(() => onSubmit(question, submittedImages))
       .then(() => {
-        if (!mountedRef.current || draftRevisionRef.current !== submittedRevision) return
+        if (
+          !mountedRef.current ||
+          submissionGenerationRef.current !== submissionGeneration ||
+          draftRevisionRef.current !== submittedRevision
+        )
+          return
         clearDraft()
       })
       .catch((error) => {
-        if (!mountedRef.current || draftRevisionRef.current !== submittedRevision) return
+        if (
+          !mountedRef.current ||
+          submissionGenerationRef.current !== submissionGeneration ||
+          draftRevisionRef.current !== submittedRevision
+        )
+          return
         const message = error instanceof Error ? error.message : String(error || '')
         setImageError(message || t('Unable to send images.'))
       })
       .finally(() => {
+        if (submissionGenerationRef.current !== submissionGeneration) return
         submittingRef.current = false
         if (mountedRef.current) setIsSubmitting(false)
       })

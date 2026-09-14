@@ -738,6 +738,8 @@ function ConversationCard(props) {
               await postMessage({ session: newSession })
             } catch (e) {
               updateAnswer(e, false, 'error')
+              setIsReady(true)
+              throw e
             }
             bodyRef.current.scrollTo({
               top: bodyRef.current.scrollHeight,

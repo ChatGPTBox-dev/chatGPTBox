@@ -402,7 +402,12 @@ async function run() {
 
     assert.deepEqual(pageErrors, [], `IndependentPanel page errors: ${pageErrors.join('; ')}`)
     console.log(
-      'PASS: 380px Edge extension image picker/remove, paste, drop, image-only multimodal request, retry image retention, text follow-up history retention, draft/image clear, and web-mode attachment blocking; limits are enforced by the product at 4 images per message, 4 MiB per file, and 12 MiB total; screenshot: test-results/images-smoke.png',
+      [
+        'PASS: 380px Edge extension image picker/remove, pending-read removal, paste, drop,',
+        'image-only multimodal request, retry image retention, text follow-up history retention,',
+        'draft/image clear, and web-mode attachment blocking; limits: 4 images per message,',
+        '4 MiB per file, and 12 MiB total; screenshot: test-results/images-smoke.png',
+      ].join(' '),
     )
   } finally {
     if (page && !page.isClosed()) {

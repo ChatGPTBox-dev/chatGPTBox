@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import {
   collectSourceFiles,
   isSensitiveSourcePath,
+  readVerifiedSourceFile,
 } from '../../../scripts/package-image-source.mjs'
 
 test('source package collector only includes allowlisted roots and rejects secrets', async (t) => {
@@ -45,6 +46,9 @@ test('source package collector only includes allowlisted roots and rejects secre
     cwd: root,
   })
   assert.deepEqual(await collectSourceFiles(root), ['README.md', 'package.json', 'src/index.js'])
+  const stagedSource = await readVerifiedSourceFile(root, 'src/index.js')
+  await writeFile(path.join(root, 'src', 'index.js'), 'replaced after verified read')
+  assert.equal(stagedSource.toString('utf8'), 'export {}')
   assert.equal(isSensitiveSourcePath('src/.env.production'), true)
   assert.equal(isSensitiveSourcePath('.npmrc'), true)
   assert.equal(isSensitiveSourcePath('id_ed25519'), true)

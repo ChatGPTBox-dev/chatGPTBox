@@ -15,6 +15,25 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set(IMAGE_MIME_TYPES)
 const IMAGE_DATA_URL_RE = /^data:([^;,]+);base64,([A-Za-z0-9+/]*={0,2})$/i
 const MAX_IMAGE_DATA_URL_CHARS = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 128
 
+function matchesBytes(binary, offset, expected) {
+  return expected.every((byte, index) => binary.charCodeAt(offset + index) === byte)
+}
+
+function hasImageSignature(binary, mimeType) {
+  switch (mimeType) {
+    case 'image/png':
+      return matchesBytes(binary, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    case 'image/jpeg':
+      return matchesBytes(binary, 0, [0xff, 0xd8, 0xff])
+    case 'image/gif':
+      return binary.startsWith('GIF87a') || binary.startsWith('GIF89a')
+    case 'image/webp':
+      return binary.startsWith('RIFF') && binary.slice(8, 12) === 'WEBP'
+    default:
+      return false
+  }
+}
+
 export class ImageValidationError extends Error {
   constructor(message, code = 'INVALID_IMAGE') {
     super(message)
@@ -76,7 +95,17 @@ function getImageDataUrlBytes(dataUrl, index) {
     )
   }
 
-  const bytes = Math.floor((unpaddedLength * 3) / 4)
+  let binary
+  try {
+    binary = globalThis.atob(payload.padEnd(payload.length + ((4 - (payload.length % 4)) % 4), '='))
+  } catch {
+    throw new ImageValidationError(
+      `Image ${index + 1} contains invalid base64 data.`,
+      'INVALID_IMAGE_DATA',
+    )
+  }
+
+  const bytes = binary.length
   if (bytes === 0) {
     throw new ImageValidationError(
       `Image ${index + 1} must contain image data.`,
@@ -87,6 +116,12 @@ function getImageDataUrlBytes(dataUrl, index) {
     throw new ImageValidationError(
       `Image ${index + 1} exceeds the ${MAX_IMAGE_BYTES / (1024 * 1024)} MiB image limit.`,
       'IMAGE_SIZE_EXCEEDED',
+    )
+  }
+  if (!hasImageSignature(binary, mimeType)) {
+    throw new ImageValidationError(
+      `Image ${index + 1} content does not match its declared ${mimeType} type.`,
+      'INVALID_IMAGE_DATA',
     )
   }
 

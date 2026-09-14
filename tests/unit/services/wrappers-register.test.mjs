@@ -131,7 +131,7 @@ test('registerPortListener redacts image payloads before debug logging', async (
   port.emitMessage({
     session: {
       conversationRecords: [],
-      images: ['data:image/png;base64,cHJpdmF0ZQ=='],
+      images: ['data:image/png;base64,iVBORw0KGgo='],
     },
   })
   await execDone

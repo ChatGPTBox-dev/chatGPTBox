@@ -1,8 +1,8 @@
 import archiver from 'archiver'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { createWriteStream } from 'node:fs'
-import { mkdir, lstat } from 'node:fs/promises'
+import { constants, createWriteStream } from 'node:fs'
+import { lstat, mkdir, open } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -89,21 +89,71 @@ export async function collectSourceFiles(root = defaultRoot) {
     if (isSensitiveSourcePath(relativePath)) continue
     const segments = relativePath.split('/')
     if (segments.some((part) => part === '..') || path.isAbsolute(relativePath)) continue
-    let regular = true
-    for (let i = 1; i <= segments.length; i++) {
-      const stat = await lstat(path.join(root, ...segments.slice(0, i)))
-      if (stat.isSymbolicLink() || (i === segments.length && !stat.isFile())) {
-        regular = false
-        break
-      }
-    }
-    if (regular) files.push(relativePath)
+    files.push(relativePath)
   }
   return files.sort()
 }
 
+function isSameFileSnapshot(left, right) {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs
+  )
+}
+
+export async function readVerifiedSourceFile(root, relativePath) {
+  const segments = relativePath.split('/')
+  if (
+    segments.length === 0 ||
+    segments.some((part) => !part || part === '..') ||
+    path.isAbsolute(relativePath)
+  ) {
+    throw new Error(`Unsafe source path: ${relativePath}`)
+  }
+
+  let expectedStat
+  for (let i = 1; i <= segments.length; i++) {
+    const candidateStat = await lstat(path.join(root, ...segments.slice(0, i)))
+    if (candidateStat.isSymbolicLink()) {
+      throw new Error(`Source archive path contains a symbolic link: ${relativePath}`)
+    }
+    if (i === segments.length) expectedStat = candidateStat
+  }
+  if (!expectedStat?.isFile())
+    throw new Error(`Source archive entry is not a file: ${relativePath}`)
+
+  const absolutePath = path.join(root, ...segments)
+  const noFollowFlag = constants.O_NOFOLLOW ?? 0
+  const fileHandle = await open(absolutePath, constants.O_RDONLY | noFollowFlag)
+  try {
+    const openedStat = await fileHandle.stat()
+    if (!openedStat.isFile() || !isSameFileSnapshot(expectedStat, openedStat)) {
+      throw new Error(`Source archive entry changed while opening: ${relativePath}`)
+    }
+
+    const contents = await fileHandle.readFile()
+    const completedStat = await fileHandle.stat()
+    if (contents.byteLength !== openedStat.size || !isSameFileSnapshot(openedStat, completedStat)) {
+      throw new Error(`Source archive entry changed while reading: ${relativePath}`)
+    }
+    return contents
+  } finally {
+    await fileHandle.close()
+  }
+}
+
 export async function createImageSourceArchive(root = defaultRoot) {
   const files = await collectSourceFiles(root)
+  const sourceEntries = []
+  for (const relativePath of files) {
+    sourceEntries.push({
+      relativePath,
+      contents: await readVerifiedSourceFile(root, relativePath),
+    })
+  }
   const outputDirectory = path.join(root, 'build')
   await mkdir(outputDirectory, { recursive: true })
   const outputPath = path.join(outputDirectory, 'chatgptbox-image-support-source.zip')
@@ -117,9 +167,9 @@ export async function createImageSourceArchive(root = defaultRoot) {
   })
   archive.pipe(output)
 
-  for (const relativePath of files) {
-    archive.file(path.join(root, relativePath), {
-      name: `chatgptbox-image-support/${relativePath.replaceAll('\\', '/')}`,
+  for (const entry of sourceEntries) {
+    archive.append(entry.contents, {
+      name: `chatgptbox-image-support/${entry.relativePath.replaceAll('\\', '/')}`,
     })
   }
   await archive.finalize()
