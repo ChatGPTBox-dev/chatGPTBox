@@ -153,14 +153,6 @@ function App() {
           <hr />
           <div className="chat-sidebar-button-group">
             <ConfirmButton text={t('Clear conversations')} onConfirm={clearConversations} />
-            <small
-              style={{ fontSize: '10px', overflowWrap: 'anywhere', textAlign: 'center' }}
-              title={Browser.runtime.id}
-            >
-              {new URLSearchParams(window.location.search).get('surface') === 'sidebar'
-                ? 'Sidebar · images-2'
-                : 'images-2'}
-            </small>
             <button
               className="normal-button"
               onClick={() => {

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -29,6 +30,17 @@ test('source package collector only includes allowlisted roots and rejects secre
     writeFile(path.join(root, 'notes', 'local.txt'), 'untracked'),
   ])
 
+  execFileSync('git', ['init', '--quiet'], { cwd: root })
+  execFileSync(
+    'git',
+    ['add', '--', 'README.md', 'package.json', 'src/index.js', 'src/private.pem'],
+    { cwd: root },
+  )
+  await Promise.all(
+    ['token.json', 'api-key.json', 'config.json', 'arbitrary-private.json'].map((name) =>
+      writeFile(path.join(root, 'src', name), 'private'),
+    ),
+  )
   assert.deepEqual(await collectSourceFiles(root), ['README.md', 'package.json', 'src/index.js'])
   assert.equal(isSensitiveSourcePath('src/.env.production'), true)
   assert.equal(isSensitiveSourcePath('.npmrc'), true)

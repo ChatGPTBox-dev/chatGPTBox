@@ -1,14 +1,11 @@
-export const IMAGE_MIME_TYPES = Object.freeze([
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif',
-])
-
+import {
+  IMAGE_MIME_TYPES,
+  MAX_IMAGE_COUNT,
+  MAX_IMAGE_BYTES as MAX_IMAGE_SIZE,
+  MAX_TOTAL_IMAGE_BYTES as MAX_TOTAL_IMAGE_SIZE,
+} from '../../utils/image-limits.mjs'
+export { IMAGE_MIME_TYPES, MAX_IMAGE_COUNT, MAX_IMAGE_SIZE, MAX_TOTAL_IMAGE_SIZE }
 export const IMAGE_ACCEPT = IMAGE_MIME_TYPES.join(',')
-export const MAX_IMAGE_COUNT = 4
-export const MAX_IMAGE_SIZE = 4 * 1024 * 1024
-export const MAX_TOTAL_IMAGE_SIZE = 12 * 1024 * 1024
 
 export const IMAGE_FILE_ERROR = Object.freeze({
   INVALID: 'invalid',

@@ -6,7 +6,7 @@
 
 用户实际错误为 `chrome.sidePanel.open requires a valid windowId`，来自上一版的参数校验：PDF 菜单回调缺少有效窗口 ID 时，代码在调用浏览器 API 前就拒绝打开。现在使用回调提供的有效窗口 ID；缺失时同步传 `WINDOW_ID_CURRENT`，由浏览器解析当前窗口，避免异步查询丢失用户手势。保留全局侧栏路径：独立 Edge 测试发现按 PDF 标签页打开可以返回成功却不创建可见侧栏，因此不以 API 成功返回作为验收依据。
 
-侧栏入口增加 `surface=sidebar&revision=images-2`，与独立窗口共用图片组件，并通过新入口替换旧侧栏页面。底部应显示 `Sidebar · images-2`；扩展管理页版本为 `2.7.1 image-support sidebar-2`。补充 HTML doctype，避免扩展页面进入 quirks mode。打开侧栏无需读取 PDF 地址、重新下载 PDF 或向 PDF 阅读器注入代码。
+侧栏与独立窗口共用图片组件，使用标准 `IndependentPanel.html` 入口。历史调试版本曾显示内部版本标记；正式提交已移除该标记、查询参数和 fork 专用版本名。打开侧栏无需读取 PDF 地址、重新下载 PDF 或向 PDF 阅读器注入代码。
 
 同时将右键点击监听器的注册移到异步菜单初始化之前，避免扩展后台刚被唤醒时遗漏第一次点击。更新后需在扩展管理页点击“重新加载”，再重新打开侧栏；仅刷新 PDF 页面不会加载新的后台代码。
 
@@ -71,3 +71,5 @@ Windows PowerShell 若提示禁止运行 `npm.ps1`，可使用 `npm.cmd ci --ign
 - 本地模拟服务确认请求包含 `image_url` 图片数据；未调用真实模型，没有使用个人账户。
 
 浏览器脚本位于 `tests/manual/images-smoke.cjs`，运行前将 `CODEX_NODE_MODULES` 指向已安装 Playwright 的依赖目录。该脚本测试侧栏共用页面，未操作浏览器原生侧栏容器；粘贴与拖入通过浏览器事件模拟，未验证操作系统剪贴板。Chrome、Firefox 和真实服务商的图片理解效果未做实测。
+
+源码归档脚本必须在 Git checkout 中运行，只收录 Git 已跟踪且通过过滤的文件。解压后的源码仍可正常安装依赖和构建，但不能直接重新运行该 Git 归档脚本。打包前应检查已跟踪源码不含秘密；文件名过滤不能代替内容审查。

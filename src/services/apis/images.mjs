@@ -3,14 +3,16 @@ import {
   resolveOpenAICompatibleRequest,
 } from './provider-registry.mjs'
 
-export const MAX_IMAGE_COUNT = 4
-export const MAX_IMAGE_BYTES = 4 * 1024 * 1024
-export const MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024
-export const MAX_SESSION_IMAGE_BYTES = 24 * 1024 * 1024
-
-const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
-
-const IMAGE_DATA_URL_RE = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})$/i
+import {
+  IMAGE_MIME_TYPES,
+  MAX_IMAGE_COUNT,
+  MAX_IMAGE_BYTES,
+  MAX_TOTAL_IMAGE_BYTES,
+  MAX_SESSION_IMAGE_BYTES,
+} from '../../utils/image-limits.mjs'
+export { MAX_IMAGE_COUNT, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES, MAX_SESSION_IMAGE_BYTES }
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(IMAGE_MIME_TYPES)
+const IMAGE_DATA_URL_RE = /^data:([^;,]+);base64,([A-Za-z0-9+/]*={0,2})$/i
 const MAX_IMAGE_DATA_URL_CHARS = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 128
 
 export class ImageValidationError extends Error {
@@ -178,11 +180,7 @@ export function validateSessionImages(session) {
   }
 }
 
-export function hasSessionImages(session) {
-  return validateSessionImages(session).hasImages
-}
-
-function isNativeOllamaChatEndpoint(requestUrl) {
+export function isNativeOllamaChatEndpoint(requestUrl) {
   if (!requestUrl) return false
   try {
     const pathname = new URL(requestUrl).pathname.replace(/\/+$/, '') || '/'
@@ -206,10 +204,7 @@ export function canSendImages(config, session) {
       session,
     )
     return Boolean(
-      request &&
-        request.endpointType === 'chat' &&
-        !isNativeOllamaChatEndpoint(request.requestUrl) &&
-        request.provider?.supportsImages !== false,
+      request && request.endpointType === 'chat' && !isNativeOllamaChatEndpoint(request.requestUrl),
     )
   } catch {
     return false
@@ -232,7 +227,3 @@ export function buildOpenAIMessageContent(text, images = []) {
 
 export const IMAGE_UNSUPPORTED_ERROR =
   'Image attachments require an OpenAI-compatible chat endpoint that supports image content.'
-
-export function isNativeOllamaImageEndpoint(requestUrl) {
-  return isNativeOllamaChatEndpoint(requestUrl)
-}

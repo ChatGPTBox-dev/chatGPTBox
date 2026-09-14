@@ -102,3 +102,13 @@ test('getConversationPairs keeps empty question and answer strings unchanged', (
     { role: 'assistant', content: '' },
   ])
 })
+
+test('generic conversation history keeps image-bearing records as text', () => {
+  assert.deepEqual(
+    getConversationPairs([{ question: 'Q', answer: 'A', images: ['data:image/png;base64,AAEC'] }]),
+    [
+      { role: 'user', content: 'Q' },
+      { role: 'assistant', content: 'A' },
+    ],
+  )
+})

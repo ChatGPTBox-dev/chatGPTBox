@@ -147,6 +147,7 @@ export function InputBox({
         })
         .catch(() => {
           if (!isCurrentRead(generation)) return
+          if (!imageEntriesRef.current.some((currentEntry) => currentEntry.id === entry.id)) return
           replaceImageEntries(
             imageEntriesRef.current.filter((currentEntry) => currentEntry.id !== entry.id),
           )
@@ -232,7 +233,7 @@ export function InputBox({
       .catch((error) => {
         if (!mountedRef.current || draftRevisionRef.current !== submittedRevision) return
         const message = error instanceof Error ? error.message : String(error || '')
-        setImageError(message ? t(message) : t('Unable to send images.'))
+        setImageError(message || t('Unable to send images.'))
       })
       .finally(() => {
         submittingRef.current = false

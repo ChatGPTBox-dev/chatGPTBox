@@ -7,7 +7,7 @@ import { getTemperatureParams } from './temperature-params.mjs'
 import {
   IMAGE_UNSUPPORTED_ERROR,
   buildOpenAIMessageContent,
-  isNativeOllamaImageEndpoint,
+  isNativeOllamaChatEndpoint,
   validateSessionImages,
 } from './images.mjs'
 
@@ -68,10 +68,7 @@ export async function generateAnswersWithOpenAICompatible({
   allowLegacyResponseField = false,
 }) {
   const imageState = validateSessionImages(session)
-  if (
-    imageState.hasImages &&
-    (endpointType !== 'chat' || isNativeOllamaImageEndpoint(requestUrl))
-  ) {
+  if (imageState.hasImages && (endpointType !== 'chat' || isNativeOllamaChatEndpoint(requestUrl))) {
     throw new Error(IMAGE_UNSUPPORTED_ERROR)
   }
 
@@ -105,10 +102,12 @@ export async function generateAnswersWithOpenAICompatible({
       ...safeExtraBody,
     }
   } else {
-    const messages = getConversationPairs(
-      conversationRecords.slice(-config.maxConversationContextLength),
-      false,
-    )
+    const messages = conversationRecords
+      .slice(-config.maxConversationContextLength)
+      .flatMap((record) => [
+        { role: 'user', content: buildOpenAIMessageContent(record.question, record.images) },
+        { role: 'assistant', content: record.answer },
+      ])
     messages.push({
       role: 'user',
       content: buildOpenAIMessageContent(question, imageState.images),

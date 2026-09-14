@@ -1,6 +1,8 @@
 import archiver from 'archiver'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { createWriteStream } from 'node:fs'
-import { mkdir, readdir } from 'node:fs/promises'
+import { mkdir, lstat } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -52,6 +54,7 @@ const sensitiveFilePatterns = [
   /^\.env(?:\..*)?$/i,
   /^\.npmrc$/i,
   /^\.netrc$/i,
+  /^(?:token|api[-_]?key|config)(?:\..*)?$/i,
   /^auth(?:\..*)?$/i,
   /^credentials?(?:\..*)?$/i,
   /^id_(?:dsa|ecdsa|ed25519|rsa)(?:\..*)?$/i,
@@ -66,35 +69,40 @@ export function isSensitiveSourcePath(relativePath) {
   return sensitiveFilePatterns.some((pattern) => pattern.test(basename))
 }
 
-async function collectDirectoryFiles(root, relativeDirectory, files) {
-  const absoluteDirectory = path.join(root, relativeDirectory)
-  for (const entry of await readdir(absoluteDirectory, { withFileTypes: true })) {
-    const relativePath = path.posix.join(relativeDirectory.replaceAll('\\', '/'), entry.name)
-    if (isSensitiveSourcePath(relativePath)) continue
-    if (entry.isDirectory()) await collectDirectoryFiles(root, relativePath, files)
-    else if (entry.isFile()) files.push(relativePath)
-  }
-}
+const execFileAsync = promisify(execFile)
 
 export async function collectSourceFiles(root = defaultRoot) {
+  // Require Git rather than falling back to a recursive walk in extracted ZIPs.
+  const { stdout } = await execFileAsync('git', ['ls-files', '--cached', '-z'], {
+    cwd: root,
+    maxBuffer: 16 * 1024 * 1024,
+  })
   const files = []
-  for (const archiveRoot of SOURCE_ARCHIVE_ROOTS) {
-    if (isSensitiveSourcePath(archiveRoot)) continue
-    try {
-      await collectDirectoryFiles(root, archiveRoot, files)
-    } catch (error) {
-      if (error?.code === 'ENOTDIR') {
-        files.push(archiveRoot)
-        continue
+  for (const relativePath of new Set(stdout.split('\0').filter(Boolean))) {
+    if (
+      !SOURCE_ARCHIVE_ROOTS.some(
+        (allowed) => relativePath === allowed || relativePath.startsWith(`${allowed}/`),
+      )
+    )
+      continue
+    if (isSensitiveSourcePath(relativePath)) continue
+    const segments = relativePath.split('/')
+    if (segments.some((part) => part === '..') || path.isAbsolute(relativePath)) continue
+    let regular = true
+    for (let i = 1; i <= segments.length; i++) {
+      const stat = await lstat(path.join(root, ...segments.slice(0, i)))
+      if (stat.isSymbolicLink() || (i === segments.length && !stat.isFile())) {
+        regular = false
+        break
       }
-      if (error?.code === 'ENOENT') continue
-      throw error
     }
+    if (regular) files.push(relativePath)
   }
   return files.sort()
 }
 
 export async function createImageSourceArchive(root = defaultRoot) {
+  const files = await collectSourceFiles(root)
   const outputDirectory = path.join(root, 'build')
   await mkdir(outputDirectory, { recursive: true })
   const outputPath = path.join(outputDirectory, 'chatgptbox-image-support-source.zip')
@@ -108,7 +116,7 @@ export async function createImageSourceArchive(root = defaultRoot) {
   })
   archive.pipe(output)
 
-  for (const relativePath of await collectSourceFiles(root)) {
+  for (const relativePath of files) {
     archive.file(path.join(root, relativePath), {
       name: `chatgptbox-image-support/${relativePath.replaceAll('\\', '/')}`,
     })

@@ -240,6 +240,30 @@ async function run() {
     assert.equal(await fileInput.count(), 1, 'image file picker is missing from the input box')
     assert.equal(await fileInput.isDisabled(), false, 'OpenAI-compatible image picker is disabled')
 
+    await page.evaluate(() => {
+      const original = FileReader.prototype.readAsDataURL
+      globalThis.__restoreImageReader = () => {
+        FileReader.prototype.readAsDataURL = original
+      }
+      FileReader.prototype.readAsDataURL = function () {
+        globalThis.__failPendingImageRead = () => this.onerror()
+      }
+    })
+    await fileInput.setInputFiles({ name: 'pending.png', mimeType: 'image/png', buffer: PNG_BYTES })
+    await page.waitForFunction(() => typeof globalThis.__failPendingImageRead === 'function')
+    await inputBox(page).locator('[aria-label="Remove image pending.png"]').click()
+    await page.evaluate(() => {
+      globalThis.__failPendingImageRead()
+      globalThis.__restoreImageReader()
+    })
+    await page.waitForFunction(() => !document.querySelector('.submit-button')?.disabled)
+    assert.equal(
+      await inputBox(page).locator('[role="alert"]').count(),
+      0,
+      'removed image read failure resurfaced an alert',
+    )
+    assert.equal(await inputBox(page).locator('[role="listitem"]').count(), 0)
+
     await fileInput.setInputFiles({
       name: 'picker.png',
       mimeType: 'image/png',
