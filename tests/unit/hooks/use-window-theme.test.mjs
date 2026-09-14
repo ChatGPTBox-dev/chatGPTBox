@@ -68,9 +68,7 @@ test('useWindowTheme removes the listener from the MediaQueryList that registere
   const container = document.querySelector('#root')
   act(() => render(createElement(ThemeProbe), container))
 
-  const subscribedMediaQuery = mediaQueries.find(
-    (mediaQuery) => mediaQuery.listenerCount() === 1,
-  )
+  const subscribedMediaQuery = mediaQueries.find((mediaQuery) => mediaQuery.listenerCount() === 1)
   assert.ok(subscribedMediaQuery)
 
   act(() => unmountComponentAtNode(container))

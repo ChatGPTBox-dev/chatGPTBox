@@ -166,11 +166,7 @@ test('createParser preserves pending data after a leading UTF-8 BOM', () => {
 })
 
 test('createParser preserves pending data after invalid UTF-8 replacement', () => {
-  const firstChunk = new Uint8Array([
-    ...toBytes('data: '),
-    0xff,
-    ...toBytes('\n\ndata:'),
-  ])
+  const firstChunk = new Uint8Array([...toBytes('data: '), 0xff, ...toBytes('\n\ndata:')])
   const parsed = parseChunks(firstChunk, toBytes(' b\n\n'))
 
   assert.deepEqual(
