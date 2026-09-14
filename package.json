@@ -9,6 +9,7 @@
     "dev": "node build.mjs --development",
     "analyze": "node build.mjs --analyze",
     "lint": "eslint --ext .js,.mjs,.jsx .",
+    "smoke": "node scripts/xvfb-smoke.mjs",
     "test": "node --import ./tests/setup/browser-shim.mjs --test",
     "test:coverage": "c8 --all --reporter=text --reporter=lcov --reporter=json-summary --include=\"src/**/*.{mjs,jsx,js}\" node --import ./tests/setup/browser-shim.mjs --test",
     "lint:fix": "eslint --ext .js,.mjs,.jsx . --fix",
