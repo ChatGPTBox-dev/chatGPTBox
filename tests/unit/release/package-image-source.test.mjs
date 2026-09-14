@@ -41,6 +41,9 @@ test('source package collector only includes allowlisted roots and rejects secre
       writeFile(path.join(root, 'src', name), 'private'),
     ),
   )
+  execFileSync('git', ['add', '--', 'src/token.json', 'src/api-key.json', 'src/config.json'], {
+    cwd: root,
+  })
   assert.deepEqual(await collectSourceFiles(root), ['README.md', 'package.json', 'src/index.js'])
   assert.equal(isSensitiveSourcePath('src/.env.production'), true)
   assert.equal(isSensitiveSourcePath('.npmrc'), true)
