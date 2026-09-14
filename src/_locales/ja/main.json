@@ -36,7 +36,7 @@
   "This file is not a supported image.": "このファイルは対応している画像ではありません。",
   "Unable to read image.": "画像を読み込めません。",
   "Unable to send images.": "画像を送信できません。",
-  "Describe these images": "これらの画像を説明",
+  "Describe these images": "これらの画像について説明してください",
   "Append Query": "末尾に追加するクエリ",
   "Prepend Query": "先頭に挿入するクエリ",
   "Wechat Pay": "Wechatペイ",

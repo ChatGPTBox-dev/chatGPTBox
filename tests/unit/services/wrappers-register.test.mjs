@@ -141,7 +141,7 @@ test('registerPortListener redacts image payloads before debug logging', async (
   )
   assert.ok(received)
   assert.equal(received.arguments[1].session, 'REDACTED')
-  assert.doesNotMatch(JSON.stringify(received.arguments), /cHJpdmF0ZQ/)
+  assert.doesNotMatch(JSON.stringify(received.arguments), /iVBORw0KGgo/)
 })
 
 test('registerPortListener scopes error translations to each request', async (t) => {
