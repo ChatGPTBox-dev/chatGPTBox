@@ -68,10 +68,11 @@ const adapters = [
   },
   {
     name: 'openrouter-api',
-    apiMode: { groupName: 'openRouterApiModelKeys', itemName: 'openRouter_openai_o3' },
+    apiMode: { groupName: 'openRouterApiModelKeys', itemName: 'openRouter_fusion_flash' },
     providerId: 'openrouter',
     expectedBaseUrl: 'https://openrouter.ai/api/v1',
     expectedApiKey: 'or-key',
+    expectedModel: 'openrouter/fusion-flash',
   },
   {
     name: 'chatglm-api',
@@ -116,6 +117,9 @@ for (const adapter of adapters) {
     assert.equal(capturedInput, `${adapter.expectedBaseUrl}/chat/completions`)
     // Verify API key reaches the Authorization header
     assert.equal(capturedInit.headers.Authorization, `Bearer ${adapter.expectedApiKey}`)
+    if (adapter.expectedModel) {
+      assert.equal(JSON.parse(capturedInit.body).model, adapter.expectedModel)
+    }
   })
 
   test(`${adapter.name}: delegates to compat layer and produces output`, async (t) => {
