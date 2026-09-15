@@ -22,6 +22,7 @@ const contentScriptStubs = new Map([
 ])
 
 const floatingToolbarStubs = new Map([
+  ['react', 'test:floating-react'],
   ['../ConversationCard', 'test:floating-conversation-card'],
   ['../../content-script/selection-tools', 'test:floating-selection-tools'],
   ['../../utils', 'test:floating-utils'],
@@ -85,11 +86,32 @@ const sources = {
     export const getPortErrorMessage = (error) => String(error)
     export const shouldDelegatePortError = () => false
   `,
+  'test:floating-react': `
+    import * as React from 'react'
+    export const cloneElement = React.cloneElement
+    export const useCallback = React.useCallback
+    export const useEffect = React.useEffect
+    export const useLayoutEffect = React.useLayoutEffect
+    export const useRef = React.useRef
+    export const useState = (initialValue) => {
+      const [value, setValue] = React.useState(initialValue)
+      return [
+        value,
+        (nextValue) => {
+          const state = globalThis.__FLOATING_TOOLBAR_TEST__
+          if (state.observeStateUpdates) state.observedStateUpdates.push(nextValue)
+          return setValue(nextValue)
+        },
+      ]
+    }
+  `,
   'test:floating-conversation-card': `
     import { useLayoutEffect } from 'preact/hooks'
     export default function ConversationCard(props) {
       const state = globalThis.__FLOATING_TOOLBAR_TEST__
       state.onClose = props.onClose
+      state.conversationRenderCount = (state.conversationRenderCount ?? 0) + 1
+      state.lastQuestion = props.question
       useLayoutEffect(() => () => {
         state.cleanupCount += 1
         state.cleanupSawConnectedContainer = state.container.isConnected
@@ -97,7 +119,15 @@ const sources = {
       return null
     }
   `,
-  'test:floating-selection-tools': 'export const config = {}',
+  'test:floating-selection-tools': `
+    export const config = {
+      testTool: {
+        icon: globalThis.__FLOATING_TOOLBAR_TEST__?.toolIcon,
+        label: 'Test Tool',
+        genPrompt: (selection) => globalThis.__FLOATING_TOOLBAR_TEST__.genPrompt(selection),
+      },
+    }
+  `,
   'test:floating-utils': `
     export const getClientPosition = () => ({ x: 0, y: 0 })
     export const isMobile = () => false
@@ -112,23 +142,32 @@ const sources = {
   'test:floating-i18n': 'export const useTranslation = () => ({ t: (value) => value })',
   'test:floating-config': `
     import { useLayoutEffect } from 'preact/hooks'
-    const config = {
+    const defaultConfig = {
       alwaysPinWindow: false,
       themeMode: 'light',
       activeSelectionTools: [],
       customSelectionTools: [],
     }
     export const useConfig = (onLoad) => {
+      const state = globalThis.__FLOATING_TOOLBAR_TEST__
       useLayoutEffect(() => {
+        if (state?.deferConfigLoad) {
+          state.pendingConfigLoad = onLoad
+          return
+        }
         onLoad()
       }, [])
-      return config
+      return state?.config ?? defaultConfig
     }
   `,
 }
 
 export async function resolve(specifier, context, nextResolve) {
   if (context.parentURL?.startsWith('test:') && specifier === 'preact/hooks') {
+    return nextResolve(specifier, { ...context, parentURL: import.meta.url })
+  }
+
+  if (context.parentURL === 'test:floating-react' && specifier === 'react') {
     return nextResolve(specifier, { ...context, parentURL: import.meta.url })
   }
 
