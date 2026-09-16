@@ -25,19 +25,21 @@ const ALLOWED_TAGS = { p: ['className'] }
  * @param {object} props
  * @param {string} props.children markdown, or the whole answer so far while streaming
  * @param {boolean} [props.done] false while the answer is still arriving
+ * @param {string} [props.reasoning] thinking to show ahead of the answer
  */
-export function MarkdownRender({ children, done = true }) {
+export function MarkdownRender({ children, done = true, reasoning = '' }) {
   const { t } = useTranslation()
   const rendererRef = useRef(null)
   const deltaRef = useRef(null)
   if (deltaRef.current === null) deltaRef.current = createStreamDelta()
+  const content = reasoning ? `<think>\n${reasoning}\n</think>\n\n${children}` : children
 
   // Answers arrive as a growing snapshot, but the renderer takes deltas and caches the
   // blocks it has settled, so only the new text is parsed on each update.
   useLayoutEffect(() => {
     const renderer = rendererRef.current
     if (!renderer) return
-    const step = deltaRef.current.next(children, done)
+    const step = deltaRef.current.next(content, done)
     if (!step) return
     if (step.reset) renderer.reset()
     renderer.write(step.write, step.finalize)
@@ -68,6 +70,7 @@ export function MarkdownRender({ children, done = true }) {
 MarkdownRender.propTypes = {
   children: PropTypes.string.isRequired,
   done: PropTypes.bool,
+  reasoning: PropTypes.string,
 }
 
 export default memo(MarkdownRender)

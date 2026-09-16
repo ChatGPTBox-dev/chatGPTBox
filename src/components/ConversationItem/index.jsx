@@ -16,7 +16,14 @@ AnswerTitle.propTypes = {
   descName: PropTypes.string,
 }
 
-export function ConversationItem({ type, content, descName, onRetry, done = true }) {
+export function ConversationItem({
+  type,
+  content,
+  descName,
+  onRetry,
+  done = true,
+  reasoning = '',
+}) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -85,7 +92,11 @@ export function ConversationItem({ type, content, descName, onRetry, done = true
               )}
             </div>
           </div>
-          {!collapsed && <MarkdownRender done={done}>{content}</MarkdownRender>}
+          {!collapsed && (
+            <MarkdownRender done={done} reasoning={reasoning}>
+              {content}
+            </MarkdownRender>
+          )}
         </div>
       )
     case 'error':
@@ -131,6 +142,7 @@ ConversationItem.propTypes = {
   descName: PropTypes.string,
   onRetry: PropTypes.func,
   done: PropTypes.bool,
+  reasoning: PropTypes.string,
 }
 
 export default memo(ConversationItem)

@@ -34,6 +34,17 @@ function hasFinished(data) {
 }
 
 /**
+ * Reasoning models put their thinking in their own field rather than in the content, and
+ * deliberately do not replay it in context. Surfacing it separately keeps it out of the
+ * conversation records.
+ */
+function getReasoningDelta(data) {
+  const delta = data?.choices?.[0]?.delta
+  const reasoning = delta?.reasoning_content ?? delta?.reasoning
+  return typeof reasoning === 'string' ? reasoning : ''
+}
+
+/**
  * @param {object} params
  * @param {Browser.Runtime.Port} params.port
  * @param {string} params.question
@@ -118,6 +129,7 @@ export async function generateAnswersWithOpenAICompatible({
   }
 
   let answer = ''
+  let reasoning = ''
   let finished = false
   const finish = () => {
     if (finished) return
@@ -147,6 +159,12 @@ export async function generateAnswersWithOpenAICompatible({
 
       answer = buildMessageAnswer(answer, data, allowLegacyResponseField)
       port.postMessage({ answer: answer, done: false, session: null })
+
+      const reasoningDelta = getReasoningDelta(data)
+      if (reasoningDelta) {
+        reasoning += reasoningDelta
+        port.postMessage({ reasoning: reasoning, done: false, session: null })
+      }
 
       if (hasFinished(data)) {
         finish()
