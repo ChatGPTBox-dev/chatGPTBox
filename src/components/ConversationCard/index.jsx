@@ -50,6 +50,7 @@ import {
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
 } from './session.mjs'
+import { createAnswerBuffer } from './answer-buffer.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 const UNMATCHED_API_MODE_VALUE = '__current-session-api-mode__'
@@ -188,18 +189,28 @@ function ConversationCard(props) {
     })
   }
 
+  const answerBufferRef = useRef(null)
+  if (answerBufferRef.current === null) {
+    answerBufferRef.current = createAnswerBuffer({
+      requestFrame: requestAnimationFrame,
+      cancelFrame: cancelAnimationFrame,
+      render: (answer) => updateAnswer(answer, false, 'answer'),
+    })
+  }
+
   const portMessageListener = (msg) => {
     if (isSupersededRequestMessage(msg, requestGenerationIdRef.current)) return
     if (isSupersededGenerationMessage(msg, retryGenerationIdRef.current)) return
 
     if (msg.answer) {
       partialAnswerRef.current = msg.answer
-      updateAnswer(msg.answer, false, 'answer')
+      answerBufferRef.current.push(msg.answer)
     }
     if (msg.session) {
       setSession(msg.done ? { ...msg.session, isRetry: false } : msg.session)
     }
     if (msg.done) {
+      answerBufferRef.current.flush()
       const partialAnswer = partialAnswerRef.current
       const retryRecord = retryRecordRef.current
       const completionState = getInterruptedCompletionState(msg, partialAnswer, retryRecord)
@@ -215,6 +226,7 @@ function ConversationCard(props) {
       setIsReady(true)
     }
     if (msg.error) {
+      answerBufferRef.current.flush()
       const retryRecord = retryRecordRef.current
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       switch (msg.error) {
@@ -386,6 +398,7 @@ function ConversationCard(props) {
   }, [port, conversationItemData])
 
   const getRetryFn = (session) => async () => {
+    answerBufferRef.current.discard()
     updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
     setIsReady(false)
 

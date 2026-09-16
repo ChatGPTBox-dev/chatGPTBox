@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { Pre } from './Pre'
 import { Hyperlink } from './Hyperlink'
+import { highlightOptions } from './highlight-options.mjs'
 import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -176,17 +177,7 @@ export function MarkdownRender(props) {
         ]}
         unwrapDisallowed={true}
         remarkPlugins={[remarkGfm, remarkBreaks]}
-        rehypePlugins={[
-          rehypeRaw,
-          [
-            rehypeHighlight,
-            {
-              detect: true,
-              ignoreMissing: true,
-              plainText: ['diagnostic'],
-            },
-          ],
-        ]}
+        rehypePlugins={[rehypeRaw, [rehypeHighlight, highlightOptions]]}
         components={{
           a: Hyperlink,
           pre: Pre,
