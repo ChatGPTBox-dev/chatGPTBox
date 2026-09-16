@@ -47,6 +47,7 @@ import {
 import { refreshMenu } from './menus.mjs'
 import { registerCommands } from './commands.mjs'
 import { generateAnswersWithBardWebApi } from '../services/apis/bard-web.mjs'
+import { testApiModeConnection } from '../services/apis/test-connection.mjs'
 import { generateAnswersWithClaudeWebApi } from '../services/apis/claude-web.mjs'
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
@@ -614,6 +615,10 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         const token = await getChatGptAccessToken()
         await deleteConversation(token, message.data.conversationId)
         break
+      }
+      case 'TEST_API_MODE': {
+        console.log('[background] Processing TEST_API_MODE message')
+        return testApiModeConnection(message.data.apiMode)
       }
       case 'NEW_URL': {
         console.log('[background] Processing NEW_URL message:', message.data)
