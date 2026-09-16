@@ -8,14 +8,14 @@ const TEST_MAX_TOKENS = 1
 
 /**
  * Send the smallest chat request that still proves the endpoint, key and model work
- * together. Resolution goes through the same helper the real request path uses, so a mode
- * that passes here is a mode that can be talked to.
- * @param {object} apiMode an API mode as stored in the config
+ * together. Resolution goes through the same helper the real request path uses, so a
+ * session that passes here is one that can be talked to.
+ * @param {object} session a session-shaped selector: `{apiMode}` for a configured mode,
+ *   `{modelName: 'customModel'}` for the custom model on the General tab
  * @returns {Promise<{ok: boolean, status?: number, elapsedMs: number, error?: string}>}
  */
-export async function testApiModeConnection(apiMode) {
+export async function testConnection(session) {
   const config = await getUserConfig()
-  const session = { apiMode }
   const request = resolveOpenAICompatibleRequest(config, session)
   if (!request) return { ok: false, elapsedMs: 0, error: 'unresolved-provider' }
 

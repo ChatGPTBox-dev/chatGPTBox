@@ -274,7 +274,10 @@ export function ApiModes({ config, updateConfig }) {
     setConnectionTests((current) => ({ ...current, [index]: { pending: true } }))
     let result
     try {
-      result = await Browser.runtime.sendMessage({ type: 'TEST_API_MODE', data: { apiMode } })
+      result = await Browser.runtime.sendMessage({
+        type: 'TEST_API_CONNECTION',
+        data: { session: { apiMode } },
+      })
     } catch (error) {
       result = { ok: false, error: error?.message ?? String(error) }
     }

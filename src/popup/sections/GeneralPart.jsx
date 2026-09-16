@@ -100,6 +100,21 @@ export function GeneralPart({
 }) {
   const { t, i18n } = useTranslation()
   const [apiModes, setApiModes] = useState([])
+  const [connectionTest, setConnectionTest] = useState(null)
+
+  const runCustomModelConnectionTest = async () => {
+    setConnectionTest({ pending: true })
+    let result
+    try {
+      result = await Browser.runtime.sendMessage({
+        type: 'TEST_API_CONNECTION',
+        data: { session: { modelName: 'customModel' } },
+      })
+    } catch (error) {
+      result = { ok: false, error: error?.message ?? String(error) }
+    }
+    setConnectionTest({ ...result, pending: false })
+  }
   const [providerApiKeyDraft, setProviderApiKeyDraft] = useState('')
   const [isOverrideProviderKeyActionPending, setIsOverrideProviderKeyActionPending] =
     useState(false)
@@ -701,15 +716,43 @@ export function GeneralPart({
             </span>
           )}
         {isUsingSpecialCustomModel(config) && (
-          <input
-            type="text"
-            value={config.customModelApiUrl}
-            placeholder={t('Custom Model API Url')}
-            onChange={(e) => {
-              const value = e.target.value
-              updateConfig({ customModelApiUrl: value })
-            }}
-          />
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <input
+              type="text"
+              value={config.customModelApiUrl}
+              placeholder={t('Custom Model API Url')}
+              onChange={(e) => {
+                const value = e.target.value
+                updateConfig({ customModelApiUrl: value })
+              }}
+            />
+            <button
+              type="button"
+              style="white-space: nowrap;"
+              onClick={runCustomModelConnectionTest}
+            >
+              {t('Test')}
+            </button>
+            {connectionTest && (
+              <span
+                title={connectionTest.error ?? ''}
+                style={{
+                  whiteSpace: 'nowrap',
+                  color: connectionTest.pending
+                    ? undefined
+                    : connectionTest.ok
+                    ? '#2da44e'
+                    : '#d1242f',
+                }}
+              >
+                {connectionTest.pending
+                  ? t('Testing...')
+                  : connectionTest.ok
+                  ? `${t('Reachable')} ${connectionTest.elapsedMs}ms`
+                  : t('Unreachable')}
+              </span>
+            )}
+          </div>
         )}
         {isUsingOllamaApiModel(config) && (
           <div style={{ display: 'flex', gap: '10px' }}>
