@@ -50,6 +50,7 @@ import {
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
 } from './session.mjs'
+import { createAnswerBuffer, createFrameScheduler } from './answer-buffer.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 const UNMATCHED_API_MODE_VALUE = '__current-session-api-mode__'
@@ -221,6 +222,19 @@ function ConversationCard(props) {
     })
   }
 
+  const answerBufferRef = useRef(null)
+  if (answerBufferRef.current === null) {
+    answerBufferRef.current = createAnswerBuffer({
+      ...createFrameScheduler(),
+      render: (answer) => updateAnswer(answer, false, 'answer'),
+    })
+  }
+
+  // A buffered frame can outlive a hidden page, so drop it when the card goes away.
+  useEffect(() => {
+    return () => answerBufferRef.current?.discard()
+  }, [])
+
   const portMessageListener = (msg) => {
     if (disposedRef.current) return
     if (isSupersededRequestMessage(msg, requestGenerationIdRef.current)) return
@@ -228,12 +242,13 @@ function ConversationCard(props) {
 
     if (msg.answer) {
       partialAnswerRef.current = msg.answer
-      updateAnswer(msg.answer, false, 'answer')
+      answerBufferRef.current.push(msg.answer)
     }
     if (msg.session) {
       setSession(msg.done ? { ...msg.session, isRetry: false } : msg.session)
     }
     if (msg.done) {
+      answerBufferRef.current.flush()
       const partialAnswer = partialAnswerRef.current
       const retryRecord = retryRecordRef.current
       const completionState = getInterruptedCompletionState(msg, partialAnswer, retryRecord)
@@ -249,6 +264,7 @@ function ConversationCard(props) {
       setIsReady(true)
     }
     if (msg.error) {
+      answerBufferRef.current.flush()
       const retryRecord = retryRecordRef.current
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       switch (msg.error) {
@@ -479,6 +495,7 @@ function ConversationCard(props) {
   }, [port, conversationItemData])
 
   const getRetryFn = (session) => async () => {
+    answerBufferRef.current.discard()
     updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
     setIsReady(false)
 
@@ -671,6 +688,7 @@ function ConversationCard(props) {
               }
               partialAnswerRef.current = ''
               retryRecordRef.current = null
+              answerBufferRef.current.discard()
               Browser.runtime.sendMessage({
                 type: 'DELETE_CONVERSATION',
                 data: {
@@ -797,6 +815,7 @@ function ConversationCard(props) {
             )
             partialAnswerRef.current = ''
             retryRecordRef.current = null
+            answerBufferRef.current.discard()
             setConversationItemData([...conversationItemData, newQuestion, newAnswer])
             setIsReady(false)
 
