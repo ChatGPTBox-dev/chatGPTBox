@@ -4,6 +4,7 @@ import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { getExtraBodyParams } from './extra-body-params.mjs'
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -89,6 +90,7 @@ export async function generateAnswersWithOpenAICompatible({
       ...getTemperatureParams(config, model),
       stop: '\nHuman',
       ...safeExtraBody,
+      ...getExtraBodyParams(config),
     }
   } else {
     const messages = getConversationPairs(
@@ -111,6 +113,7 @@ export async function generateAnswersWithOpenAICompatible({
       ...tokenParams,
       ...getTemperatureParams(config, model),
       ...safeExtraBody,
+      ...getExtraBodyParams(config),
     }
   }
 
