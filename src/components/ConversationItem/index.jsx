@@ -16,7 +16,7 @@ AnswerTitle.propTypes = {
   descName: PropTypes.string,
 }
 
-export function ConversationItem({ type, content, descName, onRetry }) {
+export function ConversationItem({ type, content, descName, onRetry, done = true }) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -85,7 +85,7 @@ export function ConversationItem({ type, content, descName, onRetry }) {
               )}
             </div>
           </div>
-          {!collapsed && <MarkdownRender>{content}</MarkdownRender>}
+          {!collapsed && <MarkdownRender done={done}>{content}</MarkdownRender>}
         </div>
       )
     case 'error':
@@ -130,6 +130,7 @@ ConversationItem.propTypes = {
   content: PropTypes.string.isRequired,
   descName: PropTypes.string,
   onRetry: PropTypes.func,
+  done: PropTypes.bool,
 }
 
 export default memo(ConversationItem)

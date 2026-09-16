@@ -678,6 +678,7 @@ function ConversationCard(props) {
             type={data.type}
             descName={data.type === 'answer' && currentAiName}
             onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
+            done={data.done}
           />
         ))}
       </div>
