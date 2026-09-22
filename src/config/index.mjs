@@ -19,6 +19,7 @@ import {
   canonicalizeModelKeyArray,
 } from './model-key-migrations.mjs'
 import { getNavigatorLanguage, resolvePreferredLanguageKey } from './language-data.mjs'
+import { normalizeExplicitApiProtocol } from '../services/apis/provider-registry.mjs'
 
 export { getNavigatorLanguage }
 
@@ -847,6 +848,8 @@ export const defaultConfig = {
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',
   customOpenAiApiUrl: 'https://api.openai.com',
+  openaiApiProtocol: 'chat',
+  azureUseResponses: false,
   customAnthropicApiUrl: 'https://api.anthropic.com',
   disableWebModeHistory: true,
   hideContextMenu: false,
@@ -1170,10 +1173,14 @@ function normalizeCustomProviderForStorage(provider, index, providerIdSet) {
   )
   const completionsPath = ensureLeadingSlash(provider.completionsPath, '/v1/completions')
   const normalizedLegacyProviderIds = legacyProviderIds.length > 0 ? legacyProviderIds : undefined
+  const apiProtocol = normalizeExplicitApiProtocol(provider.apiProtocol)
+  const responsesUrl = normalizeText(provider.responsesUrl)
   const storageShapeChanged =
     (normalizeText(provider.chatCompletionsPath) || '/v1/chat/completions') !==
       chatCompletionsPath ||
     (normalizeText(provider.completionsPath) || '/v1/completions') !== completionsPath ||
+    provider.apiProtocol !== (apiProtocol || undefined) ||
+    provider.responsesUrl !== (responsesUrl || undefined) ||
     JSON.stringify(provider.legacyProviderIds) !== JSON.stringify(normalizedLegacyProviderIds)
   return {
     originalId,
@@ -1191,6 +1198,8 @@ function normalizeCustomProviderForStorage(provider, index, providerIdSet) {
       completionsUrl: normalizeText(provider.completionsUrl),
       enabled: provider.enabled !== false,
       allowLegacyResponseField: provider.allowLegacyResponseField !== false,
+      ...(apiProtocol ? { apiProtocol } : {}),
+      ...(responsesUrl ? { responsesUrl } : {}),
       ...(sourceProviderId ? { sourceProviderId } : {}),
       ...(normalizedLegacyProviderIds ? { legacyProviderIds: normalizedLegacyProviderIds } : {}),
     },

@@ -1,10 +1,25 @@
 import { getUserConfig } from '../../config/index.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import { pushRecord, withAbortController } from './shared.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import {
+  generateAnswersWithOpenAIResponses,
+  isResponsesRouteUnsupportedError,
+} from './openai-responses-core.mjs'
+
+// Azure Responses API is in preview; the version below supports `/openai/responses`.
+// If the deployment does not support it, we fall back to Chat Completions.
+const AZURE_RESPONSES_API_VERSION = '2025-04-01-preview'
+
+function shouldFallbackToChatCompletions(error) {
+  // Only fall back on initial HTTP failures. Mid-stream errors (no status)
+  // may already have emitted partial answers; retrying via Chat would duplicate them.
+  if (error?.status == null) return false
+  return isResponsesRouteUnsupportedError(error)
+}
 
 /**
  * @param {Runtime.Port} port
@@ -12,8 +27,58 @@ import { getTemperatureParams } from './temperature-params.mjs'
  * @param {Session} session
  */
 export async function generateAnswersWithAzureOpenaiApi(port, question, session) {
-  const { controller, messageListener, disconnectListener } = setAbortController(port)
+  return withAbortController(port, (abortContext) =>
+    generateAzureOpenaiRequest(port, question, session, abortContext),
+  )
+}
+
+async function generateAzureOpenaiRequest(port, question, session, abortContext) {
   const config = await getUserConfig()
+  if (abortContext.controller.signal.aborted) return
+  if (config.azureUseResponses === true) {
+    let deploymentName = getModelValue(session)
+    if (!deploymentName) deploymentName = config.azureDeploymentName
+    const requestUrl = `${config.azureEndpoint.replace(
+      /\/$/,
+      '',
+    )}/openai/responses?api-version=${AZURE_RESPONSES_API_VERSION}`
+    try {
+      await generateAnswersWithOpenAIResponses({
+        abortContext,
+        port,
+        question,
+        session,
+        requestUrl,
+        model: deploymentName,
+        // Deployment names are opaque aliases, not canonical model identifiers.
+        temperatureModel: null,
+        apiKey: '',
+        config,
+        provider: 'azure',
+        extraHeaders: { 'api-key': config.azureApiKey },
+      })
+      return
+    } catch (error) {
+      if (abortContext.controller.signal.aborted) return
+      if (!shouldFallbackToChatCompletions(error)) throw error
+      console.warn(
+        '[azure-openai] Responses API unsupported, falling back to Chat Completions',
+        error,
+      )
+    }
+  }
+  return generateAnswersWithAzureChatCompletions(port, question, session, config, abortContext)
+}
+
+async function generateAnswersWithAzureChatCompletions(
+  port,
+  question,
+  session,
+  config,
+  abortContext,
+) {
+  const { controller } = abortContext
+  if (controller.signal.aborted) return
   let deploymentName = getModelValue(session)
   if (!deploymentName) deploymentName = config.azureDeploymentName
 
@@ -44,6 +109,7 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
         ...getTemperatureParams(config),
       }),
       onMessage(message) {
+        if (controller.signal.aborted) return
         console.debug('sse message', message)
         let data
         try {
@@ -71,18 +137,11 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
       },
       async onStart() {},
       async onEnd(aborted) {
-        try {
-          if (!aborted) {
-            port.postMessage({ done: true })
-          }
-        } finally {
-          port.onMessage.removeListener(messageListener)
-          port.onDisconnect.removeListener(disconnectListener)
+        if (!aborted && !controller.signal.aborted) {
+          port.postMessage({ done: true })
         }
       },
       async onError(resp) {
-        port.onMessage.removeListener(messageListener)
-        port.onDisconnect.removeListener(disconnectListener)
         if (resp instanceof Error) throw resp
         const error = await resp.json().catch(() => ({}))
         throw new Error(
