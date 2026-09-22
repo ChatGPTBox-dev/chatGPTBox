@@ -778,7 +778,7 @@ test('modelNameToDesc returns desc for a known model name without t function', (
   assert.equal(desc, 'ChatGPT (Web)')
 })
 
-test('modelNameToDesc returns desc for GPT-5 stable presets', () => {
+test('modelNameToDesc returns desc for stable GPT API presets', () => {
   assert.equal(modelNameToDesc('chatgptApi5'), 'OpenAI (GPT-5)')
   assert.equal(modelNameToDesc('chatgptApi5_1'), 'OpenAI (GPT-5.1)')
   assert.equal(modelNameToDesc('chatgptApi5_2'), 'OpenAI (GPT-5.2)')
@@ -790,6 +790,8 @@ test('modelNameToDesc returns desc for GPT-5 stable presets', () => {
   assert.equal(modelNameToDesc('chatgptApi5_6Sol'), 'OpenAI (GPT-5.6 Sol)')
   assert.equal(modelNameToDesc('chatgptApi5_6Terra'), 'OpenAI (GPT-5.6 Terra)')
   assert.equal(modelNameToDesc('chatgptApi5_6Luna'), 'OpenAI (GPT-5.6 Luna)')
+  assert.equal(modelNameToDesc('chatgptApi6Sol'), 'OpenAI (GPT-6 Sol)')
+  assert.equal(modelNameToDesc('chatgptApi6Luna'), 'OpenAI (GPT-6 Luna)')
 })
 
 test('modelNameToDesc appends extraCustomModelName for customModel', () => {
