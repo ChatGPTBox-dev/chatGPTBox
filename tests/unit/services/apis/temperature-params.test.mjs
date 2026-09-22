@@ -103,12 +103,16 @@ test('temperature overrides remain available for earlier Gemini models', () => {
   }
 })
 
-test('temperature overrides omit GPT-6 Astra across provider ID formats', () => {
+test('temperature overrides omit GPT-6 models across provider ID formats', () => {
   for (const model of [
     'gpt-6-astra',
     'openai/gpt-6-astra',
     'GPT-6-ASTRA',
     'gpt-6-astra-20260901',
+    'gpt-6-sol',
+    'openai/gpt-6-sol',
+    'gpt-6-luna',
+    'openai/gpt-6-luna',
   ]) {
     assert.equal(canApplyTemperatureOverride(model), false, model)
     assert.deepEqual(
@@ -117,7 +121,7 @@ test('temperature overrides omit GPT-6 Astra across provider ID formats', () => 
       model,
     )
   }
-  for (const model of ['gpt-6-astral', 'my-gpt-6-astra', 'gpt-4.1']) {
+  for (const model of ['gpt-6-astral', 'gpt-6-solar', 'my-gpt-6-astra', 'gpt-4.1']) {
     assert.equal(canApplyTemperatureOverride(model), true, model)
   }
 })

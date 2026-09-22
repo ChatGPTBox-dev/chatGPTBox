@@ -89,8 +89,14 @@ test('uses max_tokens when provider is undefined', () => {
   })
 })
 
-test('uses completion token limits only for OpenAI GPT-6 Astra models', () => {
-  for (const model of ['gpt-6-astra', 'gpt-6-astra-20260901', 'GPT-6-ASTRA']) {
+test('uses completion token limits only for supported OpenAI GPT-6 models', () => {
+  for (const model of [
+    'gpt-6-astra',
+    'gpt-6-astra-20260901',
+    'GPT-6-ASTRA',
+    'gpt-6-sol',
+    'gpt-6-luna',
+  ]) {
     assert.deepEqual(getChatCompletionsTokenParams('openai', model, 1024), {
       max_completion_tokens: 1024,
     })
@@ -98,7 +104,13 @@ test('uses completion token limits only for OpenAI GPT-6 Astra models', () => {
       max_tokens: 1024,
     })
   }
-  for (const model of ['gpt-6-astral', 'my-gpt-6-astra', 'gpt-60', 'openai/gpt-6-astra']) {
+  for (const model of [
+    'gpt-6-astral',
+    'gpt-6-solar',
+    'my-gpt-6-astra',
+    'gpt-60',
+    'openai/gpt-6-astra',
+  ]) {
     assert.deepEqual(getChatCompletionsTokenParams('openai', model, 1024), {
       max_tokens: 1024,
     })
