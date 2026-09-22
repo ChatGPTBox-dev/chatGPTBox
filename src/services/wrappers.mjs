@@ -57,12 +57,6 @@ export async function getBingAccessToken() {
   return (await Browser.cookies.get({ url: 'https://bing.com/', name: '_U' }))?.value
 }
 
-export async function getBardCookies() {
-  const token = (await Browser.cookies.get({ url: 'https://google.com/', name: '__Secure-1PSID' }))
-    ?.value
-  return '__Secure-1PSID=' + token
-}
-
 export async function getClaudeSessionKey() {
   return (await Browser.cookies.get({ url: 'https://claude.ai/', name: 'sessionKey' }))?.value
 }
@@ -88,6 +82,33 @@ const transportErrorSummaryKeys = {
   [FETCH_REQUEST_FAILED]: 'The browser could not complete the request to the API endpoint.',
   [FETCH_RESPONSE_STREAM_FAILED]: 'The response stream from the API endpoint was interrupted.',
   [INVALID_API_ENDPOINT]: 'The configured API endpoint URL is invalid.',
+}
+
+const geminiWebDynamicErrors = [
+  {
+    pattern: /^Gemini Web: HTTP (\d+)\. Check your login and limits on Gemini\.$/,
+    key: 'Gemini Web: HTTP {{status}}. Check your login and limits on Gemini.',
+    valueKey: 'status',
+  },
+  {
+    pattern: /^Gemini Web: This Google account cannot select models \((\d+)\)\.$/,
+    key: 'Gemini Web: This Google account cannot select models ({{status}}).',
+    valueKey: 'status',
+  },
+  {
+    pattern:
+      /^Gemini Web: The website rejected the request \((\d+)\)\. Check Gemini in your browser\.$/,
+    key: 'Gemini Web: The website rejected the request ({{code}}). Check Gemini in your browser.',
+    valueKey: 'code',
+  },
+]
+
+function translateGeminiWebError(message, translate) {
+  for (const { pattern, key, valueKey } of geminiWebDynamicErrors) {
+    const match = pattern.exec(message)
+    if (match) return translate(key, { [valueKey]: match[1] })
+  }
+  return translate(message)
 }
 
 export function handlePortError(session, port, err, translate = t) {
@@ -120,6 +141,10 @@ export function handlePortError(session, port, err, translate = t) {
       details.push(formatErrorDetail('API endpoint: %s', err.requestOrigin, translate))
     if (message) details.push(formatErrorDetail('Browser message: %s', message, translate))
     postError(details.join('\n\n'))
+    return
+  }
+  if (err?.code === 'GEMINI_WEB_PROTOCOL_ERROR' && message) {
+    postError(translateGeminiWebError(message, translate))
     return
   }
   const formattedMessage = formatErrorMessage(message)
@@ -162,6 +187,9 @@ export function handlePortError(session, port, err, translate = t) {
 }
 
 export function claimLatestPortSessionRequest(port) {
+  if (typeof port._abortSupersededSessionRequest === 'function') {
+    port._abortSupersededSessionRequest()
+  }
   const requestId = (port._latestSessionRequestId ?? 0) + 1
   port._latestSessionRequestId = requestId
   port._sessionRequestGeneration = (port._sessionRequestGeneration ?? 0) + 1

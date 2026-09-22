@@ -29,7 +29,7 @@ import { t } from 'i18next'
  * @property {string|null} bingWeb_jailbreakConversationId
  * @property {string|null} bingWeb_parentMessageId
  * @property {Object|null} bingWeb_jailbreakConversationCache
- * @property {object|null} bard_conversationObj
+ * @property {Object|null} geminiWeb_conversation
  * @property {object|null} claude_conversation
  * @property {object|null} moonshot_conversation
  */
@@ -93,8 +93,8 @@ export function initSession({
     bingWeb_parentMessageId: null,
     bingWeb_jailbreakConversationCache: null,
 
-    // bard
-    bard_conversationObj: null,
+    // gemini
+    geminiWeb_conversation: null,
 
     // claude.ai
     claude_conversation: null,

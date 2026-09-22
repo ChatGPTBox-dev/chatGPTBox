@@ -1,4 +1,5 @@
 import { AlwaysCustomGroups } from '../../config/index.mjs'
+import { getGeminiWebModelLabel, resolveGeminiWebPreset } from '../../utils/gemini-web-preset.mjs'
 import {
   apiModeToModelName,
   getUniquelySelectedApiModeIndex,
@@ -621,7 +622,24 @@ export function getReferencedCustomProviderIdsFromSessions(
   return Array.from(referencedProviderIds)
 }
 
+function getGeminiWebDisplayLabel(apiMode, t) {
+  if (normalizeText(apiMode?.groupName) !== 'bardWebModelKeys') return ''
+  const productLabel = `Google ${t ? t('Gemini (Web)') : 'Gemini (Web)'}`
+  if (!apiMode?.isCustom) return productLabel
+
+  const { model, extendedThinking, source } = resolveGeminiWebPreset(apiMode)
+  if (source === 'default') return productLabel
+
+  const modelLabel = getGeminiWebModelLabel(model, t ? t('Auto') : 'Auto')
+  const thinkingLabel = t ? t('Extended thinking') : 'Extended thinking'
+  const modeLabel = extendedThinking ? `${modelLabel} + ${thinkingLabel}` : modelLabel
+  return `${productLabel} (${modeLabel})`
+}
+
 export function getApiModeDisplayLabel(apiMode, t, providers = []) {
+  const geminiLabel = getGeminiWebDisplayLabel(apiMode, t)
+  if (geminiLabel) return geminiLabel
+
   const modelName = apiModeToModelName(apiMode)
   const fallbackLabel = modelNameToDesc(modelName, t)
 

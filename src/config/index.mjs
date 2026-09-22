@@ -848,6 +848,8 @@ export const defaultConfig = {
   customChatGptWebApiPath: '/backend-api/conversation',
   customOpenAiApiUrl: 'https://api.openai.com',
   customAnthropicApiUrl: 'https://api.anthropic.com',
+  geminiWebModel: 'auto',
+  geminiWebExtendedThinking: false,
   disableWebModeHistory: true,
   hideContextMenu: false,
   cropText: true,

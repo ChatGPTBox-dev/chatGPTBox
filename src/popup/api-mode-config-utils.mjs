@@ -2,6 +2,8 @@ import { defaultApiModeIds } from '../config/index.mjs'
 import { canonicalizeModelKeyArray } from '../config/model-key-migrations.mjs'
 import { isApiModeSelected } from '../utils/model-name-convert.mjs'
 
+const GEMINI_WEB_DEFAULT_MODEL = 'bardWebFree'
+
 export const API_MODE_LIST_CONFIG_KEYS = [
   'activeApiModes',
   'customApiModes',
@@ -9,9 +11,13 @@ export const API_MODE_LIST_CONFIG_KEYS = [
 ]
 
 export function buildApiModeListConfigUpdate(config, nextApiModes, { selectionPatch = {} } = {}) {
+  const implicitDefaultIds = Object.hasOwn(config ?? {}, 'geminiWebModel')
+    ? [GEMINI_WEB_DEFAULT_MODEL]
+    : []
   const knownApiModeDefaultIds = canonicalizeModelKeyArray([
     ...(Array.isArray(config?.knownApiModeDefaultIds) ? config.knownApiModeDefaultIds : []),
     ...defaultApiModeIds,
+    ...implicitDefaultIds,
   ])
 
   return {
