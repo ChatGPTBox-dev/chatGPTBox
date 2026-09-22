@@ -88,6 +88,7 @@ export function ApiModes({ config, updateConfig }) {
   const [providerSelector, setProviderSelector] = useState(LEGACY_CUSTOM_PROVIDER_ID)
   const [isProviderEditorOpen, setIsProviderEditorOpen] = useState(false)
   const [providerEditingId, setProviderEditingId] = useState('')
+  const [connectionTests, setConnectionTests] = useState({})
   const [providerDraft, setProviderDraft] = useState(defaultProviderDraft)
   const [providerDraftValidation, setProviderDraftValidation] = useState(
     defaultProviderDraftValidation,
@@ -267,6 +268,35 @@ export function ApiModes({ config, updateConfig }) {
     })
     setProviderDraftValidation(defaultProviderDraftValidation)
     setIsProviderEditorOpen(true)
+  }
+
+  const runConnectionTest = async (index, apiMode) => {
+    setConnectionTests((current) => ({ ...current, [index]: { pending: true } }))
+    let result
+    try {
+      result = await Browser.runtime.sendMessage({
+        type: 'TEST_API_CONNECTION',
+        data: { session: { apiMode } },
+      })
+    } catch (error) {
+      result = { ok: false, error: error?.message ?? String(error) }
+    }
+    setConnectionTests((current) => ({ ...current, [index]: { ...result, pending: false } }))
+  }
+
+  const renderConnectionTest = (index) => {
+    const test = connectionTests[index]
+    if (!test) return null
+    const color = test.pending ? undefined : test.ok ? '#2da44e' : '#d1242f'
+    return (
+      <div title={test.error ?? ''} style={{ color }}>
+        {test.pending
+          ? t('Testing...')
+          : test.ok
+          ? `${t('Reachable')} ${test.elapsedMs}ms`
+          : t('Unreachable')}
+      </div>
+    )
   }
 
   const onSaveProviderEditing = (event) => {
@@ -634,6 +664,15 @@ export function ApiModes({ config, updateConfig }) {
                   style={{ cursor: 'pointer' }}
                   onClick={(e) => {
                     e.preventDefault()
+                    runConnectionTest(index, apiMode)
+                  }}
+                >
+                  {t('Test')}
+                </div>
+                <div
+                  style={{ cursor: 'pointer' }}
+                  onClick={(e) => {
+                    e.preventDefault()
                     setEditing(true)
                     const isCustomApiMode = apiMode.groupName === 'customApiModelKeys'
                     const providerId = isCustomApiMode
@@ -679,6 +718,7 @@ export function ApiModes({ config, updateConfig }) {
                 >
                   <TrashIcon />
                 </div>
+                {renderConnectionTest(index)}
               </div>
             </label>
           )),

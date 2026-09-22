@@ -16,7 +16,7 @@ function normalizeBaseUrlWithoutVersionSuffix(baseUrl, fallback) {
   return normalizeBaseUrl(baseUrl || fallback).replace(/\/v1$/i, '')
 }
 
-function resolveModelName(session, config) {
+export function resolveModelName(session, config) {
   if (session.modelName === 'customModel' && !session.apiMode) {
     return config.customModelName
   }

@@ -50,6 +50,7 @@ import {
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
 } from './session.mjs'
+import { createAnswerBuffer } from './answer-buffer.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 const UNMATCHED_API_MODE_VALUE = '__current-session-api-mode__'
@@ -60,11 +61,12 @@ class ConversationItemData extends Object {
    * @param {string} content
    * @param {bool} done
    */
-  constructor(type, content, done = false) {
+  constructor(type, content, done = false, reasoning = '') {
     super()
     this.type = type
     this.content = content
     this.done = done
+    this.reasoning = reasoning
   }
 }
 
@@ -182,9 +184,35 @@ function ConversationCard(props) {
       copy[index] = new ConversationItemData(
         newType,
         appended ? copy[index].content + value : value,
+        done,
+        copy[index].reasoning,
       )
-      copy[index].done = done
       return copy
+    })
+  }
+
+  // Thinking arrives alongside the answer and stays out of the conversation records.
+  const updateReasoning = (value) => {
+    setConversationItemData((old) => {
+      const copy = [...old]
+      const index = findLastIndex(copy, (v) => v.type === 'answer')
+      if (index === -1) return copy
+      copy[index] = new ConversationItemData(
+        copy[index].type,
+        copy[index].content,
+        copy[index].done,
+        value,
+      )
+      return copy
+    })
+  }
+
+  const answerBufferRef = useRef(null)
+  if (answerBufferRef.current === null) {
+    answerBufferRef.current = createAnswerBuffer({
+      requestFrame: requestAnimationFrame,
+      cancelFrame: cancelAnimationFrame,
+      render: (answer) => updateAnswer(answer, false, 'answer'),
     })
   }
 
@@ -194,12 +222,14 @@ function ConversationCard(props) {
 
     if (msg.answer) {
       partialAnswerRef.current = msg.answer
-      updateAnswer(msg.answer, false, 'answer')
+      answerBufferRef.current.push(msg.answer)
     }
+    if (msg.reasoning) updateReasoning(msg.reasoning)
     if (msg.session) {
       setSession(msg.done ? { ...msg.session, isRetry: false } : msg.session)
     }
     if (msg.done) {
+      answerBufferRef.current.flush()
       const partialAnswer = partialAnswerRef.current
       const retryRecord = retryRecordRef.current
       const completionState = getInterruptedCompletionState(msg, partialAnswer, retryRecord)
@@ -215,6 +245,7 @@ function ConversationCard(props) {
       setIsReady(true)
     }
     if (msg.error) {
+      answerBufferRef.current.flush()
       const retryRecord = retryRecordRef.current
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       switch (msg.error) {
@@ -386,6 +417,7 @@ function ConversationCard(props) {
   }, [port, conversationItemData])
 
   const getRetryFn = (session) => async () => {
+    answerBufferRef.current.discard()
     updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
     setIsReady(false)
 
@@ -665,6 +697,8 @@ function ConversationCard(props) {
             type={data.type}
             descName={data.type === 'answer' && currentAiName}
             onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
+            done={data.done}
+            reasoning={data.reasoning}
           />
         ))}
       </div>

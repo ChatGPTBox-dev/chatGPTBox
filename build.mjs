@@ -220,11 +220,11 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
       }),
       ...(isWithoutKatex
         ? [
-            new webpack.NormalModuleReplacementPlugin(/markdown\.jsx/, (result) => {
+            new webpack.NormalModuleReplacementPlugin(/math-plugin\.mjs/, (result) => {
               if (result.request) {
                 result.request = result.request.replace(
-                  'markdown.jsx',
-                  'markdown-without-katex.jsx',
+                  'math-plugin.mjs',
+                  'math-plugin-without-katex.mjs',
                 )
               }
             }),
@@ -236,7 +236,6 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
       // Disable symlink resolution for consistent behavior/perf; enable via BUILD_RESOLVE_SYMLINKS=1 when working with linked deps
       symlinks: resolveSymlinks,
       alias: {
-        parse5: path.resolve(__dirname, 'node_modules/parse5'),
         ...(minimal
           ? { buffer: path.resolve(__dirname, 'node_modules/buffer') }
           : {

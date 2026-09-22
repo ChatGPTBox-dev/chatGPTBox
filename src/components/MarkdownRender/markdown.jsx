@@ -1,211 +1,76 @@
+import '@aeven-ai/hypermarkdown/styles.css'
+import 'tippy.js/dist/tippy.css'
 import './mykatex.min.css'
-import ReactMarkdown from 'react-markdown'
-import rehypeRaw from 'rehype-raw'
-import rehypeHighlight from 'rehype-highlight'
-import rehypeKatex from 'rehype-katex'
-import remarkMath from 'remark-math'
-import remarkGfm from 'remark-gfm'
-import remarkBreaks from 'remark-breaks'
-import { Pre } from './Pre'
-import { Hyperlink } from './Hyperlink'
-import { memo, useState } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import PropTypes from 'prop-types'
+import { HyperMarkdown } from '@aeven-ai/hypermarkdown'
+import { highlightPlugin } from '@aeven-ai/hypermarkdown/plugins/code'
+import { Hyperlink } from './Hyperlink'
+import { highlightOptions } from './highlight-options.mjs'
+import { mathPlugin } from './math-plugin.mjs'
+import { createStreamDelta } from './stream-delta.mjs'
 
-// eslint-disable-next-line
-const ThinkComponent = ({ node, children, ...props }) => {
+// rehype-react keys elements by component identity, so these maps have to stay stable
+// across renders or every block remounts.
+const PLUGINS = { math: mathPlugin(), code: highlightPlugin(highlightOptions) }
+const COMPONENTS = { a: Hyperlink }
+// Fullscreen and the HTML preview expect the host to hide its own chrome around them,
+// which this card does not do; the copy button is the part that works on its own.
+const CONTROLS = { code: { fullscreen: false, preview: false }, table: { fullscreen: false } }
+// The loading placeholder is injected as HTML and styled through this class.
+const ALLOWED_TAGS = { p: ['className'] }
+
+/**
+ * @param {object} props
+ * @param {string} props.children markdown, or the whole answer so far while streaming
+ * @param {boolean} [props.done] false while the answer is still arriving
+ * @param {string} [props.reasoning] thinking to show ahead of the answer
+ */
+export function MarkdownRender({ children, done = true, reasoning = '' }) {
   const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(true)
-  const isEmpty =
-    !children ||
-    (Array.isArray(children) &&
-      // eslint-disable-next-line
-      (children.length === 0 ||
-        // eslint-disable-next-line
-        (children.length === 1 && typeof children[0] === 'string' && children[0].trim() === '')))
+  const rendererRef = useRef(null)
+  const deltaRef = useRef(null)
+  if (deltaRef.current === null) deltaRef.current = createStreamDelta()
+  const content = reasoning ? `<think>\n${reasoning}\n</think>\n\n${children}` : children
 
-  const toggleExpanded = () => {
-    setIsExpanded(!isExpanded)
-  }
+  // Answers arrive as a growing snapshot, but the renderer takes deltas and caches the
+  // blocks it has settled, so only the new text is parsed on each update.
+  useLayoutEffect(() => {
+    const renderer = rendererRef.current
+    if (!renderer) return
+    const step = deltaRef.current.next(content, done)
+    if (!step) return
+    if (step.reset) renderer.reset()
+    renderer.write(step.write, step.finalize)
+  })
 
-  return isEmpty ? (
-    <></>
-  ) : (
-    <div
-      style={{
-        marginBottom: '16px',
-        borderRadius: '12px',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-        overflow: 'hidden',
-        transition: 'all 0.3s ease',
-      }}
-    >
-      <div
-        onClick={toggleExpanded}
-        style={{
-          cursor: 'pointer',
-          padding: '12px 16px',
-          borderBottom: isExpanded ? '1px solid rgba(255, 255, 255, 0.2)' : 'none',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          fontSize: '14px',
-          fontWeight: '500',
-          transition: 'all 0.3s ease',
-          position: 'relative',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span
-            style={{
-              display: 'inline-block',
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              animation: isExpanded ? 'pulse 2s infinite' : 'none',
-            }}
-          />
-          <span style={{ fontSize: '13px', letterSpacing: '0.5px' }}>
-            💭 {t('Thinking Content')}
-          </span>
-        </div>
-        <div
-          style={{
-            transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 0.3s ease',
-            fontSize: '12px',
-          }}
-        >
-          ▼
-        </div>
-      </div>
-      <div
-        style={{
-          maxHeight: isExpanded ? '1000px' : '0',
-          overflow: 'hidden',
-          transition: 'max-height 0.4s ease, padding 0.3s ease',
-          padding: isExpanded ? '16px 20px' : '0 20px',
-          borderTop: isExpanded ? '1px solid #e2e8f0' : 'none',
-        }}
-      >
-        <div
-          style={{
-            whiteSpace: 'pre-wrap',
-            fontSize: '13px',
-            lineHeight: '1.6',
-            fontFamily: '"SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace',
-            opacity: isExpanded ? 1 : 0,
-            transition: 'opacity 0.3s ease 0.1s',
-          }}
-        >
-          {children}
-        </div>
-      </div>
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-      `}</style>
-    </div>
+  // `{seconds}` is filled in by the renderer, and is not i18next interpolation syntax.
+  const translations = useMemo(
+    () => ({ thinking: t('Thinking Content'), thoughtFor: t('Thought for {seconds}s') }),
+    [t],
   )
-}
 
-export function MarkdownRender(props) {
   return (
     <div dir="auto">
-      <ReactMarkdown
-        allowedElements={[
-          'div',
-          'p',
-          'span',
-
-          'video',
-          'img',
-
-          'abbr',
-          'acronym',
-          'b',
-          'blockquote',
-          'code',
-          'em',
-          'i',
-          'li',
-          'ol',
-          'ul',
-          'strong',
-          'table',
-          'tr',
-          'td',
-          'th',
-
-          'details',
-          'summary',
-          'kbd',
-          'samp',
-          'sub',
-          'sup',
-          'ins',
-          'del',
-          'var',
-          'q',
-          'dl',
-          'dt',
-          'dd',
-          'ruby',
-          'rt',
-          'rp',
-
-          'br',
-          'hr',
-
-          'h1',
-          'h2',
-          'h3',
-          'h4',
-          'h5',
-          'h6',
-
-          'thead',
-          'tbody',
-          'tfoot',
-          'u',
-          's',
-          'a',
-          'pre',
-          'cite',
-
-          'think',
-        ]}
-        unwrapDisallowed={true}
-        remarkPlugins={[remarkMath, remarkGfm, remarkBreaks]}
-        rehypePlugins={[
-          rehypeKatex,
-          rehypeRaw,
-          [
-            rehypeHighlight,
-            {
-              detect: true,
-              ignoreMissing: true,
-              plainText: ['diagnostic'],
-            },
-          ],
-        ]}
-        components={{
-          a: Hyperlink,
-          pre: Pre,
-          think: ThinkComponent,
-        }}
-        {...props}
-      >
-        {props.children.replace('</think>', '\n\n</think>\n\n')}
-      </ReactMarkdown>
+      <HyperMarkdown
+        ref={rendererRef}
+        streaming
+        plugins={PLUGINS}
+        components={COMPONENTS}
+        controls={CONTROLS}
+        translations={translations}
+        allowedTags={ALLOWED_TAGS}
+        lineNumbers={false}
+      />
     </div>
   )
 }
 
 MarkdownRender.propTypes = {
-  ...ReactMarkdown.propTypes,
+  children: PropTypes.string.isRequired,
+  done: PropTypes.bool,
+  reasoning: PropTypes.string,
 }
 
 export default memo(MarkdownRender)

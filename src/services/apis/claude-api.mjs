@@ -5,6 +5,7 @@ import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { getExtraBodyParams } from './extra-body-params.mjs'
 
 function shouldDisableDefaultThinking(model) {
   return model === 'claude-sonnet-5'
@@ -37,6 +38,8 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
   if (shouldDisableDefaultThinking(model)) {
     body.thinking = { type: 'disabled' }
   }
+  // The user-provided body wins over the built-in defaults above.
+  Object.assign(body, getExtraBodyParams(config))
 
   let answer = ''
   let stopReason = ''

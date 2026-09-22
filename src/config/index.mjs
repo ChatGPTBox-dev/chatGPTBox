@@ -844,6 +844,7 @@ export const defaultConfig = {
   maxConversationContextLength: 9,
   temperatureOverrideEnabled: false,
   temperature: 1,
+  extraBody: '',
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',
   customOpenAiApiUrl: 'https://api.openai.com',

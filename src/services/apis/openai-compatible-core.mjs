@@ -4,6 +4,7 @@ import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { getExtraBodyParams } from './extra-body-params.mjs'
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -30,6 +31,17 @@ function buildMessageAnswer(answer, data, allowLegacyResponseField) {
 
 function hasFinished(data) {
   return Boolean(data?.choices?.[0]?.finish_reason)
+}
+
+/**
+ * Reasoning models put their thinking in their own field rather than in the content, and
+ * deliberately do not replay it in context. Surfacing it separately keeps it out of the
+ * conversation records.
+ */
+function getReasoningDelta(data) {
+  const delta = data?.choices?.[0]?.delta
+  const reasoning = delta?.reasoning_content ?? delta?.reasoning
+  return typeof reasoning === 'string' ? reasoning : ''
 }
 
 /**
@@ -89,6 +101,7 @@ export async function generateAnswersWithOpenAICompatible({
       ...getTemperatureParams(config, model),
       stop: '\nHuman',
       ...safeExtraBody,
+      ...getExtraBodyParams(config),
     }
   } else {
     const messages = getConversationPairs(
@@ -111,10 +124,12 @@ export async function generateAnswersWithOpenAICompatible({
       ...tokenParams,
       ...getTemperatureParams(config, model),
       ...safeExtraBody,
+      ...getExtraBodyParams(config),
     }
   }
 
   let answer = ''
+  let reasoning = ''
   let finished = false
   const finish = () => {
     if (finished) return
@@ -144,6 +159,12 @@ export async function generateAnswersWithOpenAICompatible({
 
       answer = buildMessageAnswer(answer, data, allowLegacyResponseField)
       port.postMessage({ answer: answer, done: false, session: null })
+
+      const reasoningDelta = getReasoningDelta(data)
+      if (reasoningDelta) {
+        reasoning += reasoningDelta
+        port.postMessage({ reasoning: reasoning, done: false, session: null })
+      }
 
       if (hasFinished(data)) {
         finish()
