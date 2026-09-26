@@ -67,18 +67,14 @@ export const config = {
           // sidePanel API is not available in this browser (e.g. Firefox)
           return Promise.reject(new Error('chrome.sidePanel API is not available'))
         }
-        // contextMenus.onClicked / commands.onCommand document `tab` as
-        // optional, and even when present the tab may not have an id or
-        // windowId (e.g. clicks outside a normal browser tab). Guard here so
-        // callers do not have to wrap every invocation in try/catch just to
-        // avoid a TypeError from dereferencing tab.windowId / tab.id.
-        if (!tab || tab.windowId == null || tab.id == null) {
-          return Promise.reject(
-            new Error('chrome.sidePanel.open requires a tab with windowId and id'),
-          )
-        }
+        // PDF guest viewers can omit windowId (and sometimes the whole tab).
+        // Let the browser resolve CURRENT synchronously in that case. An async
+        // query here loses the gesture; Edge's tab-specific PDF route can no-op.
+        const hasWindow = Number.isInteger(tab?.windowId) && tab.windowId >= 0
         // eslint-disable-next-line no-undef
-        return chrome.sidePanel.open({ windowId: tab.windowId, tabId: tab.id })
+        return chrome.sidePanel.open({
+          windowId: hasWindow ? tab.windowId : globalThis.chrome.windows?.WINDOW_ID_CURRENT ?? -2,
+        })
       }
       // side panel is not supported
       return undefined

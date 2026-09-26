@@ -81,6 +81,37 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&
 
 - You can also use [Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models with ChatGPTBox's `Custom Model` mode
 
+## Image support update
+
+This fork adds image input to ChatGPTBox conversations and improves the Chromium side panel on PDF pages.
+
+- Attach PNG, JPEG, WebP, or GIF files from the input box, or paste and drop images.
+- Preview and remove images before sending; image-only messages are supported.
+- Preserve images in conversation history, follow-up requests, and retries.
+- Send multimodal `image_url` content through OpenAI-compatible Chat Completions APIs.
+- Open the Edge/Chrome side panel when a PDF viewer context-menu callback omits its window ID.
+- Keep the native side panel usable at narrow widths without clipping the attachment controls.
+
+Image input is enabled for OpenAI-compatible API modes. The selected model and API endpoint must support vision. Web-login modes and legacy text Completions endpoints do not support attachments in this fork. Limits are 4 images per message, 4 MiB per image, and 12 MiB total per message.
+
+To build and load the Chromium extension:
+
+```powershell
+npm ci --ignore-scripts
+npm test
+npm run build
+```
+
+Open `edge://extensions` or `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `build/chromium`. See [IMAGE-SUPPORT.zh-CN.md](IMAGE-SUPPORT.zh-CN.md) for detailed usage, privacy, troubleshooting, and validation notes.
+
+**Native side panel on a Blackboard-hosted PDF**
+
+![Native side panel processing attached PDF screenshots](screenshots/blackboard-pdf-native-side-panel.png)
+
+**Independent conversation window on the same PDF**
+
+![Independent conversation window processing attached PDF screenshots](screenshots/blackboard-pdf-independent-window.png)
+
 ## ✨ Features
 
 - 🌈 Call up the chat dialog box on any page at any time. (<kbd>Ctrl</kbd>+<kbd>B</kbd>)

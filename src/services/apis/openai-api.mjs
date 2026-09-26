@@ -5,6 +5,12 @@ import {
   getOpenAICompatibleRequestDiagnostic,
   resolveOpenAICompatibleRequest,
 } from './provider-registry.mjs'
+import {
+  IMAGE_UNSUPPORTED_ERROR,
+  canSendImages,
+  validateSessionImages,
+  isNativeOllamaChatEndpoint,
+} from './images.mjs'
 
 function normalizeBaseUrl(baseUrl) {
   return String(baseUrl || '')
@@ -142,18 +148,6 @@ function resolveOllamaKeepAliveBaseUrl(request) {
   }
 
   return normalizeBaseUrlWithoutVersionSuffix(request?.provider?.baseUrl, 'http://127.0.0.1:11434')
-}
-
-function hasNativeOllamaChatApiPath(requestUrl) {
-  const normalizedRequestUrl = normalizeBaseUrl(requestUrl)
-  if (!normalizedRequestUrl) return false
-  try {
-    const parsedRequestUrl = new URL(normalizedRequestUrl)
-    const normalizedPathname = parsedRequestUrl.pathname.replace(/\/+$/, '') || '/'
-    return /(^|\/)api\/chat$/i.test(normalizedPathname)
-  } catch {
-    return false
-  }
 }
 
 function hasOllamaMessagesPath(requestUrl) {
@@ -305,13 +299,17 @@ export async function generateAnswersWithOpenAiApiCompat(
  */
 export async function generateAnswersWithOpenAICompatibleApi(port, question, session, config) {
   const runtimeConfig = await resolveOpenAICompatibleRuntimeConfig(config)
+  const imageState = validateSessionImages(session)
+  if (imageState.hasImages && !canSendImages(runtimeConfig, session)) {
+    throw new Error(IMAGE_UNSUPPORTED_ERROR)
+  }
   const request = resolveOpenAICompatibleRequest(runtimeConfig, session)
   if (!request) {
     const diagnostic = getOpenAICompatibleRequestDiagnostic(runtimeConfig, session)
     console.warn('[openai-compatible] Failed to resolve provider request', diagnostic)
     throw new Error(buildOpenAICompatibleResolutionErrorMessage(diagnostic))
   }
-  if (hasNativeOllamaChatApiPath(request.requestUrl)) {
+  if (isNativeOllamaChatEndpoint(request.requestUrl)) {
     throw new Error(
       'Unsupported native Ollama chat endpoint. Use the OpenAI-compatible /v1/chat/completions endpoint instead.',
     )

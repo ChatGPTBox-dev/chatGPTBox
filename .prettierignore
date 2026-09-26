@@ -1,4 +1,5 @@
 build/
+test-results/
 src/manifest.json
 src/manifest.v2.json
 package-lock.json

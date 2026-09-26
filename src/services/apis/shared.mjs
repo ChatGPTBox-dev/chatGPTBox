@@ -75,11 +75,21 @@ export function setAbortController(port, onStop, onDisconnect) {
   }
 }
 
-export function pushRecord(session, question, answer) {
+export function pushRecord(session, question, answer, images) {
   const recordLength = session.conversationRecords.length
   let lastRecord
   if (recordLength > 0) lastRecord = session.conversationRecords[recordLength - 1]
 
-  if (session.isRetry && lastRecord && lastRecord.question === question) lastRecord.answer = answer
-  else session.conversationRecords.push({ question: question, answer: answer })
+  const currentImages = images === undefined ? session?.images : images
+  const recordImages =
+    Array.isArray(currentImages) && currentImages.length > 0 ? [...currentImages] : null
+
+  if (session.isRetry && lastRecord && lastRecord.question === question) {
+    lastRecord.answer = answer
+    if (recordImages) lastRecord.images = recordImages
+  } else {
+    const record = { question: question, answer: answer }
+    if (recordImages) record.images = recordImages
+    session.conversationRecords.push(record)
+  }
 }
