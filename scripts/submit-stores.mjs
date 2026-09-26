@@ -32,6 +32,12 @@ const REQUIRED_ENV = [
   'EDGE_CLIENT_ID',
   'EDGE_API_KEY',
 ]
+const CHROME_ENV = [
+  'CHROME_EXTENSION_ID',
+  'CHROME_CLIENT_ID',
+  'CHROME_CLIENT_SECRET',
+  'CHROME_REFRESH_TOKEN',
+]
 
 export function parseArgs(args) {
   return {
@@ -40,7 +46,12 @@ export function parseArgs(args) {
 }
 
 export function findMissingEnv(env = process.env) {
-  return REQUIRED_ENV.filter((name) => {
+  const requiredEnv =
+    env.CHROME_PUBLISH_VIA_ACTION === 'true'
+      ? REQUIRED_ENV.filter((name) => !CHROME_ENV.includes(name))
+      : REQUIRED_ENV
+
+  return requiredEnv.filter((name) => {
     const value = env[name]
     return typeof value !== 'string' || value.trim().length === 0
   })
@@ -58,11 +69,10 @@ export async function findMissingArtifacts({ exists = fs.pathExists } = {}) {
   return missing
 }
 
-export function buildPublishExtensionArgs({ dryRun }) {
+export function buildPublishExtensionArgs({ dryRun, skipChrome = false }) {
   return [
     ...(dryRun ? ['--dry-run'] : []),
-    '--chrome-zip',
-    'build/chromium.zip',
+    ...(!skipChrome ? ['--chrome-zip', 'build/chromium.zip'] : []),
     '--firefox-zip',
     'build/firefox.zip',
     '--firefox-sources-zip',
@@ -199,10 +209,12 @@ export async function submitStores({ argv = process.argv.slice(2), env = process
   }
 
   const manifest = await fs.readJson('build/firefox/manifest.json')
-  const args = buildPublishExtensionArgs({ dryRun })
+  const skipChrome = env.CHROME_PUBLISH_VIA_ACTION === 'true'
+  const args = buildPublishExtensionArgs({ dryRun, skipChrome })
   const firefoxReleaseNotes = buildFirefoxReleaseNotes(manifest.version)
+  const stores = skipChrome ? 'Firefox and Edge' : 'Chrome, Firefox, and Edge'
 
-  console.log(`Submitting ChatGPTBox ${manifest.version} to Chrome, Firefox, and Edge`)
+  console.log(`Submitting ChatGPTBox ${manifest.version} to ${stores}`)
   console.log(`Mode: ${dryRun ? 'dry-run' : 'submit'}`)
   console.log(`Artifacts: ${REQUIRED_ARTIFACTS.join(', ')}`)
   console.log(`Firefox version notes: ${firefoxReleaseNotes}`)
