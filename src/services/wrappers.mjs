@@ -175,6 +175,11 @@ export function invalidateLatestPortSessionRequest(port) {
   port._latestSessionRequestId = (port._latestSessionRequestId ?? 0) + 1
 }
 
+function invalidateDisconnectedPortSessionRequests(port) {
+  invalidateLatestPortSessionRequest(port)
+  port._sessionRequestGeneration = (port._sessionRequestGeneration ?? 0) + 1
+}
+
 function createSessionRequestPort(port, proxyGenerationId, requestGenerationId) {
   const sessionRequestGeneration = port._sessionRequestGeneration
   return new Proxy(port, {
@@ -246,6 +251,7 @@ export function registerPortListener(executor) {
     }
 
     const onDisconnect = () => {
+      invalidateDisconnectedPortSessionRequests(port)
       console.debug('port disconnected, remove listener')
       port.onMessage.removeListener(onMessage)
       port.onDisconnect.removeListener(onDisconnect)

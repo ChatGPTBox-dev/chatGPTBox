@@ -6,10 +6,15 @@ import { createConfigStorageListener } from './config-storage-listener.mjs'
 export function useConfig(initFn, ignoreSession = true) {
   const [config, setConfig] = useState(defaultConfig)
   useEffect(() => {
+    let cancelled = false
     getUserConfig().then((config) => {
+      if (cancelled) return
       setConfig(config)
       if (initFn) initFn()
     })
+    return () => {
+      cancelled = true
+    }
   }, [])
   useEffect(() => {
     const listener = createConfigStorageListener(setConfig, ignoreSession)

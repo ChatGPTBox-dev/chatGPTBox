@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: 'npm'
@@ -30,7 +30,7 @@ jobs:
         run: echo "NODE_VERSION=$(node -p 'process.versions.node')" >> $GITHUB_ENV
       - run: npm ci
       - name: Cache Webpack filesystem cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             .cache/webpack
@@ -40,32 +40,32 @@ jobs:
             ${{ runner.os }}-node${{ env.NODE_VERSION }}-webpack-
       - run: npm run build
 
-      - uses: josStorer/get-current-time@v2
+      - uses: josStorer/get-current-time@6826799222c9d913068c04cb99e67f34dbf3caae # v2
         id: current-time
         with:
           format: YYYY_MMDD_HHmm
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Chromium_Build_${{ steps.current-time.outputs.formattedTime }}
           path: build/chromium/*
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Firefox_Build_${{ steps.current-time.outputs.formattedTime }}
           path: build/firefox/*
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Chromium_Build_WithoutKatex_${{ steps.current-time.outputs.formattedTime }}
           path: build/chromium-without-katex-and-tiktoken/*
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Firefox_Build_WithoutKatex_${{ steps.current-time.outputs.formattedTime }}
           path: build/firefox-without-katex-and-tiktoken/*
 
-      - uses: marvinpinto/action-automatic-releases@v1.2.1
+      - uses: marvinpinto/action-automatic-releases@919008cf3f741b179569b7a6fb4d8860689ab7f0 # v1.2.1
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           automatic_release_tag: "latest"

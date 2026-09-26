@@ -166,11 +166,7 @@ test('createParser preserves pending data after a leading UTF-8 BOM', () => {
 })
 
 test('createParser preserves pending data after invalid UTF-8 replacement', () => {
-  const firstChunk = new Uint8Array([
-    ...toBytes('data: '),
-    0xff,
-    ...toBytes('\n\ndata:'),
-  ])
+  const firstChunk = new Uint8Array([...toBytes('data: '), 0xff, ...toBytes('\n\ndata:')])
   const parsed = parseChunks(firstChunk, toBytes(' b\n\n'))
 
   assert.deepEqual(
@@ -191,6 +187,25 @@ test('createParser reset discards pending decoder bytes', () => {
     parsed.map((event) => event.data),
     ['clean'],
   )
+})
+
+test('createParser reset discards pending event metadata', () => {
+  const parsed = []
+  const parser = createParser((event) => parsed.push(event))
+
+  parser.feed(toBytes('meta: {"source":"stale"}\n'))
+  parser.reset()
+  parser.feed(toBytes('data: clean\n\n'))
+
+  assert.deepEqual(parsed, [
+    {
+      type: 'event',
+      id: undefined,
+      event: undefined,
+      data: 'clean',
+      extra: undefined,
+    },
+  ])
 })
 
 test('createParser handles \\r only line endings', () => {

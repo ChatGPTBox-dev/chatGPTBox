@@ -33,17 +33,17 @@ jobs:
     runs-on: macos-14
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event_name == 'push' && 'master' || github.ref_name }}
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.10' # for appdmg
-      - uses: maxim-lobanov/setup-xcode@v1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         with:
           xcode-version: 16.2
       - run: npm ci
@@ -59,7 +59,7 @@ jobs:
 
       - name: Update manifest.json version
         if: github.event_name == 'push'
-        uses: jossef/action-set-json-field@v2.2
+        uses: jossef/action-set-json-field@890d7642122dbb2833dddd2003659bb71a2b21fe # v2.2
         with:
           file: src/manifest.json
           field: version
@@ -67,7 +67,7 @@ jobs:
 
       - name: Update manifest.v2.json version
         if: github.event_name == 'push'
-        uses: jossef/action-set-json-field@v2.2
+        uses: jossef/action-set-json-field@890d7642122dbb2833dddd2003659bb71a2b21fe # v2.2
         with:
           file: src/manifest.v2.json
           field: version

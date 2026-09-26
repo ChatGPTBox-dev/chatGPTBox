@@ -25,6 +25,7 @@ function createParser(onParse) {
     eventId = void 0
     eventName = void 0
     data = ''
+    extra = void 0
     discardTrailingNewline = false
   }
 

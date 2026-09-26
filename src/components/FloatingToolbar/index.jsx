@@ -1,4 +1,4 @@
-import { cloneElement, useCallback, useEffect, useState } from 'react'
+import { cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { unmountComponentAtNode } from 'react-dom'
 import ConversationCard from '../ConversationCard'
 import PropTypes from 'prop-types'
@@ -20,12 +20,19 @@ function FloatingToolbar(props) {
   const [closeable, setCloseable] = useState(props.closeable)
   const [position, setPosition] = useState(getClientPosition(props.container))
   const [virtualPosition, setVirtualPosition] = useState({ x: 0, y: 0 })
+  const mountedRef = useRef(true)
+  const positionTimerRef = useRef(null)
+  const toolRequestVersionRef = useRef(0)
   const windowSize = useClampWindowSize([750, 1500], [0, Infinity])
   const config = useConfig(() => {
+    if (!mountedRef.current) return
     setRender(true)
     if (!triggered && selection) {
       props.container.style.position = 'absolute'
-      setTimeout(() => {
+      if (positionTimerRef.current !== null) clearTimeout(positionTimerRef.current)
+      positionTimerRef.current = setTimeout(() => {
+        positionTimerRef.current = null
+        if (!mountedRef.current) return
         const left = Math.min(
           Math.max(0, window.innerWidth - props.container.offsetWidth - 30),
           Math.max(0, position.x),
@@ -34,6 +41,18 @@ function FloatingToolbar(props) {
       })
     }
   })
+
+  useLayoutEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      toolRequestVersionRef.current += 1
+      if (positionTimerRef.current !== null) {
+        clearTimeout(positionTimerRef.current)
+        positionTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (isMobile()) {
@@ -130,10 +149,17 @@ function FloatingToolbar(props) {
           className: 'chatgptbox-selection-toolbar-button',
           title: name,
           onClick: async () => {
+            const requestVersion = ++toolRequestVersionRef.current
+            if (positionTimerRef.current !== null) {
+              clearTimeout(positionTimerRef.current)
+              positionTimerRef.current = null
+            }
             const p = getClientPosition(props.container)
             props.container.style.position = 'fixed'
             setPosition(p)
-            setPrompt(await genPrompt(selection))
+            const nextPrompt = await genPrompt(selection)
+            if (!mountedRef.current || requestVersion !== toolRequestVersionRef.current) return
+            setPrompt(nextPrompt)
             setTriggered(true)
           },
         }),

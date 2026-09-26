@@ -97,6 +97,7 @@ export const claudeApiModelKeys = [
   'claudeOpus47Api',
   'claudeOpus48Api',
   'claudeOpus5Api',
+  'claudeOpus55Api',
   'claudeSonnet45Api',
   'claudeSonnet46Api',
   'claudeSonnet5Api',
@@ -371,6 +372,10 @@ export const Models = {
   claudeOpus5Api: {
     value: 'claude-opus-5',
     desc: 'Anthropic (Claude Opus 5)',
+  },
+  claudeOpus55Api: {
+    value: 'claude-opus-5-5',
+    desc: 'Anthropic (Claude Opus 5.5)',
   },
   claudeSonnet45Api: {
     value: 'claude-sonnet-4-5-20250929',
@@ -767,7 +772,7 @@ export const defaultApiModeIds = [
   'xaiGrok4_6',
   'xaiGrok4_5',
   'claudeFable51Api',
-  'claudeOpus5Api',
+  'claudeOpus55Api',
   'claudeSonnet5Api',
   'claudeHaiku45Api',
   'googleGemini3_1Pro',
