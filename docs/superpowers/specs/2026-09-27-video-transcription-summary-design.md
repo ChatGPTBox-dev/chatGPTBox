@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-27
 
-**Status:** Needs review
+**Status:** Approved design
 
 **Initial platform:** Full Chromium build, Chrome and Edge 116+
 
