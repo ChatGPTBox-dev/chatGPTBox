@@ -1,259 +1,521 @@
-# Video Transcription and Structured Summary Design
+# Bilibili Video Transcription and Structured Summary Design
 
 **Date:** 2026-09-27
 
-**Status:** Approved design
+**Status:** Needs review
 
-**Initial platform:** Chromium (Chrome and Edge)
+**Initial platform:** Full Chromium build, Chrome and Edge 116+
 
 **Initial ASR provider:** Volcengine AI MediaKit
 
 ## 1. Purpose
 
-Extend the existing YouTube and Bilibili integrations so videos without usable subtitles can
-still produce a structured summary. Users may explicitly choose either an available platform
-subtitle track or speech recognition. Both paths produce the same three-layer result:
+Add an explicitly invoked workflow for Bilibili videos that produces:
 
 1. a whole-video summary and key points;
-2. semantic chapters and key moments with clickable timestamps;
-3. a collapsible, timestamped transcript with automatic speaker labels when available.
+2. semantic chapters and key moments with clickable source-derived timestamps;
+3. a collapsible timestamped transcript with automatic speaker labels when available.
 
-The feature processes the entire video without requiring real-time playback. It is scoped to
-ordinary on-demand videos that the current browser profile can play. Live streams, DRM-protected
-media, paid-content protection bypasses, private media that cannot be fetched normally, and
-region-restriction bypasses are out of scope.
+The user chooses either an existing Bilibili subtitle track or speech recognition. Both choices
+feed a common transcript and summary pipeline in the full Chromium build.
 
-## 2. Confirmed Product Decisions
+## 2. Scope
 
-- Processing is whole-video rather than playback-time recording.
-- The first release supports Chromium only. Firefox and Safari retain clean extension points but
-  do not expose the feature.
-- The first ASR implementation uses Volcengine AI MediaKit. The ASR layer remains provider-based
-  so later providers do not change video-source or summary logic.
-- Users provide their own MediaKit API key. No shared credential is embedded in the extension.
-- The maximum supported duration is three hours, matching the documented MediaKit ASR limit.
-- Users choose between existing subtitles and speech recognition for each run. If no subtitle is
-  available, that choice is disabled with an explanation.
-- Speech recognition uses automatic language detection and automatic speaker identification.
-- The transcript remains in the detected source language. Chapters, key points, and the final
-  summary use ChatGPTBox's current preferred language.
-- Summary generation reuses the currently selected ChatGPTBox chat model.
-- Results and media are not automatically persisted. Existing explicit archive and Markdown
-  download actions remain the way to retain results.
-- Closing the tab, navigating away, or switching to another video cancels local processing and
-  cleans up temporary resources.
-- FFmpeg WASM may be bundled, but it is loaded only when the extracted media is not accepted by
-  MediaKit or an audio-only conversion is needed.
+### 2.1 Initial release
 
-## 3. Existing Behavior Being Preserved
+- Bilibili ordinary on-demand videos only.
+- Chrome and Edge 116 or newer.
+- Full `build/chromium` distribution only.
+- Volcengine AI MediaKit ASR with a user-provided API key.
+- Existing OpenAI-compatible API model modes for hidden summary generation.
+- Maximum video duration of three hours, matching the documented MediaKit ASR limit.
+- Automatic source-language detection and speaker identification.
+- Transcript in the source language; summary output in ChatGPTBox's preferred language.
+- Page-bound, non-persistent tasks and results.
 
-The current YouTube and Bilibili adapters obtain platform subtitles and turn all subtitle text
-into one prompt for `ConversationCard`. The resulting page card is ephemeral. It is saved only
-when the user explicitly archives it to the independent conversation page or downloads it.
+### 2.2 Explicitly deferred
 
-The new workflow keeps this persistence behavior. It changes the video adapters so both native
-subtitles and ASR results become canonical timestamped transcript segments before summarization.
-This gives both choices the same output UI and avoids maintaining two unrelated summary paths.
+- YouTube support.
+- Firefox and Safari ASR support.
+- The `chromium-without-katex-and-tiktoken` build.
+- Live streams, DRM bypasses, paid-content protection bypasses, private media bypasses, and region
+  restriction bypasses.
+- Browser-local Whisper.
+- A project-operated media backend.
+- Web-login model modes and non-OpenAI-compatible dedicated API modes for hidden summaries.
+- Persistent jobs, background completion notifications, and crash recovery.
+- Transcript embedding or semantic retrieval for follow-up questions.
 
-## 4. Architecture
+Firefox, Safari, the minimal Chromium build, and unsupported pages retain the existing subtitle
+summary implementation unchanged.
+
+## 3. Delivery Gate: Bilibili Media Feasibility Spike
+
+Media extraction is the primary feasibility risk and must be validated before production UI or
+the end-to-end feature is implemented.
+
+The spike uses public and normally accessible logged-in Bilibili videos to determine:
+
+- how to obtain DASH audio candidates and backup URLs from the current page/API context;
+- whether candidate URLs require browser cookies, Referer, User-Agent, or other local-only state;
+- whether URLs are short-lived and how their expiry can be derived or observed;
+- whether byte ranges and `Content-Length` are consistently available;
+- whether AI MediaKit can fetch a Bilibili CDN URL from its own network;
+- whether a locally downloaded Bilibili audio object is accepted by the MediaKit upload and ASR
+  path without remuxing;
+- whether FFmpeg remuxing or transcoding is actually necessary;
+- realistic OPFS space requirements and failure behavior for long audio.
+
+The spike produces captured response shapes, fixture samples with credentials and signed values
+removed, compatibility results, and a written go/no-go conclusion. It does not ship user-facing
+ASR functionality.
+
+If neither direct MediaKit fetching nor local download plus MediaKit upload is reliable, work
+stops after the spike and the result is reported. The initial release does not fall back to tab
+recording, local file selection, or a backend service.
+
+Only transport paths proven by the spike enter the implementation plan. FFmpeg is included only
+if the spike demonstrates that MediaKit rejects the source container or codec.
+
+## 4. Product Decisions
+
+- Processing covers the complete video without requiring real-time playback.
+- The user must explicitly select and confirm speech recognition before any paid or upload call.
+- If native subtitles exist, the user may still choose ASR.
+- If native subtitles do not exist, that choice is disabled with an explanation.
+- The current chat model is used for summaries only when `ModelGateway` reports support.
+- If the current model is unsupported, ASR still completes and shows the transcript; after the
+  user selects a supported model, “retry summary” resumes without another ASR task.
+- Audio, transcript, chapters, and summaries are not automatically persisted.
+- Existing explicit archive and Markdown download actions remain the retention mechanisms.
+- Closing, reloading, navigating, switching video, or disconnecting the page cancels local work.
+- Cancellation cannot guarantee cancellation of an ASR job already accepted by MediaKit and may
+  not prevent remote charges; the UI discloses this before submission.
+
+## 5. Architecture and Cohesive Modules
+
+The initial release has five primary module boundaries.
+
+### 5.1 `VideoPageBridge` — content script
+
+This is the only module that reads Bilibili page state or controls the player. It:
+
+- determines the current stable Bilibili video identity, including page number;
+- loads native subtitle tracks;
+- produces a serializable source snapshot and local fetch recipe;
+- refreshes expired media candidates on request;
+- seeks the current player to a requested timestamp;
+- detects SPA video changes and document teardown.
+
+Keeping source extraction and `seekTo` in the same module is intentional: both are operations on
+the same page-owned integration boundary. No adapter object or function crosses an extension
+message boundary.
+
+### 5.2 `VideoTaskRunner` — Offscreen Document
+
+The runner owns the ephemeral state machine, polling schedule, summary checkpoints, and task-local
+abort controllers. It accepts serializable commands and emits serializable task events. It never
+receives provider secrets.
+
+Only one active task is allowed per owner document. A replacement task first cancels the previous
+one and completes local cleanup.
+
+### 5.3 `MediaPipeline` — Offscreen Document
+
+The pipeline executes a source recipe proven by the feasibility spike. It:
+
+- downloads media into a task-scoped OPFS directory;
+- checks available quota before starting a local transfer;
+- tracks byte-based progress when total size is known;
+- uses MediaKit signed upload URLs obtained through Background;
+- optionally loads packaged FFmpeg WASM only when the spike proves it necessary;
+- deletes task-local files and terminates workers on every normal terminal path.
+
+### 5.4 `MediaKitGateway` and `ModelGateway` — Background
+
+These are narrow privileged gateways rather than general-purpose fetch proxies.
+
+`MediaKitGateway` validates operation names and payloads, reads the MediaKit key, obtains upload
+credentials, submits ASR tasks, and queries task state.
+
+`ModelGateway` resolves the frozen model identity to an approved API implementation, executes an
+independent stateless generation, and returns text or a structured error. It does not expose a
+mutable `Session`, provider secret, or raw runtime `Port` to the caller.
+
+### 5.5 `VideoSummaryView` — content script
+
+The view renders state and sends commands. It does not perform media, provider, or model work. It
+contains:
+
+- native-subtitle versus ASR selection;
+- real stage/progress display and cancellation;
+- summary, key points, chapters, and key moments;
+- collapsible transcript with speaker labels;
+- local timestamp seeking;
+- explicit archive, Markdown export, and summary-only retry actions.
+
+## 6. Extension Context and Message Protocol
+
+All cross-context contracts contain structured-clone-compatible data only. They never contain
+functions, callbacks, `AbortSignal`, DOM nodes, adapter instances, or provider keys.
+
+### 6.1 Ownership
+
+Every task is identified by:
+
+```js
+{
+  taskId,
+  owner: {
+    tabId,
+    documentId,
+    videoId,
+  },
+}
+```
+
+The content script supplies `taskId` and `videoId`. Background derives `tabId` and `documentId`
+from `port.sender`; it never trusts caller-supplied owner fields.
+
+### 6.2 Content-to-Background port
+
+The content script opens a named long-lived port for one video-summary view. Commands are:
 
 ```text
-Video page
-  -> VideoSourceAdapter (YouTube or Bilibili)
-  -> user selects native subtitles or speech recognition
-  -> VideoTaskCoordinator in an Offscreen Document
-       -> native subtitle loader
-       OR
-       -> direct media URL submission to AI MediaKit
-            -> success: poll ASR task
-            -> MediaKit download failure:
-                 download to temporary OPFS storage
-                 optionally normalize with FFmpeg WASM
-                 request MediaKit signed upload URL through background
-                 PUT media to signed URL
-                 submit mediakit:// file reference
-       -> normalize transcript segments
-       -> hidden chunk summaries through the existing model router
-       -> final summary synthesis
-  -> VideoSummaryCard in the content script
+START_TASK
+ATTACH_TASK
+CANCEL_TASK
+RETRY_TASK
+SOURCE_REFRESH_RESULT
 ```
 
-### 4.1 MV3 responsibility split
+Background replies with:
 
-The logical long-running task must not live only in the MV3 background service worker because
-Chrome may suspend it. Responsibilities are therefore split as follows:
+```text
+TASK_EVENT
+SOURCE_REFRESH_REQUEST
+```
 
-- **Content script:** mounts the UI, knows the current page/video identity, receives progress and
-  result events, performs timestamp seeking, and issues cancellation.
-- **Offscreen Document:** owns the ephemeral task state, polling timers, OPFS files, media
-  preparation, and multi-step summary orchestration.
-- **Background service worker:** is a stateless privileged broker. It reads the MediaKit API key,
-  performs authenticated MediaKit requests, obtains signed upload URLs, and routes hidden model
-  requests through the existing API machinery.
+Seeking stays local: the view calls `VideoPageBridge.seekTo()` without routing through Offscreen.
 
-The service worker may be suspended between messages without losing the task. If the Offscreen
-Document itself disappears, the task fails; the initial release does not persist or recover it.
+### 6.3 Background-to-Offscreen protocol
 
-## 5. Components and Interfaces
+Background forwards validated commands after stamping the owner. Offscreen emits progress,
+checkpoint, result, warning, and terminal events containing both `taskId` and owner. Background
+routes an event only to the still-connected matching owner port.
 
-### 5.1 `VideoSourceAdapter`
+Each context maintains its own `AbortController` registry keyed by `taskId`. A `CANCEL_TASK`
+message aborts local work in every context; an `AbortSignal` itself is never serialized.
 
-Each supported platform implements a common interface:
+### 6.4 Start payload
 
 ```js
-getVideoIdentity()
-getMetadata(signal)
-listSubtitleTracks(signal)
-loadSubtitleTrack(track, signal)
-resolveMediaCandidates(signal)
-seekTo(startMs)
-subscribeToVideoChange(listener)
+{
+  type: 'START_TASK',
+  taskId,
+  videoId,
+  sourceChoice: 'native-subtitle' | 'asr',
+  sourceSnapshot,
+  settingsSnapshot: {
+    preferredLanguage,
+    speakerIdentification: true,
+  },
+}
 ```
 
-The normalized source contains platform, stable video ID, title, duration, page URL, subtitle
-tracks, and candidate audio/video streams with format and size information when available.
+The model snapshot is resolved and attached inside Background so model credentials never enter the
+content or Offscreen payload.
 
-YouTube and Bilibili parsing stays platform-specific. No platform-specific response object may
-cross into the ASR or summary modules.
+If the service worker restarts, the content script reconnects its named port and sends
+`ATTACH_TASK` with the current `taskId` and `videoId`. Background stamps the new sender identity,
+asks Offscreen whether the task still exists for that exact owner, and rebuilds the route only on
+an exact match. A failed attachment cancels the local view rather than adopting another task.
 
-### 5.2 `VideoTaskCoordinator`
+## 7. Offscreen Document Management
 
-The coordinator is implemented in the Offscreen Document and accepts one active task per tab.
-A new task for the same tab cancels the previous task.
+The full Chromium build declares the `offscreen` permission and requires Chrome/Edge 116+.
+
+Background owns `ensureOffscreenDocument()` with a shared in-flight creation promise. It uses
+`runtime.getContexts()` to detect the singleton before calling `offscreen.createDocument()`. The
+document declares the `BLOBS` and `WORKERS` reasons with a justification that it processes
+user-requested media using OPFS and a packaged worker.
+
+Offscreen creation, closure, and restart are explicit lifecycle events. On startup, the Offscreen
+Document deletes every directory under its dedicated `video-summary-tasks/` OPFS namespace before
+accepting new work. Any such directory is an orphan because tasks are intentionally not restored
+after an extension or Offscreen restart.
+
+## 8. Owner Lifecycle and Cancellation
+
+Background maintains only a lightweight in-memory route:
+
+```text
+(tabId, documentId, videoId) -> (taskId, contentPort)
+```
+
+It is not the long-running task state. Cancellation is triggered by:
+
+- the named content port disconnecting;
+- `tabs.onRemoved` for the owning tab;
+- a new document replacing the owning `documentId`;
+- a Bilibili SPA video-identity change reported by `VideoPageBridge`;
+- an explicit user command;
+- replacement by a new task for the same owner.
+
+Background sends cancellation to Offscreen and removes the route. Offscreen ignores every later
+event from a cancelled or superseded task. The view likewise accepts events only when `taskId`,
+`documentId`, and `videoId` match its current owner.
+
+While a task is active, Offscreen performs a lightweight owner check through Background every ten
+seconds. A missing route starts a fifteen-second reattachment grace period to allow service-worker
+restart and content-port reconnection. If no exact `ATTACH_TASK` arrives before the grace period
+ends, Offscreen cancels the task and cleans its temporary files.
+
+Normal cancellation runs cleanup immediately. Browser or renderer crashes may skip `finally`;
+startup orphan cleanup is the recovery mechanism for those paths.
+
+## 9. Serializable Media Source Contract
+
+`VideoPageBridge` produces distinct remote and local representations:
 
 ```js
-start(taskRequest)
-cancel(taskId, reason)
-getState(taskId)
-subscribe(taskId, listener)
+{
+  platform: 'bilibili',
+  videoId,
+  pageId,
+  title,
+  durationMs,
+  nativeSubtitleTracks,
+  mediaCandidates: [{
+    id,
+    mediaMetadata: {
+      kind: 'audio' | 'video',
+      container,
+      codec,
+      contentLength,
+      durationMs,
+    },
+    remoteReference: {
+      url,
+      expiresAt,
+    } | null,
+    localFetchRecipe: {
+      primaryUrl,
+      backupUrls,
+      expiresAt,
+      credentialMode,
+      rangeSupported,
+      requiredRequestOrigin,
+    },
+  }],
+}
 ```
 
-It snapshots the selected chat model, preferred language, and summary settings at task start so
-mid-task configuration changes cannot mix providers or output languages.
+`remoteReference` contains only a URL that is safe to give MediaKit. It never contains Cookie,
+Referer, Authorization, or other browser credentials. `localFetchRecipe` is never submitted to
+MediaKit and contains no raw cookie value; it describes how a trusted extension context performs
+the local request.
 
-### 5.3 `MediaWorker`
+If a candidate expires, Offscreen requests a fresh snapshot from the still-connected
+`VideoPageBridge`. Background verifies the returned video identity before forwarding it.
 
-The media worker:
+## 10. AI MediaKit Provider Contract
 
-- probes and downloads candidate streams;
-- streams downloads into a task-scoped OPFS directory rather than retaining a complete Blob;
-- uploads files using short-lived MediaKit signed URLs obtained by background;
-- loads FFmpeg WASM only when the input cannot be submitted or uploaded as-is;
-- reports byte-based progress for downloads and uploads;
-- deletes every task-scoped file on completion, failure, or cancellation.
+The provider uses:
 
-MediaKit credentials never enter this component.
+- `POST https://mediakit.cn-beijing.volces.com/api/v1/tools/asr-subtitles`;
+- `GET https://mediakit.cn-beijing.volces.com/api/v1/tasks/{task_id}`;
+- `Authorization: Bearer {MediaKit_API_Key}`;
+- `video_url` or `audio_url` for a proven direct path;
+- `mediakit://{file_id}` after the documented signed-upload flow.
 
-### 5.4 `TranscriptionProvider`
+Submission enables automatic language detection, `enable_speaker_info`, and
+`enable_confidence`. A single logical submission receives one generated `clientToken`, reused for
+every safe retry of that logical operation. An explicit user restart generates a new token.
 
-The provider contract supports asynchronous and future immediate-response providers:
-
-```js
-prepareRemoteInput(source, signal)
-submit(inputReference, options, signal)
-poll(taskId, signal)
-normalizeResult(rawResult)
-classifyError(error)
-```
-
-The canonical result is:
+The normalized transcription is:
 
 ```js
 {
   durationMs,
-  detectedLanguage,
-  segments: [
-    {
-      id,
-      startMs,
-      endMs,
-      text,
-      speaker,
-      confidence,
-    },
-  ],
+  detectedLanguage: string | null,
+  segments: [{
+    id,
+    startMs,
+    endMs,
+    text,
+    speaker: string | null,
+    confidence: number | null,
+  }],
 }
 ```
 
-### 5.5 `VolcengineMediaKitProvider`
+`detectedLanguage` is optional because the documented result does not guarantee it.
 
-The initial provider uses:
+## 11. Operation-Specific Retry Semantics
 
-- `POST https://mediakit.cn-beijing.volces.com/api/v1/tools/asr-subtitles` to submit;
-- `GET https://mediakit.cn-beijing.volces.com/api/v1/tasks/{task_id}` to query;
-- `Authorization: Bearer {MediaKit_API_Key}`;
-- `video_url` or `audio_url` for direct input;
-- `mediakit://{file_id}` after the documented signed-upload flow.
+Retries are defined per operation rather than by HTTP status alone.
 
-Submission enables automatic language detection, `enable_speaker_info`, and `enable_confidence`.
-The provider maps `subtitle_text`, seconds-based timestamps, speaker, and confidence into the
-canonical transcript model.
+| Operation | Retry behavior |
+|---|---|
+| Query task GET | Honor `Retry-After`; otherwise jittered exponential delay from 5 to 30 seconds; stop after five consecutive transport/server failures or the two-hour task deadline |
+| Refresh Bilibili source | Re-resolve once and only while owner identity still matches |
+| Request upload URL | Retry once after a confirmed 429/5xx response; ambiguous network failure creates a new upload session but never an ASR task |
+| Media PUT | Retry the complete upload once only when the signed URL is still valid; never claim resume support |
+| Create ASR POST | Reuse the same `clientToken`; retry once after a confirmed 429/5xx or one ambiguous transport failure |
+| Create ASR remains ambiguous | Enter `submission-unknown`; explain possible remote creation/charge and require explicit user action |
+| Hidden model generation | Retry a failed chunk at most twice for confirmed transient failures; ambiguous paid requests are surfaced rather than silently repeated |
+| JSON repair | One explicit repair request, reported as another model call |
 
-The direct candidate URL is tried first. If the task fails with a MediaKit source-download error,
-the coordinator performs exactly one fallback through local download and MediaKit upload. Other
-permanent failures do not trigger a media re-upload.
+No operation is described as exactly once. Local fallback is at-most-once per task, while remote
+deduplication depends on MediaKit's documented `clientToken` behavior.
 
-### 5.6 `VideoSummaryOrchestrator`
+## 12. `ModelGateway`
 
-The orchestrator calls the existing ChatGPTBox model router through ephemeral internal sessions.
-Intermediate prompts and answers are not appended to user conversation history.
-
-It provides:
+The gateway contract is:
 
 ```js
-summarizeTranscript(transcription, modelSnapshot, preferredLanguage, signal)
+describeCapabilities(modelIdentity)
+generate({
+  requestId,
+  taskId,
+  modelSnapshot,
+  messages,
+  maxOutputTokens,
+  outputContract,
+})
+cancel({ requestId, taskId })
 ```
 
-and returns:
+`modelSnapshot` is immutable and contains resolved provider/model/endpoint/settings identity but no
+secret. Background resolves the relevant secret internally.
+
+Initial support is limited to model modes backed by the existing OpenAI-compatible core. Web
+modes, Bing foreground execution, Anthropic's dedicated API, Azure's dedicated API, and
+Waylaidwanderer are reported as unsupported for hidden summaries until adapted and tested.
+
+Every generation:
+
+- has an independent correlation ID and abort controller;
+- executes serially per video task;
+- has no local or remote conversation history;
+- cannot mutate a user-facing `Session`;
+- returns plain text or a structured error;
+- logs metadata only, never messages, prompts, answers, transcript, or provider secrets.
+
+The gateway does not pass video-summary prompts through the current
+`registerPortListener()` path, whose raw-message logging and latest-request-wins semantics are not
+suitable for internal work.
+
+## 13. Token-Bounded Hierarchical Summary
+
+### 13.1 Input budget
+
+`describeCapabilities()` returns a summary input budget. Known built-in models use explicit
+capability metadata. Custom or unknown OpenAI-compatible models use a conservative 4,000-token
+input budget.
+
+For internal summaries, output tokens are capped at the lesser of the user's configured maximum
+and 2,000. Prompt instructions and output reserve are subtracted before transcript packing.
+Token estimates use the packaged encoder in the full Chromium build. A context-limit error causes
+the failed primary range to be split in half and retried, down to a minimum of five transcript
+segments; it does not increase the advertised model capacity.
+
+### 13.2 Primary and overlap ranges
+
+Each chunk has:
 
 ```js
 {
-  title,
-  overview,
-  keyPoints,
-  chapters: [
-    { startMs, endMs, title, summary },
-  ],
+  primarySegmentIds,
+  contextBeforeSegmentIds,
+  contextAfterSegmentIds,
 }
 ```
 
-### 5.7 `VideoSummaryCard`
+At most two neighboring segments are included on each side. Prompts explicitly forbid emitting
+chapters, key moments, or key points for overlap-only segments. Output outside the primary range is
+discarded in code.
 
-This is a dedicated structured component rather than another generic assistant message. It owns:
+### 13.3 Local extraction
 
-- source-selection controls;
-- processing stage and progress UI;
-- cancellation and stage-specific retry actions;
-- whole-video summary and key points;
-- clickable chapter and key-moment timeline;
-- collapsible timestamped transcript;
-- explicit archive, Markdown download, and follow-up conversation actions.
+Each successful chunk returns:
 
-Clicking a timestamp invokes the active platform adapter's `seekTo()` method and scrolls the
-current player into view.
+```js
+{
+  primaryStartSegmentId,
+  primaryEndSegmentId,
+  localSummary,
+  chapterStarts: [{ segmentId, title, summary }],
+  keyMoments: [{ segmentId, point }],
+  keyPoints,
+}
+```
 
-## 6. User Flow
+Failed primary ranges are retained as explicit checkpoints and coverage gaps.
 
-1. The video adapter detects the current YouTube or Bilibili on-demand video.
-2. The card shows the video title and available source choices.
-3. The user chooses native subtitles or speech recognition and confirms.
-4. Native subtitles are loaded immediately, or a MediaKit task is started.
-5. The card reports real stage information:
-   - analyzing video;
-   - downloading media;
-   - preparing audio;
-   - uploading media;
-   - queued/transcribing;
-   - summarizing chunk N of M;
-   - synthesizing final summary.
-6. The completed card shows the summary, timeline, and collapsed transcript.
-7. The user may seek the video, ask a follow-up, archive the result, or download Markdown.
+### 13.4 Final synthesis and deterministic chapters
 
-The UI does not invent percentages for MediaKit processing because its API does not expose an
-exact completion percentage. Download/upload use byte-based progress and summary generation uses
-completed-chunk counts.
+The final model sees successful local summaries and candidates, not the full transcript. It
+returns ordered chapter start segment IDs, titles, summaries, key points, and key moments.
 
-## 7. Task State Machine
+Code constructs deterministic chapter ranges:
+
+1. discard unknown or failed-range segment IDs;
+2. sort and deduplicate chapter starts by transcript order;
+3. set each chapter end to the segment immediately before the next valid start;
+4. set the last chapter end to the last successfully covered segment;
+5. attach leading covered segments to the first chapter;
+6. keep failed ranges out of chapter coverage and expose them as warnings;
+7. if no valid chapter start remains, create one code-generated fallback chapter for all covered
+   segments.
+
+Key moments are deduplicated by segment ID and always map to source timestamps. The model never
+supplies free-form time values.
+
+### 13.5 Parse fallback
+
+One failed JSON parse triggers one explicit repair request. If repair fails, successful local
+summaries become a degraded Markdown overview. The transcript and all valid checkpoints remain
+available.
+
+## 14. Result and Checkpoint Contracts
+
+```js
+{
+  status: 'complete' | 'partial' | 'degraded',
+  title,
+  overview,
+  keyPoints,
+  keyMoments: [{ segmentId, startMs, point }],
+  chapters: [{ startSegmentId, endSegmentId, startMs, endMs, title, summary }],
+  transcriptSegments,
+  coverage: {
+    coveredDurationMs,
+    totalDurationMs,
+    ratio,
+  },
+  warnings,
+  failedRanges: [{ startSegmentId, endSegmentId, reason }],
+}
+```
+
+The Offscreen task also retains an internal in-memory checkpoint:
+
+```js
+{
+  transcription,
+  successfulChunkResults,
+  failedRanges,
+  synthesisResult,
+}
+```
+
+`VideoTaskRunner.retry(taskId, { fromStage })` initially accepts `summarizing` or `synthesis`.
+These retries reuse the transcription and never create another MediaKit task. Retrying ASR is a
+new explicitly confirmed task with a new `clientToken`.
+
+## 15. Task State Machine
 
 ```text
 idle
@@ -261,249 +523,257 @@ idle
   -> awaiting-user-choice
   -> loading-native-subtitles
      OR
-     submitting-url
-       -> transcribing
-       -> downloading
-       -> preparing-media
-       -> uploading
-       -> submitting-upload
-       -> transcribing
+     -> submitting-url
+        -> transcribing
+        -> downloading
+        -> preparing-media
+        -> uploading
+        -> submitting-upload
+        -> transcribing
   -> summarizing-chunks
   -> synthesizing-summary
-  -> completed
+  -> complete | partial | degraded
 
 Any active state -> cancelling -> cancelled
+Ambiguous ASR submission -> submission-unknown
 Any unrecoverable error -> failed
 ```
 
-Unknown MediaKit non-terminal task states are treated as processing and logged in redacted form.
-Polling uses jittered exponential backoff starting at five seconds and capped at thirty seconds.
-The local task stops after two hours without a terminal MediaKit result. This timeout does not
-promise that an already submitted remote job is cancelled.
+Only transitions listed in a tested transition table are accepted. Task events include task ID,
+owner, stage, progress kind, checkpoint availability, warnings, and a redacted error.
 
-MediaKit does not document remote task cancellation. The UI must therefore state that cancelling
-stops local transfer, polling, conversion, and summarization, but a task already accepted by
-MediaKit may finish remotely and may still incur provider charges.
+## 16. UI Behavior
 
-## 8. Native Subtitle Path
+- Show native subtitle and speech-recognition choices before processing.
+- Display actual byte progress for known-length transfers.
+- Display queue/processing state rather than invented percentages for MediaKit.
+- Display completed chunk count during summary generation.
+- Keep cancellation available during every active local stage.
+- Show summary, key points, chapters, and key moments above a collapsed transcript.
+- Clicking any valid timestamp seeks through `VideoPageBridge` and scrolls to the player.
+- Mark partial/degraded output visibly and list uncovered transcript ranges.
+- Allow summary-only retry when a transcription checkpoint exists.
+- Allow explicit archive by serializing metadata, result, timeline, and transcript into one
+  Markdown answer in a normal saved session.
+- Allow Markdown download without persistence.
+- “Ask about this video” starts a normal conversation with overview, key points, and chapter
+  summaries only. Full transcript retrieval is deferred.
 
-Native subtitles are no longer flattened into a comma-separated prompt.
+## 17. Storage and Credential Boundary
 
-- YouTube timed text is parsed into timestamped cues.
-- Bilibili subtitle `from`, `to`, and `content` fields are mapped directly.
-- HTML entities and empty cues are normalized without losing cue boundaries.
-- The resulting `TranscriptSegment[]` enters the same summary and display pipeline as ASR.
+### 17.1 MediaKit key
 
-If a subtitle track disappears or fails to load after the user chooses it, the card reports the
-failure and offers speech recognition; it does not start a paid ASR task automatically.
+The user selected the repository's existing `storage.local` BYOK risk model.
 
-## 9. Hierarchical Summary Design
+- Store `mediaKitApiKey` as a separate key.
+- Do not add it to `defaultConfig`, `UserConfig`, `providerSecrets`, or generic config DTOs.
+- Popup sets, replaces, and deletes it through `MediaKitGateway` messages.
+- Production code reads it only inside `MediaKitGateway`.
+- Never place it in content, Offscreen, task, or model messages.
+- Existing full-config export includes it in plaintext. The export action must warn that the file
+  contains API credentials; import may restore it.
 
-### 9.1 Chunking
+This is a code-level boundary, not browser-enforced isolation: a trusted content script with the
+`storage` API could intentionally read the key. The specification does not claim otherwise.
 
-Transcript chunks prefer natural sentence boundaries and target ten minutes. A chunk is closed
-earlier when its transcript reaches 12,000 Unicode characters. Neighboring chunks repeat the last
-two segments for continuity, and repeated segment IDs are removed before final synthesis. IDs,
-rather than model-generated timestamps, preserve the source relationship.
+### 17.2 Temporary and final data
 
-### 9.2 Local extraction
+- Final transcript and summary stay in task/view memory.
+- No automatic write is made to `Browser.storage.local.sessions`.
+- OPFS media is task-scoped and deleted on terminal paths or next Offscreen startup.
+- Object URLs are revoked and FFmpeg workers are terminated.
+- Media uploaded to MediaKit may remain according to provider retention policy; disclose this
+  before first ASR confirmation.
 
-Each segment has a stable ID such as `segment-128`. For each chunk, the model returns JSON-shaped
-data containing:
+## 18. Logging Requirements
 
-- local summary;
-- chapter candidates with start/end segment IDs;
-- key moments with segment IDs;
-- key points.
+No new video path may log raw runtime messages, source URLs with signatures, upload URLs,
+transcript content, summary prompts, model answers, or credentials.
 
-### 9.3 Final synthesis
+- Log only task/correlation IDs, stage, duration, byte counts, HTTP status, provider request ID,
+  and redacted error category.
+- Apply redaction before every logging call.
+- `MediaKitGateway` and `ModelGateway` use their own narrow handlers and do not use the raw logging
+  in `registerPortListener()`.
+- Supporting a future model implementation requires auditing its internal logs first.
 
-Only local summaries and candidates are sent to the final synthesis request. The model returns the
-final title, overview, deduplicated key points, and contiguous semantic chapters.
+## 19. Error and Degradation Rules
 
-All displayed timestamps are derived in code from validated segment IDs. Model-provided free-form
-time values are ignored. Invalid IDs, reversed ranges, overlapping chapters, and out-of-range
-references are rejected or normalized.
-
-### 9.4 Model-output fallback
-
-Prompts request JSON, but the design does not assume every existing provider supports structured
-output. A failed parse triggers one small repair request. If repair also fails, successful local
-summaries are rendered as a degraded Markdown overview and the complete transcript remains
-available.
-
-## 10. Follow-up Questions
-
-The “ask about this video” action opens a normal `ConversationCard`. Its initial context contains
-the whole-video overview, key points, and chapter summaries. The complete transcript and hidden
-chunking conversations are not injected. Transcript retrieval or embedding search is outside the
-initial scope.
-
-## 11. Storage and Cleanup
-
-- Final transcript, chapters, and summary live only in component/task memory.
-- No automatic writes are made to `Browser.storage.local.sessions`.
-- The user may explicitly archive the final output through the existing independent-panel flow;
-  archiving serializes the title, overview, key points, chapters, and transcript as one Markdown
-  answer in a normal saved session.
-- The user may export a Markdown file containing metadata, summary, timeline, and transcript.
-- OPFS uses a task-specific directory and deletes it in a `finally` cleanup path.
-- Object URLs are revoked, streams are cancelled, and FFmpeg workers are terminated.
-- An uploaded MediaKit object may remain according to MediaKit's server-side retention policy;
-  the UI privacy notice must disclose this before the first ASR submission.
-
-## 12. Error Handling and Retry Policy
-
-| Failure | Behavior |
+| Failure | Result |
 |---|---|
-| Video over three hours | Reject before upload and explain the provider limit |
-| Unsupported/live/DRM source | Do not attempt bypass; explain the unsupported scope |
-| Source URL expired | Re-resolve once from the still-current video page |
-| MediaKit cannot download URL | Fall back once to download plus signed upload |
-| 401/403 | Do not retry; point to MediaKit key and permission settings |
-| 429/500/503/504 | Retry with jittered exponential backoff |
-| Unsupported media format | Load FFmpeg and normalize once |
-| Download or upload interruption | Retry from scratch once; signed upload is not assumed resumable |
-| ASR succeeds, summary fails | Show transcript and allow summary-only retry |
-| One chunk summary fails | Retry it twice, then continue with a visible partial-result warning |
-| Final JSON cannot be repaired | Render degraded Markdown from local summaries |
-| User cancels or video changes | Abort local work and delete all temporary data |
+| Video exceeds three hours | Reject before paid submission |
+| Unsupported/live/DRM source | Stop; do not attempt bypass |
+| Media feasibility gate fails | Do not ship the ASR entry |
+| Source expires | Request one identity-checked refresh |
+| OPFS quota is insufficient | Stop before full download and explain required/available space |
+| MediaKit cannot download a proven direct URL | Use the spike-approved upload path once |
+| Unsupported source format | Use FFmpeg only if the spike approved that fallback |
+| Invalid key or permission | Do not retry; link to settings |
+| ASR submission is ambiguous | Enter `submission-unknown`; never silently create a new token |
+| ASR succeeds and model is unsupported | Show transcript and offer summary after model switch |
+| One chunk remains failed | Return `partial` with coverage and failed range |
+| Final structure cannot be repaired | Return `degraded` with local summaries |
+| Owner disappears | Cancel local work, suppress events, and clean temporary state |
 
-Errors retain stage, HTTP status, provider request ID, and a safe user-facing explanation. API
-keys, signed media URLs, transcript content, selection text, and summary prompts are redacted from
-logs.
+## 20. Build and Feature Gating
 
-## 13. Security and Privacy
+- Set Chromium minimum version to 116.
+- Add the `offscreen` permission only to the full Chromium manifest output.
+- Add an Offscreen entry and FFmpeg assets only to the full Chromium output.
+- Introduce a compile-time video-transcription capability flag for the full build.
+- The minimal Chromium build omits the permission, entry, FFmpeg assets, settings, and runtime UI.
+- Firefox and Safari do not expose the new UI and keep the legacy subtitle adapter path.
+- Package all executable/WASM assets with the extension; do not load remote code.
+- Keep FFmpeg out of `shared.js`, content-script, popup, and existing page bundles.
 
-- The user explicitly confirms speech recognition before any paid or upload operation.
-- The MediaKit key is stored using the repository's existing BYOK storage pattern, but only the
-  background service worker reads the cleartext value.
-- Content scripts and Offscreen Documents never receive the key.
-- Background validates every message sender and permits only known MediaKit operations and
-  validated HTTP(S) endpoints.
-- Offscreen receives only short-lived signed upload URLs.
-- Media and transcript content are sent only after the user invokes the feature.
-- No shared project credential is permitted in source, build artifacts, or extension storage.
-- The UI states that audio may be uploaded to Volcengine and that local cancellation may not
-  cancel an already accepted remote job.
+The current build reuses one compiled full bundle for Chromium and Firefox, so runtime capability
+gating remains necessary in shared source. Output copying and generated manifest selection ensure
+unsupported artifacts and permissions are absent from Firefox and minimal Chromium packages.
 
-## 14. Build and Browser Impact
+## 21. Configuration
 
-- Add the Chromium `offscreen` permission and an Offscreen Document entry point.
-- Keep Firefox MV2 and Safari manifests free of the unsupported feature and permission.
-- Copy Offscreen and FFmpeg assets only into Chromium output directories.
-- Package all WASM and worker code with the extension; MV3 remote executable code is forbidden.
-- Load FFmpeg dynamically only on the fallback path.
-- Preserve both full and `without-katex-and-tiktoken` Chromium variants; the video feature is
-  available in both, so the FFmpeg asset may increase both ZIP sizes.
-- Avoid importing the FFmpeg runtime into `shared.js`, content-script, popup, or normal page
-  bundles.
+The full Chromium settings UI adds:
 
-## 15. Configuration
-
-Add a video transcription section under Modules or the existing site/video settings:
-
-- enable video transcription;
-- MediaKit API key;
+- enable/disable Bilibili video transcription;
+- MediaKit API key set/replace/delete controls;
 - automatic speaker identification, enabled by default;
-- privacy and provider-retention notice.
+- plaintext-export warning;
+- provider upload/retention and cancellation-cost notice.
 
-The initial release does not add a “validate configuration” button because the selected MediaKit
-contract does not document a non-billable validation endpoint. Credentials are validated by the
-first explicitly confirmed task.
+There is no “validate key” action because the chosen MediaKit contract does not document a
+non-billable validation endpoint. Validation occurs during the first explicitly confirmed task.
 
-No separate summary-model selector is added. The current selected model and preferred language
-are used.
+There is no separate summary-model selector. The current model is capability-checked at summary
+time.
 
-## 16. Testing
+## 22. Testing
 
-### 16.1 Unit tests
+### 22.1 Feasibility evidence
 
-- platform source normalization and native subtitle timestamp parsing;
-- task-state transitions and rejection of illegal transitions;
-- cancellation at every stage and stale-video event suppression;
-- MediaKit request construction, response normalization, and error classification;
-- direct URL failure and exactly-once upload fallback;
-- speaker/confidence mapping and seconds-to-milliseconds conversion;
-- transcript chunking, overlap deduplication, and segment-ID validation;
-- local/final summary parsing, one-time repair, and degraded output;
-- secret and content redaction from messages and logs;
-- OPFS cleanup on success, failure, and cancellation;
-- absence of automatic session-storage writes.
+- public and logged-in Bilibili media source fixtures with secrets removed;
+- direct MediaKit fetch matrix;
+- local download and upload matrix;
+- container/codec and FFmpeg requirement matrix;
+- URL expiry, Range, content length, and OPFS quota observations;
+- documented go/no-go conclusion before feature implementation.
 
-### 16.2 Integration tests with fakes
+### 22.2 Unit tests
 
-1. Native subtitles produce the structured three-layer result without ASR.
-2. MediaKit accepts a direct media URL.
-3. A provider download error triggers local download and signed upload.
-4. An unsupported format triggers lazy FFmpeg processing.
-5. ASR succeeds and summary fails, leaving a usable transcript.
-6. Download, upload, polling, chunk summary, and final synthesis can each be cancelled.
-7. Simulated service-worker restarts do not lose an Offscreen-owned task.
-8. YouTube/Bilibili SPA navigation cannot display a stale result on the new video.
+- source snapshot serialization and strict remote/local separation;
+- owner stamping from `port.sender` and rejection of spoofed identity;
+- message schema validation and routing;
+- service-worker restart, exact owner reattachment, and attachment grace timeout;
+- task transition table, replacement, cancellation, and stale-event suppression;
+- Offscreen singleton creation and orphan cleanup;
+- operation-specific retries, stable `clientToken`, `Retry-After`, and `submission-unknown`;
+- MediaKit response/error normalization and optional detected language;
+- speaker/confidence and seconds-to-milliseconds mapping;
+- token-budget chunking, primary/overlap enforcement, and recursive split;
+- deterministic chapter construction and failed-range coverage;
+- complete, partial, degraded, and summary-retry contracts;
+- ModelGateway support detection, immutable snapshots, serialization, and cancellation;
+- key omission from DTOs/messages and content-aware log redaction;
+- OPFS cleanup and absence of automatic session persistence.
 
-### 16.3 Manual browser checks
+### 22.3 Integration tests with fakes
 
-- Chrome and Edge, each with one captioned and one uncaptioned YouTube and Bilibili video;
-- a logged-in but normally playable video;
-- direct URL path, upload fallback path, and FFmpeg fallback path;
-- clickable timestamps and speaker labels;
-- cancellation, tab close, refresh, and video switch cleanup;
-- OPFS removal, responsive page UI, and redacted logs in DevTools;
-- Firefox/Safari hide the unsupported ASR entry while existing subtitle behavior still works.
+1. Native Bilibili subtitles produce a structured result without ASR.
+2. A proven direct reference completes MediaKit ASR.
+3. A MediaKit download failure follows the spike-approved upload path once.
+4. FFmpeg loads only if the spike established a required conversion.
+5. Content port disconnect and `tabs.onRemoved` cancel the matching Offscreen task.
+6. A new document/video cannot receive an old task event.
+7. A service-worker restart preserves the Offscreen-owned task only when the same document sends
+   `ATTACH_TASK` within the grace period; otherwise it cancels the orphan.
+8. ASR succeeds with an unsupported model, then summary-only retry succeeds after model switch.
+9. A failed chunk returns partial output without another ASR call.
+10. An ambiguous ASR response never creates a new logical submission automatically.
 
-### 16.4 Required repository validation
+### 22.4 Manual Chromium checks
 
-Because implementation will affect runtime code and the Chromium manifest, completion requires:
+- Chrome and Edge 116+;
+- public and normally accessible logged-in Bilibili videos;
+- native subtitle and ASR choices;
+- proven direct/upload/FFmpeg paths from the feasibility matrix;
+- timestamp seeking and speaker labels;
+- cancellation, refresh, tab close, SPA video switch, and extension reload;
+- OPFS cleanup, UI responsiveness, task suppression, and logs;
+- unsupported summary-model degradation and summary-only retry;
+- credential warning during full-config export;
+- absence of feature UI and assets in minimal Chromium, Firefox, and Safari outputs.
+
+### 22.5 Repository validation
+
+Runtime and manifest changes require:
 
 - `npm run pretty`
 - `npm run lint`
 - `npm test`
 - `npm run build`
-- expected Chromium and Firefox artifact checks
-- manual Chrome/Edge extension smoke tests
+- expected artifact checks for all four browser variants
+- manual Chrome and Edge extension smoke tests
 
-## 17. Acceptance Criteria
+## 23. Acceptance Criteria
 
-- No paid request starts without explicit user confirmation.
-- A supported video up to three hours can produce timestamped transcript segments with automatic
-  speaker labels through AI MediaKit.
-- Both native subtitles and ASR feed the same structured summary pipeline.
-- Chapters and key moments seek to source-derived timestamps.
-- Long transcripts are summarized hierarchically without one unbounded model prompt.
-- The current model and preferred language are frozen for one task.
-- Post-ASR failures preserve the transcript and expose stage-specific retry.
-- Cancellation stops local work promptly and deletes all task-scoped local media.
-- Nothing is automatically added to persistent conversation storage.
-- No credential appears in content-script messages, Offscreen messages, logs, or build output.
-- Existing non-video ChatGPTBox behavior and Firefox/Safari builds remain unaffected.
+- The media feasibility spike reaches a documented go decision before implementation proceeds.
+- No ASR charge starts without explicit confirmation.
+- A supported Bilibili video up to three hours produces timestamped transcript segments with
+  automatic speaker labels through AI MediaKit.
+- Native subtitles and ASR use the same structured pipeline in full Chromium only.
+- Every task is owned by `tabId + documentId + videoId`; owner loss cancels local work.
+- A service-worker restart can rebuild routing only through exact, time-bounded owner attachment.
+- Only serializable messages cross extension contexts.
+- No MediaKit key enters generic configuration DTOs or cross-context messages.
+- ASR submission retries reuse one `clientToken`; unknown submission state is visible.
+- Unsupported summary models preserve the transcript and permit summary-only retry after switch.
+- Output explicitly distinguishes complete, partial, and degraded results.
+- Chapter and key-moment timestamps always derive from validated transcript segment IDs.
+- No audio, transcript, or summary is automatically persisted.
+- Temporary OPFS data is cleaned on terminal paths and on the next Offscreen startup after a
+  crash.
+- The minimal Chromium, Firefox, and Safari artifacts retain their old behavior and do not contain
+  the new permission, UI, or FFmpeg assets.
 
-## 18. Alternatives Considered
+## 24. Alternatives Considered
+
+### YouTube in the initial release
+
+Deferred because signature cipher and `n` transformation, stream separation, and CDN restrictions
+would make the first feasibility gate substantially larger. Its future implementation uses the
+same message and normalized source contracts.
 
 ### Direct CDN URL only
 
-Rejected as the primary design because YouTube and Bilibili media URLs may be short-lived,
-IP-bound, cookie-dependent, or protected by Referer checks. It remains the fast first attempt.
+Rejected as a general promise because Bilibili media URLs may be short-lived or require local
+request context. It remains only if the feasibility spike proves it reliable for the supported
+sample set.
 
-### Self-hosted media/BFF service
+### Self-hosted media backend
 
-Deferred because it adds deployment, bandwidth, storage, user authentication, and operations. The
-provider and source interfaces allow a BFF transport to replace the pure-extension path later.
+Deferred because it adds deployment, authentication, bandwidth, storage, and operational costs.
+The gateways permit a later server transport without changing the view or transcript model.
 
 ### Doubao Voice Minutes
 
-Deferred despite its native transcript, chapters, and summary because it accepts only a
-server-downloadable `FileURL` and provides no documented upload flow or source-request headers.
-It cannot reliably consume YouTube/Bilibili page or temporary CDN URLs without a media BFF.
+Deferred despite native chapters and summaries because it accepts only a server-downloadable
+`FileURL` and provides no documented upload path or custom source headers. It cannot reliably
+consume protected Bilibili CDN references without a media backend.
 
-### Browser-local Whisper
+### Browser-local Whisper or tab recording
 
-Deferred because model downloads, CPU/GPU use, memory, and Firefox/Safari compatibility greatly
-increase the first-release scope. It can later implement the same `TranscriptionProvider`
-contract.
+Deferred because model size, compute use, playback-time latency, and cross-browser behavior conflict
+with the chosen first-release scope.
 
-## 19. Official Protocol References
+### Background-only credential storage
+
+Rejected by product choice. A Background-owned IndexedDB would provide a stronger code boundary
+but would not participate in existing config import/export. The selected `storage.local` design
+matches current BYOK behavior and explicitly documents its plaintext and access limitations.
+
+## 25. Official References
 
 - [AI MediaKit speech-to-subtitle ASR](https://docs.volcengine.com/docs/Intelligentprocessing/VoicetoSubtitleASR?lang=zh)
 - [Submit speech-to-subtitle task](https://docs.volcengine.com/docs/Intelligentprocessing/Submitspeech-to-subtitleASRtaskAPI?lang=zh)
+- [Chrome Offscreen API](https://developer.chrome.com/docs/extensions/reference/api/offscreen)
+- [Chrome Runtime API](https://developer.chrome.com/docs/extensions/reference/api/runtime)
 - [Doubao Voice Minutes API](https://docs.volcengine.com/docs/DoubaoVoice/DoubaoVoiceMinutes-APIAccessDocumentation?lang=zh)
