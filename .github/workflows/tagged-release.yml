@@ -100,7 +100,7 @@ jobs:
           name: chrome-extension
           path: build/chromium.zip
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
 
       - if: github.event_name == 'push'
         run: |
@@ -147,6 +147,7 @@ jobs:
     concurrency:
       group: chrome-web-store
       cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
