@@ -3,6 +3,7 @@ import PropTypes from 'prop-types'
 import Browser from 'webextension-polyfill'
 import InputBox from '../InputBox'
 import ConversationItem from '../ConversationItem'
+import ConversationUsageSummary from '../ConversationUsageSummary'
 import {
   apiModeToModelName,
   createElementAtPosition,
@@ -45,6 +46,7 @@ import {
   createConversationPortMessage,
   createRetrySession,
   finalizeInterruptedSession,
+  getCompletedAnswerMetadata,
   getCompletedAnswerUpdate,
   getInterruptedCompletionState,
   isSupersededGenerationMessage,
@@ -59,12 +61,14 @@ class ConversationItemData extends Object {
    * @param {'question'|'answer'|'error'} type
    * @param {string} content
    * @param {bool} done
+   * @param {Object|null} meta
    */
-  constructor(type, content, done = false) {
+  constructor(type, content, done = false, meta = null) {
     super()
     this.type = type
     this.content = content
     this.done = done
+    this.meta = meta
   }
 }
 
@@ -81,6 +85,7 @@ function ConversationCard(props) {
   const retryRecordRef = useRef(null)
   const retryGenerationIdRef = useRef(0)
   const requestGenerationIdRef = useRef(0)
+  const requestModelRef = useRef('')
   const [completeDraggable, setCompleteDraggable] = useState(false)
   const useForegroundFetch = isUsingBingWebModel(session)
   const [apiModes, setApiModes] = useState([])
@@ -121,7 +126,7 @@ function ConversationCard(props) {
       const ret = []
       for (const record of session.conversationRecords) {
         ret.push(new ConversationItemData('question', record.question, true))
-        ret.push(new ConversationItemData('answer', record.answer, true))
+        ret.push(new ConversationItemData('answer', record.answer, true, record.meta))
       }
       setConversationItemData(ret)
     }
@@ -173,8 +178,9 @@ function ConversationCard(props) {
    * @param {boolean} appended
    * @param {'question'|'answer'|'error'} newType
    * @param {boolean} done
+   * @param {Object|null|undefined} meta
    */
-  const updateAnswer = (value, appended, newType, done = false) => {
+  const updateAnswer = (value, appended, newType, done = false, meta = undefined) => {
     setConversationItemData((old) => {
       const copy = [...old]
       const index = findLastIndex(copy, (v) => v.type === 'answer' || v.type === 'error')
@@ -182,8 +188,9 @@ function ConversationCard(props) {
       copy[index] = new ConversationItemData(
         newType,
         appended ? copy[index].content + value : value,
+        done,
+        meta === undefined ? copy[index].meta : meta,
       )
-      copy[index].done = done
       return copy
     })
   }
@@ -211,7 +218,16 @@ function ConversationCard(props) {
       partialAnswerRef.current = ''
       retryRecordRef.current = null
       const answerUpdate = getCompletedAnswerUpdate(completionState.restoredRetryAnswer)
-      updateAnswer(answerUpdate.value, answerUpdate.appended, 'answer', true)
+      const answerMetadata = getCompletedAnswerMetadata({
+        message: msg,
+        restoredRetryAnswer: completionState.restoredRetryAnswer,
+        partialAnswer,
+        retryRecord,
+        requestedModel: requestModelRef.current,
+        fallbackModel: currentAiName,
+      })
+      requestModelRef.current = ''
+      updateAnswer(answerUpdate.value, answerUpdate.appended, 'answer', true, answerMetadata)
       setIsReady(true)
     }
     if (msg.error) {
@@ -274,6 +290,7 @@ function ConversationCard(props) {
       }
       partialAnswerRef.current = ''
       retryRecordRef.current = null
+      requestModelRef.current = ''
       setIsReady(true)
     }
   }
@@ -287,6 +304,9 @@ function ConversationCard(props) {
    */
   const postMessage = async ({ session, stop, stopGenerationId }) => {
     const requestGenerationId = session ? ++requestGenerationIdRef.current : undefined
+    if (session) {
+      requestModelRef.current = getConversationAiName(session, t, customOpenAIProviders)
+    }
     if (useForegroundFetch) {
       foregroundMessageListeners.current.forEach((listener) =>
         listener({ session, stop, stopGenerationId, requestGenerationId }),
@@ -386,7 +406,13 @@ function ConversationCard(props) {
   }, [port, conversationItemData])
 
   const getRetryFn = (session) => async () => {
-    updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
+    updateAnswer(
+      `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
+      false,
+      'answer',
+      false,
+      null,
+    )
     setIsReady(false)
 
     const conversationRecords = session.conversationRecords.map((record) => ({ ...record }))
@@ -574,6 +600,7 @@ function ConversationCard(props) {
               }
               partialAnswerRef.current = ''
               retryRecordRef.current = null
+              requestModelRef.current = ''
               Browser.runtime.sendMessage({
                 type: 'DELETE_CONVERSATION',
                 data: {
@@ -649,6 +676,7 @@ function ConversationCard(props) {
         </span>
       </div>
       <hr />
+      <ConversationUsageSummary records={session.conversationRecords} />
       <div
         ref={bodyRef}
         className="markdown-body"
@@ -664,6 +692,7 @@ function ConversationCard(props) {
             key={idx}
             type={data.type}
             descName={data.type === 'answer' && currentAiName}
+            meta={data.meta}
             onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
           />
         ))}
