@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types'
+import { BilibiliVideoTranscriptionSettings } from './BilibiliVideoTranscriptionSettings.jsx'
 
 const siteDisplayNames = {
   bilibili: 'Bilibili',
@@ -24,19 +25,24 @@ export function SiteAdapters({ config, updateConfig }) {
   return (
     <>
       {config.siteAdapters.map((key) => (
-        <label key={key}>
-          <input
-            type="checkbox"
-            checked={config.activeSiteAdapters.includes(key)}
-            onChange={(e) => {
-              const checked = e.target.checked
-              const activeSiteAdapters = config.activeSiteAdapters.filter((i) => i !== key)
-              if (checked) activeSiteAdapters.push(key)
-              updateConfig({ activeSiteAdapters })
-            }}
-          />
-          {siteDisplayNames[key] || key}
-        </label>
+        <div key={key}>
+          <label>
+            <input
+              type="checkbox"
+              checked={config.activeSiteAdapters.includes(key)}
+              onChange={(e) => {
+                const checked = e.target.checked
+                const activeSiteAdapters = config.activeSiteAdapters.filter((i) => i !== key)
+                if (checked) activeSiteAdapters.push(key)
+                updateConfig({ activeSiteAdapters })
+              }}
+            />
+            {siteDisplayNames[key] || key}
+          </label>
+          {key === 'bilibili' ? (
+            <BilibiliVideoTranscriptionSettings config={config} updateConfig={updateConfig} />
+          ) : null}
+        </div>
       ))}
     </>
   )

@@ -1,0 +1,129 @@
+.bilibili-video-summary-host {
+  margin: 12px 0;
+  width: var(--bilibili-video-summary-width, 100%);
+}
+
+.video-pod-above-modules__inner:has(.bilibili-video-summary-host),
+.video-pod-above-modules:has(.bilibili-video-summary-host) {
+  overflow: visible !important;
+}
+
+.bilibili-video-summary-view {
+  border: 1px solid #d9e2f5;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+  color: #17324d;
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.bilibili-video-summary-view__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bilibili-video-summary-view__header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.bilibili-video-summary-view__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #4e6680;
+}
+
+.bilibili-video-summary-view__choices,
+.bilibili-video-summary-view__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.bilibili-video-summary-view button {
+  border: 1px solid #8aa8d1;
+  border-radius: 999px;
+  background: #fff;
+  color: #17324d;
+  cursor: pointer;
+  font: inherit;
+  padding: 6px 12px;
+}
+
+.bilibili-video-summary-view button.is-selected {
+  background: #17324d;
+  border-color: #17324d;
+  color: #fff;
+}
+
+.bilibili-video-summary-view button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.bilibili-video-summary-view__confirm {
+  margin-top: 12px;
+  border-radius: 10px;
+  background: #fff4e8;
+  color: #7a4200;
+  padding: 12px;
+}
+
+.bilibili-video-summary-view__confirm p {
+  margin: 0;
+}
+
+.bilibili-video-summary-view__warnings {
+  margin-top: 12px;
+  color: #a3402b;
+}
+
+.bilibili-video-summary-view__error {
+  margin: 12px 0 0;
+  color: #a3402b;
+}
+
+.bilibili-video-summary-view section {
+  margin-top: 16px;
+}
+
+.bilibili-video-summary-view h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.bilibili-video-summary-view ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.bilibili-video-summary-view li {
+  margin-bottom: 8px;
+}
+
+.bilibili-video-summary-view details {
+  margin-top: 16px;
+}
+
+.bilibili-video-summary-view details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.bilibili-video-summary-view__summary-scroll,
+.bilibili-video-summary-view__transcript-scroll {
+  max-height: min(50vh, 480px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
+}
+
+.bilibili-video-summary-view__summary-scroll > details:first-of-type {
+  margin-top: 12px;
+}

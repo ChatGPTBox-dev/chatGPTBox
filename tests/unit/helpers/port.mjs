@@ -1,9 +1,12 @@
-export function createFakePort() {
+export function createFakePort({ name = '', sender = undefined } = {}) {
   const onMessageListeners = new Set()
   const onDisconnectListeners = new Set()
   const postedMessages = []
+  let disconnectCount = 0
 
   return {
+    name,
+    sender,
     postedMessages,
     onMessage: {
       addListener(listener) {
@@ -30,6 +33,13 @@ export function createFakePort() {
       }
     },
     emitDisconnect() {
+      disconnectCount += 1
+      for (const listener of Array.from(onDisconnectListeners)) {
+        listener()
+      }
+    },
+    disconnect() {
+      disconnectCount += 1
       for (const listener of Array.from(onDisconnectListeners)) {
         listener()
       }
@@ -39,6 +49,9 @@ export function createFakePort() {
         onMessage: onMessageListeners.size,
         onDisconnect: onDisconnectListeners.size,
       }
+    },
+    disconnectCount() {
+      return disconnectCount
     },
   }
 }

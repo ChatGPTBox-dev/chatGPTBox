@@ -8,6 +8,9 @@ import { generateAnswersWithBingWebApi } from '../services/apis/bing-web.mjs'
 import { generateAnswersWithOpenAICompatibleApi } from '../services/apis/openai-api'
 import { generateAnswersWithAzureOpenaiApi } from '../services/apis/azure-openai-api.mjs'
 import { generateAnswersWithClaudeApi } from '../services/apis/claude-api.mjs'
+import { generateAnswersWithOpenAICompatible } from '../services/apis/openai-compatible-core.mjs'
+import { invokeOpenAICompatibleTool } from '../services/apis/openai-compatible-tool-call.mjs'
+import { resolveOpenAICompatibleRequest } from '../services/apis/provider-registry.mjs'
 import { generateAnswersWithWaylaidwandererApi } from '../services/apis/waylaidwanderer-api.mjs'
 import {
   defaultConfig,
@@ -63,6 +66,159 @@ import {
   shouldSkipProxyReconnect,
   tagProxyRequestGeneration,
 } from './proxy-generation-state.mjs'
+import { createMediaKitGateway } from './media-kit-gateway.mjs'
+import { createModelGateway } from './model-gateway.mjs'
+import { createVideoSummaryOffscreenRpc } from './video-summary-offscreen-rpc.mjs'
+import {
+  VIDEO_SUMMARY_OFFSCREEN_PORT_NAME,
+  ensureVideoSummaryOffscreenDocument,
+} from './offscreen.mjs'
+import { createVideoSummaryRouter } from './video-summary-router.mjs'
+
+const EXTENSION_URL_PREFIX = Browser.runtime.getURL('')
+const POPUP_PAGE_URL = Browser.runtime.getURL('popup.html')
+const mediaKitGateway = createMediaKitGateway({
+  storageArea: Browser.storage.local,
+  fetchImpl: fetch,
+  logger: {
+    info(entry) {
+      console.info('[background]', entry)
+    },
+    warn(entry) {
+      console.warn('[background]', entry)
+    },
+    error(entry) {
+      console.error('[background]', entry)
+    },
+  },
+})
+export const modelGateway = createModelGateway({
+  getUserConfig,
+  resolveOpenAICompatibleRequest,
+  generateAnswersWithOpenAICompatible,
+  invokeOpenAICompatibleTool,
+  logger: {
+    info(entry) {
+      console.info('[background]', entry)
+    },
+    warn(entry) {
+      console.warn('[background]', entry)
+    },
+    error(entry) {
+      console.error('[background]', entry)
+    },
+  },
+})
+const videoSummaryOffscreenState = {
+  port: null,
+  pendingCommands: [],
+}
+let videoSummaryRouter = null
+const videoSummaryOffscreenRpc = createVideoSummaryOffscreenRpc({
+  mediaKitGateway,
+  modelGateway,
+  logger: {
+    info(entry) {
+      console.info('[background]', entry)
+    },
+    warn(entry) {
+      console.warn('[background]', entry)
+    },
+    error(entry) {
+      console.error('[background]', entry)
+    },
+  },
+  onTaskEvent(event) {
+    videoSummaryRouter?.handleTaskEvent(event)
+  },
+  requestSourceRefresh({ owner, taskId }) {
+    videoSummaryRouter?.requestSourceRefresh(owner, taskId)
+  },
+})
+
+function getVideoSummaryRuntime() {
+  const chromeRuntime = globalThis.chrome?.runtime
+  return {
+    getURL: Browser.runtime.getURL.bind(Browser.runtime),
+    getContexts:
+      typeof chromeRuntime?.getContexts === 'function'
+        ? chromeRuntime.getContexts.bind(chromeRuntime)
+        : undefined,
+  }
+}
+
+async function ensureVideoSummaryOffscreen() {
+  await ensureVideoSummaryOffscreenDocument({
+    runtime: getVideoSummaryRuntime(),
+    chromeOffscreen: globalThis.chrome?.offscreen,
+  })
+}
+
+function flushVideoSummaryOffscreenCommands() {
+  if (!videoSummaryOffscreenState.port) return
+
+  while (videoSummaryOffscreenState.pendingCommands.length > 0) {
+    const command = videoSummaryOffscreenState.pendingCommands.shift()
+    videoSummaryOffscreenRpc.postCommand(command)
+  }
+}
+
+function emitVideoSummaryOffscreenCommand(command) {
+  const serializableCommand = structuredClone(command)
+  if (!videoSummaryOffscreenState.port) {
+    videoSummaryOffscreenState.pendingCommands.push(serializableCommand)
+    return
+  }
+
+  try {
+    videoSummaryOffscreenRpc.postCommand(serializableCommand)
+  } catch (error) {
+    console.warn('[background] Failed to post video summary command to offscreen:', error)
+    videoSummaryOffscreenState.port = null
+    videoSummaryOffscreenState.pendingCommands.unshift(serializableCommand)
+  }
+}
+
+videoSummaryRouter = createVideoSummaryRouter({
+  mediaKitGateway,
+  modelGateway,
+  ensureOffscreenDocument: ensureVideoSummaryOffscreen,
+  clock: {
+    now: () => Date.now(),
+    setTimeout: globalThis.setTimeout.bind(globalThis),
+    clearTimeout: globalThis.clearTimeout.bind(globalThis),
+  },
+  logger: {
+    info(entry) {
+      console.info('[background]', entry)
+    },
+    warn(entry) {
+      console.warn('[background]', entry)
+    },
+    error(entry) {
+      console.error('[background]', entry)
+    },
+  },
+  emitCommand: emitVideoSummaryOffscreenCommand,
+})
+
+function getSenderUrl(sender) {
+  return sender?.url || sender?.documentUrl || sender?.origin || null
+}
+
+function isTrustedExtensionSender(sender) {
+  const senderId = sender?.id
+  const senderUrl = getSenderUrl(sender)
+  return (
+    senderId === Browser.runtime.id ||
+    (!senderId && typeof senderUrl === 'string' && senderUrl.startsWith(EXTENSION_URL_PREFIX))
+  )
+}
+
+function isPopupSender(sender) {
+  const senderUrl = getSenderUrl(sender)
+  return typeof senderUrl === 'string' && senderUrl === POPUP_PAGE_URL
+}
 
 function postProxySession(port, session, requestGenerationId) {
   const proxyGenerationId = (port._proxyGenerationId ?? 0) + 1
@@ -692,14 +848,51 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         }
         break
       }
+      case 'VIDEO_SUMMARY_MEDIAKIT_KEY_STATE': {
+        if (!isPopupSender(sender)) {
+          console.warn(
+            '[background] Rejecting VIDEO_SUMMARY_MEDIAKIT_KEY_STATE from non-popup sender:',
+            sender,
+          )
+          return { message: 'Unauthorized sender' }
+        }
+        return mediaKitGateway.getKeyState()
+      }
+      case 'VIDEO_SUMMARY_SET_MEDIAKIT_KEY': {
+        if (!isPopupSender(sender)) {
+          console.warn(
+            '[background] Rejecting VIDEO_SUMMARY_SET_MEDIAKIT_KEY from non-popup sender:',
+            sender,
+          )
+          return { message: 'Unauthorized sender' }
+        }
+        await mediaKitGateway.setKey(message.data?.apiKey)
+        return mediaKitGateway.getKeyState()
+      }
+      case 'VIDEO_SUMMARY_DELETE_MEDIAKIT_KEY': {
+        if (!isPopupSender(sender)) {
+          console.warn(
+            '[background] Rejecting VIDEO_SUMMARY_DELETE_MEDIAKIT_KEY from non-popup sender:',
+            sender,
+          )
+          return { message: 'Unauthorized sender' }
+        }
+        await mediaKitGateway.deleteKey()
+        return mediaKitGateway.getKeyState()
+      }
+      case 'VIDEO_SUMMARY_TASK_EVENT': {
+        if (!isTrustedExtensionSender(sender)) {
+          console.warn(
+            '[background] Rejecting VIDEO_SUMMARY_TASK_EVENT from untrusted sender:',
+            sender,
+          )
+          return null
+        }
+        videoSummaryRouter.handleTaskEvent(message.data)
+        return null
+      }
       case 'FETCH': {
-        const senderId = sender?.id
-        const senderUrl = sender?.url || sender?.documentUrl || sender?.origin
-        const extensionOrigin = new URL(Browser.runtime.getURL('/')).origin
-        const isTrustedExtensionSenderWithoutId =
-          !senderId && typeof senderUrl === 'string' && senderUrl.startsWith(`${extensionOrigin}/`)
-
-        if (senderId !== Browser.runtime.id && !isTrustedExtensionSenderWithoutId) {
+        if (!isTrustedExtensionSender(sender)) {
           console.warn('[background] Rejecting FETCH message from untrusted sender:', sender)
           return [null, { message: 'Unauthorized sender' }]
         }
@@ -1016,6 +1209,32 @@ try {
       outerTryCatchError(error)
     }
   })
+
+  if (Browser.runtime?.onConnect?.addListener) {
+    Browser.runtime.onConnect.addListener((port) => {
+      if (port?.name === VIDEO_SUMMARY_OFFSCREEN_PORT_NAME) {
+        videoSummaryOffscreenState.port = port
+        videoSummaryOffscreenRpc.attachPort(port)
+        flushVideoSummaryOffscreenCommands()
+        port.onDisconnect.addListener(() => {
+          if (videoSummaryOffscreenState.port === port) {
+            videoSummaryOffscreenState.port = null
+          }
+        })
+        return
+      }
+
+      Promise.resolve(videoSummaryRouter.handleConnect(port)).catch((error) => {
+        console.error('[background] Error handling video summary port connection:', error)
+      })
+    })
+  }
+
+  if (Browser.tabs?.onRemoved?.addListener) {
+    Browser.tabs.onRemoved.addListener((tabId) => {
+      videoSummaryRouter.handleTabRemoved(tabId)
+    })
+  }
 } catch (error) {
   console.error('[background] Error setting up webRequest or tabs listeners:', error)
 }

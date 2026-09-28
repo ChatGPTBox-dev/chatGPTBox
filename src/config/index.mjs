@@ -19,6 +19,7 @@ import {
   canonicalizeModelKeyArray,
 } from './model-key-migrations.mjs'
 import { getNavigatorLanguage, resolvePreferredLanguageKey } from './language-data.mjs'
+import { DEFAULT_VIDEO_SUMMARY_MAX_OUTPUT_TOKENS } from '../video-summary/settings.mjs'
 
 export { getNavigatorLanguage }
 
@@ -848,6 +849,10 @@ export const defaultConfig = {
   aimlApiKey: '',
   googleApiKey: '',
   xaiApiKey: '',
+
+  bilibiliVideoTranscriptionEnabled: false,
+  bilibiliSpeakerIdentificationEnabled: true,
+  bilibiliSummaryMaxOutputTokens: DEFAULT_VIDEO_SUMMARY_MAX_OUTPUT_TOKENS,
 
   // advanced
 

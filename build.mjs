@@ -160,6 +160,13 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
         import: './src/pages/IndependentPanel/index.jsx',
         dependOn: 'shared',
       },
+      ...(!minimal
+        ? {
+            VideoSummaryOffscreen: {
+              import: './src/pages/VideoSummaryOffscreen/index.mjs',
+            },
+          }
+        : {}),
       shared: shared,
     },
     output: {
@@ -208,6 +215,9 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
             process: 'process/browser.js',
             Buffer: ['buffer', 'Buffer'],
           }),
+      new webpack.DefinePlugin({
+        __ENABLE_BILIBILI_VIDEO_TRANSCRIPTION__: JSON.stringify(!minimal),
+      }),
       new ProgressBarPlugin({
         format: '  build [:bar] :percent (:elapsed seconds)',
         clear: false,
@@ -540,6 +550,11 @@ async function ensureDevCssPlaceholders(cssFiles) {
   )
 }
 
+async function writeChromiumManifest(outputDir) {
+  const manifest = await fs.readJson('src/manifest.json')
+  await fs.outputJson(path.join(outputDir, 'manifest.json'), manifest, { spaces: 2 })
+}
+
 async function finishOutput(outputDirSuffix, sourceBuildDir = outdir) {
   const commonFiles = [
     { src: 'src/logo.png', dst: 'logo.png' },
@@ -569,13 +584,37 @@ async function finishOutput(outputDirSuffix, sourceBuildDir = outdir) {
           { src: `${sourceBuildDir}/IndependentPanel.js.map`, dst: 'IndependentPanel.js.map' },
         ]),
   ]
+  const chromiumFullOnlyFiles = []
+  if (outputDirSuffix === '') {
+    const offscreenHtmlSource = 'src/pages/VideoSummaryOffscreen/index.html'
+    if (await fs.pathExists(offscreenHtmlSource)) {
+      chromiumFullOnlyFiles.push({
+        src: offscreenHtmlSource,
+        dst: 'VideoSummaryOffscreen.html',
+      })
+    }
+    const offscreenJsSource = `${sourceBuildDir}/VideoSummaryOffscreen.js`
+    if (await fs.pathExists(offscreenJsSource)) {
+      chromiumFullOnlyFiles.push({
+        src: offscreenJsSource,
+        dst: 'VideoSummaryOffscreen.js',
+      })
+    }
+    if (!isProduction) {
+      const offscreenJsMapSource = `${sourceBuildDir}/VideoSummaryOffscreen.js.map`
+      if (await fs.pathExists(offscreenJsMapSource)) {
+        chromiumFullOnlyFiles.push({
+          src: offscreenJsMapSource,
+          dst: 'VideoSummaryOffscreen.js.map',
+        })
+      }
+    }
+  }
 
   // chromium
   const chromiumOutputDir = `./${outdir}/chromium${outputDirSuffix}`
-  await copyFiles(
-    [...commonFiles, { src: 'src/manifest.json', dst: 'manifest.json' }],
-    chromiumOutputDir,
-  )
+  await copyFiles([...commonFiles, ...chromiumFullOnlyFiles], chromiumOutputDir)
+  await writeChromiumManifest(chromiumOutputDir)
   await ensureDevCssPlaceholders(
     Array.from(
       new Set(
