@@ -163,12 +163,11 @@ export async function generateAnswersWithOpenAICompatible({
   const finish = () => {
     if (finished) return
     finished = true
-    const streamText = resolveStreamText({ final: true })
-    if (streamText.answer !== postedAnswer) {
-      postedAnswer = streamText.answer
-      port.postMessage({ answer: streamText.answer, done: false, session: null })
-    }
-    pushRecord(session, question, streamText.answer)
+    // Finalisation only ever differs from what was streamed by no longer treating an
+    // unclosed block as thinking. The card already shows that text in its thinking block,
+    // so it is recorded here without being posted again as an answer — sending it would
+    // make the renderer show the same thinking twice.
+    pushRecord(session, question, resolveStreamText({ final: true }).answer)
     port.postMessage({ answer: null, done: true, session: session })
   }
 

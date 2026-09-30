@@ -110,8 +110,13 @@ test('thinking that never closes is kept as the answer once the stream ends', as
   ])
 
   assert.equal(session.conversationRecords[0].answer, '<think>cut off while thinking')
+  // The card already shows that text as thinking, so it must not also arrive as an answer.
   assert.equal(
     port.postedMessages.some((message) => message.answer === '<think>cut off while thinking'),
-    true,
+    false,
+  )
+  assert.deepEqual(
+    port.postedMessages.filter((message) => message.reasoning).map((message) => message.reasoning),
+    ['cut off while thinking'],
   )
 })
