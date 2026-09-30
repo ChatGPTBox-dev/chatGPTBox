@@ -103,6 +103,7 @@ export const claudeApiModelKeys = [
   'claudeSonnet45Api',
   'claudeSonnet46Api',
   'claudeSonnet5Api',
+  'claudeSonnet55Api',
   'claudeHaiku45Api',
 ]
 export const chatglmApiModelKeys = [
@@ -392,6 +393,10 @@ export const Models = {
   claudeSonnet5Api: {
     value: 'claude-sonnet-5',
     desc: 'Anthropic (Claude Sonnet 5)',
+  },
+  claudeSonnet55Api: {
+    value: 'claude-sonnet-5-5',
+    desc: 'Anthropic (Claude Sonnet 5.5)',
   },
   claudeHaiku45Api: {
     value: 'claude-haiku-4-5-20251001',
@@ -777,7 +782,7 @@ export const defaultApiModeIds = [
   'xaiGrok4_5',
   'claudeFable51Api',
   'claudeOpus55Api',
-  'claudeSonnet5Api',
+  'claudeSonnet55Api',
   'claudeHaiku45Api',
   'googleGemini3_1Pro',
   'googleGemini3_8Flash',

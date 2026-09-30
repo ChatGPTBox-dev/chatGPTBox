@@ -34,6 +34,8 @@ test('temperature overrides omit known Anthropic models across provider ID forma
     'anthropic/claude-opus-4.8:free',
     'claude-opus-4-8-20260801',
     'claude-sonnet-5',
+    'claude-sonnet-5-5',
+    'anthropic/claude-sonnet-5.5',
     'claude-opus-5',
     'claude-opus-5-5',
     'anthropic/claude-opus-5.5',

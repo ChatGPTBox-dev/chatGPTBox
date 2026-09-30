@@ -6,8 +6,9 @@ import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
 
-function shouldDisableDefaultThinking(model) {
-  return model === 'claude-sonnet-5'
+function getThinkingConfig(model) {
+  if (model === 'claude-sonnet-5') return { type: 'disabled' }
+  if (model === 'claude-sonnet-5-5') return { type: 'between_tools' }
 }
 
 /**
@@ -34,9 +35,8 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     max_tokens: config.maxResponseTokenLength,
     ...getTemperatureParams(config, model),
   }
-  if (shouldDisableDefaultThinking(model)) {
-    body.thinking = { type: 'disabled' }
-  }
+  const thinking = getThinkingConfig(model)
+  if (thinking) body.thinking = thinking
 
   let answer = ''
   let stopReason = ''

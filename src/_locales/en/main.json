@@ -230,6 +230,7 @@
   "OpenAI (GPT-6 Sol)": "OpenAI (GPT-6 Sol)",
   "OpenAI (GPT-6 Luna)": "OpenAI (GPT-6 Luna)",
   "Anthropic (Claude Sonnet 4.6)": "Anthropic (Claude Sonnet 4.6)",
+  "Anthropic (Claude Sonnet 5.5)": "Anthropic (Claude Sonnet 5.5)",
   "This provider is still used by other API modes or saved conversations": "This provider is still used by other API modes or saved conversations",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.",
   "Use shared key": "Use shared key",

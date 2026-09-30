@@ -185,6 +185,7 @@ test('claude-api: omits temperature for models that reject custom sampling', asy
     ['claudeOpus5Api', 'claude-opus-5'],
     ['claudeOpus55Api', 'claude-opus-5-5'],
     ['claudeSonnet5Api', 'claude-sonnet-5'],
+    ['claudeSonnet55Api', 'claude-sonnet-5-5'],
   ]) {
     await t.test(modelName, async (t) => {
       setStorage({
@@ -222,6 +223,8 @@ test('claude-api: omits temperature for models that reject custom sampling', asy
       assert.equal(Object.hasOwn(body, 'temperature'), false)
       if (model === 'claude-sonnet-5') {
         assert.deepEqual(body.thinking, { type: 'disabled' })
+      } else if (model === 'claude-sonnet-5-5') {
+        assert.deepEqual(body.thinking, { type: 'between_tools' })
       } else {
         assert.equal(Object.hasOwn(body, 'thinking'), false)
       }
