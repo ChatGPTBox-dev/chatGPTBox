@@ -791,6 +791,7 @@ test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-6 and omit
   for (const [modelName, model] of [
     ['chatgptApi6Sol', 'gpt-6-sol'],
     ['chatgptApi6Luna', 'gpt-6-luna'],
+    ['chatgptApi6_1Sol', 'gpt-6.1-sol'],
   ]) {
     const newSession = {
       modelName,

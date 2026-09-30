@@ -96,6 +96,9 @@ test('uses completion token limits only for supported OpenAI GPT-6 models', () =
     'GPT-6-ASTRA',
     'gpt-6-sol',
     'gpt-6-luna',
+    'gpt-6.1-sol',
+    'gpt-6.1-sol-20260929',
+    'GPT-6.1-SOL',
   ]) {
     assert.deepEqual(getChatCompletionsTokenParams('openai', model, 1024), {
       max_completion_tokens: 1024,
@@ -107,9 +110,13 @@ test('uses completion token limits only for supported OpenAI GPT-6 models', () =
   for (const model of [
     'gpt-6-astral',
     'gpt-6-solar',
+    'gpt-6.1-solar',
+    'gpt-6.10-sol',
     'my-gpt-6-astra',
+    'my-gpt-6.1-sol',
     'gpt-60',
     'openai/gpt-6-astra',
+    'openai/gpt-6.1-sol',
   ]) {
     assert.deepEqual(getChatCompletionsTokenParams('openai', model, 1024), {
       max_tokens: 1024,

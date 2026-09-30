@@ -55,6 +55,7 @@ const representativeChatgptApiModelNames = [
   'chatgptApi5_6Luna',
   'chatgptApi6Sol',
   'chatgptApi6Luna',
+  'chatgptApi6_1Sol',
 ]
 const representativeGptCompletionApiModelNames = ['gptApiInstruct']
 const representativeClaudeApiModelNames = ['claudeOpus48Api', 'claudeSonnet46Api']
@@ -85,9 +86,10 @@ afterEach(() => {
   restoreNavigator()
 })
 
-test('GPT-6 Sol and Luna replace their GPT-5.6 counterparts in the default presets', () => {
-  assert.equal(defaultApiModeIds.includes('chatgptApi6Sol'), true)
+test('GPT-6 defaults use GPT-6.1 Sol and GPT-6 Luna', () => {
+  assert.equal(defaultApiModeIds.includes('chatgptApi6_1Sol'), true)
   assert.equal(defaultApiModeIds.includes('chatgptApi6Luna'), true)
+  assert.equal(defaultApiModeIds.includes('chatgptApi6Sol'), false)
   assert.equal(defaultApiModeIds.includes('chatgptApi5_6Sol'), false)
   assert.equal(defaultApiModeIds.includes('chatgptApi5_6Luna'), false)
 })
