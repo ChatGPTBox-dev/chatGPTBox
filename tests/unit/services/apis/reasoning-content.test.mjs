@@ -101,3 +101,17 @@ test('thinking written inside the answer is moved to the reasoning channel', asy
 
   assert.equal(session.conversationRecords[0].answer, 'The answer.')
 })
+
+test('thinking that never closes is kept as the answer once the stream ends', async (t) => {
+  const { port, session } = await run(t, [
+    'data: {"choices":[{"delta":{"content":"<think>cut off while thinking"}}]}\n\n',
+    'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
+    'data: [DONE]\n\n',
+  ])
+
+  assert.equal(session.conversationRecords[0].answer, '<think>cut off while thinking')
+  assert.equal(
+    port.postedMessages.some((message) => message.answer === '<think>cut off while thinking'),
+    true,
+  )
+})

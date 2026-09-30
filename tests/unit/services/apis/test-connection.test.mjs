@@ -225,3 +225,37 @@ test('a cookie/web mode is not probed and reports it as unsupported', async (t) 
   assert.equal(result.error, 'unsupported-provider')
   assert.equal(seen.length, 0)
 })
+
+test('a native Ollama chat endpoint is reported instead of probed', async (t) => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    customOpenAIProviders: [
+      {
+        id: 'test-provider',
+        name: 'Test provider',
+        chatCompletionsUrl: 'http://127.0.0.1:11434/api/chat',
+      },
+    ],
+    providerSecrets: { 'test-provider': 'secret-key' },
+  })
+  const seen = captureFetch(t)
+
+  const result = await testConnection({ apiMode: MODE })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error, 'unsupported-provider')
+  assert.equal(seen.length, 0)
+})
+
+test('a redirected probe is reported as unreachable instead of followed', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => ({
+    type: 'opaqueredirect',
+    ok: false,
+    status: 0,
+    text: async () => '',
+  }))
+
+  const result = await testConnection({ apiMode: MODE })
+
+  assert.equal(result.ok, false)
+  assert.match(result.error, /redirect/i)
+})

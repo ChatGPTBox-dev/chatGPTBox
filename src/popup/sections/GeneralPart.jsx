@@ -108,6 +108,8 @@ export function GeneralPart({
   const [connectionTest, setConnectionTest] = useState(null)
 
   const runCustomModelConnectionTest = async () => {
+    // Ignore repeat clicks while a probe is running, so a stale result cannot win.
+    if (connectionTest?.pending) return
     setConnectionTest({ pending: true })
     let result
     try {
@@ -734,6 +736,7 @@ export function GeneralPart({
             <button
               type="button"
               title={getConnectionTestTitle(connectionTest, t)}
+              disabled={Boolean(connectionTest?.pending)}
               style={{
                 whiteSpace: 'nowrap',
                 ...getConnectionTestButtonStyle(connectionTest),

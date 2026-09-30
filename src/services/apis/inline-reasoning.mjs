@@ -9,19 +9,21 @@ const REASONING_OPEN_REGEX = /^\s*<(think|thinking|reasoning)(?:\s[^>]*)?>/i
  * code samples that happen to contain one, keep their text.
  *
  * @param {string} content the answer so far
- * @returns {{reasoning: string, answer: string}} the leading thinking and the remaining answer
+ * @returns {{reasoning: string, answer: string, unclosed: boolean}} the leading thinking, the
+ *   remaining answer, and whether the block is still waiting for its closing tag
  */
 export function splitInlineReasoning(content) {
   const open = REASONING_OPEN_REGEX.exec(content)
-  if (!open) return { reasoning: '', answer: content }
+  if (!open) return { reasoning: '', answer: content, unclosed: false }
 
   const rest = content.slice(open[0].length)
   // The closing tag may still be on its way while the model is thinking.
   const close = new RegExp(`</\\s*${open[1]}\\s*>`, 'i').exec(rest)
-  if (!close) return { reasoning: rest, answer: '' }
+  if (!close) return { reasoning: rest, answer: '', unclosed: true }
 
   return {
     reasoning: rest.slice(0, close.index),
     answer: rest.slice(close.index + close[0].length).replace(/^\s+/, ''),
+    unclosed: false,
   }
 }

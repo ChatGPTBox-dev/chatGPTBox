@@ -556,7 +556,8 @@ function ConversationCard(props) {
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       partialAnswerRef.current = ''
       retryRecordRef.current = null
-      updateAnswer(e, false, 'error', false, '')
+      // The renderer takes text, so the thrown error is stored as its message.
+      updateAnswer(e?.message ?? String(e), false, 'error', false, '')
       setIsReady(true)
     }
   }
@@ -858,7 +859,7 @@ function ConversationCard(props) {
               await postMessage({ session: newSession })
             } catch (e) {
               if (disposedRef.current) return
-              updateAnswer(e, false, 'error', false, '')
+              updateAnswer(e?.message ?? String(e), false, 'error', false, '')
             }
             if (disposedRef.current || !bodyRef.current) return
             bodyRef.current.scrollTo({

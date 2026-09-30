@@ -4,7 +4,11 @@ import { shouldDisableDefaultThinking } from './claude-api.mjs'
 import { canTestConnectionSession } from './connection-test-groups.mjs'
 import { getExtraBodyParams } from './extra-body-params.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
-import { resolveModelName, resolveProviderRequestShapingId } from './openai-api.mjs'
+import {
+  hasNativeOllamaChatApiPath,
+  resolveModelName,
+  resolveProviderRequestShapingId,
+} from './openai-api.mjs'
 import { resolveOpenAICompatibleRequest } from './provider-registry.mjs'
 
 const TEST_TIMEOUT_MS = 20000
@@ -120,10 +124,20 @@ async function sendTestRequest({ requestUrl, headers, body }) {
     const response = await fetch(requestUrl, {
       method: 'POST',
       signal: controller.signal,
+      // A redirect would send the credentials somewhere else and answer for the wrong
+      // endpoint, so the probe reports it instead of following it.
+      redirect: 'manual',
       headers,
       body: JSON.stringify(body),
     })
     const elapsedMs = Date.now() - startedAt
+    if (response.type === 'opaqueredirect') {
+      return {
+        ok: false,
+        elapsedMs,
+        error: 'The endpoint redirected the request instead of answering it.',
+      }
+    }
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
       return { ok: false, status: response.status, elapsedMs, error: detail.slice(0, 300) }
@@ -163,5 +177,10 @@ export async function testConnection(session) {
       : buildOpenAICompatibleTestRequest(config, session)
 
   if (!request) return { ok: false, elapsedMs: 0, error: 'unresolved-provider' }
+  // The live path refuses Ollama's native chat endpoint, so a probe against it would
+  // report a mode as reachable that can never hold a conversation.
+  if (hasNativeOllamaChatApiPath(request.requestUrl)) {
+    return { ok: false, elapsedMs: 0, error: 'unsupported-provider' }
+  }
   return sendTestRequest(request)
 }

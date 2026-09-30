@@ -144,7 +144,7 @@ function resolveOllamaKeepAliveBaseUrl(request) {
   return normalizeBaseUrlWithoutVersionSuffix(request?.provider?.baseUrl, 'http://127.0.0.1:11434')
 }
 
-function hasNativeOllamaChatApiPath(requestUrl) {
+export function hasNativeOllamaChatApiPath(requestUrl) {
   const normalizedRequestUrl = normalizeBaseUrl(requestUrl)
   if (!normalizedRequestUrl) return false
   try {

@@ -292,6 +292,8 @@ export function ApiModes({ config, updateConfig }) {
 
   const runConnectionTest = async (apiMode) => {
     const key = getConnectionTestKey(apiMode)
+    // A probe in flight owns the row: a second click would race it for the same result.
+    if (connectionTests[key]?.pending) return
     setConnectionTests((current) => ({ ...current, [key]: { pending: true } }))
     let result
     try {
@@ -672,6 +674,7 @@ export function ApiModes({ config, updateConfig }) {
                   <button
                     type="button"
                     title={getConnectionTestTitle(getConnectionTest(apiMode), t)}
+                    disabled={Boolean(getConnectionTest(apiMode)?.pending)}
                     style={{
                       cursor: 'pointer',
                       width: 'auto',

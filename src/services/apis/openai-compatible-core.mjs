@@ -138,9 +138,13 @@ export async function generateAnswersWithOpenAICompatible({
   // Reasoning that arrives through its own field wins. Providers that put the thinking in
   // the answer instead (a leading <think>-style block) get the same treatment, so it is
   // shown as reasoning and stays out of the conversation records.
-  const resolveStreamText = () => {
+  const resolveStreamText = ({ final = false } = {}) => {
     if (reasoning) return { answer, reasoning }
     const inline = splitInlineReasoning(answer)
+    // A block that never closed is only thinking while the stream is still running. Once it
+    // has ended the text is kept as the answer, so a response truncated mid-thinking (or an
+    // answer that merely starts with a tag) is not lost from the conversation.
+    if (final && inline.unclosed) return { answer, reasoning: '' }
     return { answer: inline.answer, reasoning: inline.reasoning }
   }
 
@@ -159,7 +163,12 @@ export async function generateAnswersWithOpenAICompatible({
   const finish = () => {
     if (finished) return
     finished = true
-    pushRecord(session, question, resolveStreamText().answer)
+    const streamText = resolveStreamText({ final: true })
+    if (streamText.answer !== postedAnswer) {
+      postedAnswer = streamText.answer
+      port.postMessage({ answer: streamText.answer, done: false, session: null })
+    }
+    pushRecord(session, question, streamText.answer)
     port.postMessage({ answer: null, done: true, session: session })
   }
 
@@ -197,7 +206,7 @@ export async function generateAnswersWithOpenAICompatible({
       try {
         if (!finished) {
           if (aborted) {
-            const streamText = resolveStreamText()
+            const streamText = resolveStreamText({ final: true })
             const shouldPostSession = Boolean(streamText.answer) || session.isRetry
             if (shouldPostSession && isCurrentSessionRequest()) {
               if (streamText.answer) {
