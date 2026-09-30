@@ -751,7 +751,7 @@ test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-5.4 mini',
   assert.equal(Object.hasOwn(body, 'max_tokens'), false)
 })
 
-test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-6 Astra and omits unsupported temperature', async (t) => {
+test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-6 and omits unsupported temperature', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     customOpenAiApiUrl: 'https://api.openai.example.com',
@@ -780,13 +780,34 @@ test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-6 Astra an
 
   await generateAnswersWithOpenAiApi(port, 'CurrentQ', session, 'sk-test')
 
-  const body = JSON.parse(capturedInit.body)
+  let body = JSON.parse(capturedInit.body)
   assert.equal(capturedInput, 'https://api.openai.example.com/v1/chat/completions')
   assert.equal(body.model, 'gpt-6-astra')
   assert.equal(body.max_completion_tokens, 444)
   assert.equal(Object.hasOwn(body, 'max_tokens'), false)
   assert.equal(Object.hasOwn(body, 'temperature'), false)
   assert.equal(session.conversationRecords.at(-1).answer, 'OK')
+
+  for (const [modelName, model] of [
+    ['chatgptApi6Sol', 'gpt-6-sol'],
+    ['chatgptApi6Luna', 'gpt-6-luna'],
+  ]) {
+    const newSession = {
+      modelName,
+      conversationRecords: [],
+      isRetry: false,
+    }
+    const newPort = createFakePort()
+
+    await generateAnswersWithOpenAiApi(newPort, 'CurrentQ', newSession, 'sk-test')
+
+    body = JSON.parse(capturedInit.body)
+    assert.equal(body.model, model)
+    assert.equal(body.max_completion_tokens, 444)
+    assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+    assert.equal(Object.hasOwn(body, 'temperature'), false)
+    assert.equal(newSession.conversationRecords.at(-1).answer, 'OK')
+  }
 })
 
 test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-5.4 nano', async (t) => {

@@ -4,6 +4,7 @@ import {
   getNavigatorLanguage,
   getPreferredLanguageKey,
   Models,
+  defaultApiModeIds,
   chatgptApiModelKeys,
   gptApiModelKeys,
   claudeApiModelKeys,
@@ -52,6 +53,8 @@ const representativeChatgptApiModelNames = [
   'chatgptApi5_6Sol',
   'chatgptApi5_6Terra',
   'chatgptApi5_6Luna',
+  'chatgptApi6Sol',
+  'chatgptApi6Luna',
 ]
 const representativeGptCompletionApiModelNames = ['gptApiInstruct']
 const representativeClaudeApiModelNames = ['claudeOpus48Api', 'claudeSonnet46Api']
@@ -80,6 +83,13 @@ const setNavigatorLanguage = (language) => {
 
 afterEach(() => {
   restoreNavigator()
+})
+
+test('GPT-6 Sol and Luna replace their GPT-5.6 counterparts in the default presets', () => {
+  assert.equal(defaultApiModeIds.includes('chatgptApi6Sol'), true)
+  assert.equal(defaultApiModeIds.includes('chatgptApi6Luna'), true)
+  assert.equal(defaultApiModeIds.includes('chatgptApi5_6Sol'), false)
+  assert.equal(defaultApiModeIds.includes('chatgptApi5_6Luna'), false)
 })
 
 test('getNavigatorLanguage returns zh-Hant for zh-TW style locales', () => {

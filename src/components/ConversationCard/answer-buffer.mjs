@@ -1,4 +1,27 @@
 /**
+ * Animation frames are the fastest way to coalesce a burst of updates, but not every host
+ * has them (jsdom and other headless renderers do not). Fall back to a timer there so the
+ * buffer can always be created.
+ * @param {typeof globalThis} [host]
+ * @returns {{requestFrame: (callback: () => void) => unknown, cancelFrame: (handle: unknown) => void}}
+ */
+export function createFrameScheduler(host = globalThis) {
+  if (
+    typeof host.requestAnimationFrame === 'function' &&
+    typeof host.cancelAnimationFrame === 'function'
+  ) {
+    return {
+      requestFrame: (callback) => host.requestAnimationFrame(callback),
+      cancelFrame: (handle) => host.cancelAnimationFrame(handle),
+    }
+  }
+  return {
+    requestFrame: (callback) => setTimeout(callback, 16),
+    cancelFrame: (handle) => clearTimeout(handle),
+  }
+}
+
+/**
  * Coalesces streamed answer text so a burst of chunks renders once per frame instead of
  * once per chunk, while never losing the newest text.
  * @param {object} params

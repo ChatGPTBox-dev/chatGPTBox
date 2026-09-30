@@ -3,9 +3,12 @@ const MODELS_WITHOUT_CUSTOM_TEMPERATURE = new Set([
   'claude-opus-4-8',
   'claude-sonnet-5',
   'claude-opus-5',
+  'claude-opus-5-5',
   'claude-fable-5',
   'claude-fable-5-1',
   'gpt-6-astra',
+  'gpt-6-sol',
+  'gpt-6-luna',
 ])
 
 function normalizeModelId(model) {
