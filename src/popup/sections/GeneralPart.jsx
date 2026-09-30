@@ -20,6 +20,11 @@ import PropTypes from 'prop-types'
 import { config as menuConfig } from '../../content-script/menu-tools'
 import { PencilIcon } from '@primer/octicons-react'
 import { importDataIntoStorage } from './import-data-cleanup.mjs'
+import {
+  getConnectionTestButtonStyle,
+  getConnectionTestLabel,
+  getConnectionTestTitle,
+} from './connection-test-status.mjs'
 import { resolveOpenAICompatibleRequest } from '../../services/apis/provider-registry.mjs'
 import {
   getApiModeDisplayLabel,
@@ -100,6 +105,23 @@ export function GeneralPart({
 }) {
   const { t, i18n } = useTranslation()
   const [apiModes, setApiModes] = useState([])
+  const [connectionTest, setConnectionTest] = useState(null)
+
+  const runCustomModelConnectionTest = async () => {
+    // Ignore repeat clicks while a probe is running, so a stale result cannot win.
+    if (connectionTest?.pending) return
+    setConnectionTest({ pending: true })
+    let result
+    try {
+      result = await Browser.runtime.sendMessage({
+        type: 'TEST_API_CONNECTION',
+        data: { session: { modelName: 'customModel' } },
+      })
+    } catch (error) {
+      result = { ok: false, error: error?.message ?? String(error) }
+    }
+    setConnectionTest({ ...result, pending: false })
+  }
   const [providerApiKeyDraft, setProviderApiKeyDraft] = useState('')
   const [isOverrideProviderKeyActionPending, setIsOverrideProviderKeyActionPending] =
     useState(false)
@@ -701,15 +723,29 @@ export function GeneralPart({
             </span>
           )}
         {isUsingSpecialCustomModel(config) && (
-          <input
-            type="text"
-            value={config.customModelApiUrl}
-            placeholder={t('Custom Model API Url')}
-            onChange={(e) => {
-              const value = e.target.value
-              updateConfig({ customModelApiUrl: value })
-            }}
-          />
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <input
+              type="text"
+              value={config.customModelApiUrl}
+              placeholder={t('Custom Model API Url')}
+              onChange={(e) => {
+                const value = e.target.value
+                updateConfig({ customModelApiUrl: value })
+              }}
+            />
+            <button
+              type="button"
+              title={getConnectionTestTitle(connectionTest, t)}
+              disabled={Boolean(connectionTest?.pending)}
+              style={{
+                whiteSpace: 'nowrap',
+                ...getConnectionTestButtonStyle(connectionTest),
+              }}
+              onClick={runCustomModelConnectionTest}
+            >
+              {getConnectionTestLabel(connectionTest, t)}
+            </button>
+          </div>
         )}
         {isUsingOllamaApiModel(config) && (
           <div style={{ display: 'flex', gap: '10px' }}>
