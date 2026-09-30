@@ -55,7 +55,7 @@ export function ConversationItem({
               )}
             </div>
           </div>
-          {!collapsed && <MarkdownRender>{content}</MarkdownRender>}
+          {!collapsed && <MarkdownRender literalTags>{content}</MarkdownRender>}
         </div>
       )
     case 'answer':

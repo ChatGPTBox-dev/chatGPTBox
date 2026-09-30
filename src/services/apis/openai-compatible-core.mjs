@@ -5,6 +5,7 @@ import { getCompletionPromptBase, pushRecord, setAbortController } from './share
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
 import { getExtraBodyParams } from './extra-body-params.mjs'
+import { splitInlineReasoning } from './inline-reasoning.mjs'
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -130,11 +131,35 @@ export async function generateAnswersWithOpenAICompatible({
 
   let answer = ''
   let reasoning = ''
+  let postedAnswer = ''
+  let postedReasoning = ''
   let finished = false
+
+  // Reasoning that arrives through its own field wins. Providers that put the thinking in
+  // the answer instead (a leading <think>-style block) get the same treatment, so it is
+  // shown as reasoning and stays out of the conversation records.
+  const resolveStreamText = () => {
+    if (reasoning) return { answer, reasoning }
+    const inline = splitInlineReasoning(answer)
+    return { answer: inline.answer, reasoning: inline.reasoning }
+  }
+
+  const postStreamText = () => {
+    const streamText = resolveStreamText()
+    if (streamText.answer !== postedAnswer) {
+      postedAnswer = streamText.answer
+      port.postMessage({ answer: streamText.answer, done: false, session: null })
+    }
+    if (streamText.reasoning && streamText.reasoning !== postedReasoning) {
+      postedReasoning = streamText.reasoning
+      port.postMessage({ reasoning: streamText.reasoning, done: false, session: null })
+    }
+  }
+
   const finish = () => {
     if (finished) return
     finished = true
-    pushRecord(session, question, answer)
+    pushRecord(session, question, resolveStreamText().answer)
     port.postMessage({ answer: null, done: true, session: session })
   }
 
@@ -157,14 +182,11 @@ export async function generateAnswersWithOpenAICompatible({
         return
       }
 
-      answer = buildMessageAnswer(answer, data, allowLegacyResponseField)
-      port.postMessage({ answer: answer, done: false, session: null })
-
       const reasoningDelta = getReasoningDelta(data)
-      if (reasoningDelta) {
-        reasoning += reasoningDelta
-        port.postMessage({ reasoning: reasoning, done: false, session: null })
-      }
+      if (reasoningDelta) reasoning += reasoningDelta
+      answer = buildMessageAnswer(answer, data, allowLegacyResponseField)
+      // A chunk can carry reasoning only; an unchanged answer is not posted again.
+      postStreamText()
 
       if (hasFinished(data)) {
         finish()
@@ -175,10 +197,11 @@ export async function generateAnswersWithOpenAICompatible({
       try {
         if (!finished) {
           if (aborted) {
-            const shouldPostSession = Boolean(answer) || session.isRetry
+            const streamText = resolveStreamText()
+            const shouldPostSession = Boolean(streamText.answer) || session.isRetry
             if (shouldPostSession && isCurrentSessionRequest()) {
-              if (answer) {
-                pushRecord(session, question, answer)
+              if (streamText.answer) {
+                pushRecord(session, question, streamText.answer)
               }
               session.isRetry = false
               try {

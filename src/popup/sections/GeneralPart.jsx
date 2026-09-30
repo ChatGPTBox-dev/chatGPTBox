@@ -20,6 +20,11 @@ import PropTypes from 'prop-types'
 import { config as menuConfig } from '../../content-script/menu-tools'
 import { PencilIcon } from '@primer/octicons-react'
 import { importDataIntoStorage } from './import-data-cleanup.mjs'
+import {
+  getConnectionTestButtonStyle,
+  getConnectionTestLabel,
+  getConnectionTestTitle,
+} from './connection-test-status.mjs'
 import { resolveOpenAICompatibleRequest } from '../../services/apis/provider-registry.mjs'
 import {
   getApiModeDisplayLabel,
@@ -728,30 +733,15 @@ export function GeneralPart({
             />
             <button
               type="button"
-              style="white-space: nowrap;"
+              title={getConnectionTestTitle(connectionTest, t)}
+              style={{
+                whiteSpace: 'nowrap',
+                ...getConnectionTestButtonStyle(connectionTest),
+              }}
               onClick={runCustomModelConnectionTest}
             >
-              {t('Test')}
+              {getConnectionTestLabel(connectionTest, t)}
             </button>
-            {connectionTest && (
-              <span
-                title={connectionTest.error ?? ''}
-                style={{
-                  whiteSpace: 'nowrap',
-                  color: connectionTest.pending
-                    ? undefined
-                    : connectionTest.ok
-                    ? '#2da44e'
-                    : '#d1242f',
-                }}
-              >
-                {connectionTest.pending
-                  ? t('Testing...')
-                  : connectionTest.ok
-                  ? `${t('Reachable')} ${connectionTest.elapsedMs}ms`
-                  : t('Unreachable')}
-              </span>
-            )}
           </div>
         )}
         {isUsingOllamaApiModel(config) && (

@@ -1,6 +1,3 @@
-import '@aeven-ai/hypermarkdown/styles.css'
-import 'tippy.js/dist/tippy.css'
-import './mykatex.min.css'
 import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import PropTypes from 'prop-types'
@@ -9,7 +6,13 @@ import { highlightPlugin } from '@aeven-ai/hypermarkdown/plugins/code'
 import { Hyperlink } from './Hyperlink'
 import { highlightOptions } from './highlight-options.mjs'
 import { mathPlugin } from './math-plugin.mjs'
+import { normalizeListStarts } from './list-markers.mjs'
+import { buildStreamedContent } from './reasoning-content.mjs'
+import { escapeReasoningTags } from './special-tags.mjs'
 import { createStreamDelta } from './stream-delta.mjs'
+
+// This component can land in a shared chunk, whose CSS is never packaged (see build.mjs),
+// so its stylesheets are imported by the content-script entry instead.
 
 // rehype-react keys elements by component identity, so these maps have to stay stable
 // across renders or every block remounts.
@@ -26,13 +29,39 @@ const ALLOWED_TAGS = { p: ['className'] }
  * @param {string} props.children markdown, or the whole answer so far while streaming
  * @param {boolean} [props.done] false while the answer is still arriving
  * @param {string} [props.reasoning] thinking to show ahead of the answer
+ * @param {boolean} [props.literalTags] the text is user input: every reasoning tag is shown
+ *   as written, instead of a leading block being presented as thinking
  */
-export function MarkdownRender({ children, done = true, reasoning = '' }) {
+export function MarkdownRender({ children, done = true, reasoning = '', literalTags = false }) {
   const { t } = useTranslation()
   const rendererRef = useRef(null)
+  const containerRef = useRef(null)
   const deltaRef = useRef(null)
   if (deltaRef.current === null) deltaRef.current = createStreamDelta()
-  const content = reasoning ? `<think>\n${reasoning}\n</think>\n\n${children}` : children
+  const content = buildStreamedContent(
+    escapeReasoningTags(children, { preserveLeadingBlock: !literalTags }),
+    reasoning,
+    done,
+  )
+
+  // The renderer draws its own markers with `li::before`, but a nested bullet list inherits
+  // the numbered marker of the list around it and its counter ignores `start`. The markers
+  // are therefore drawn by the browser (see content-script/styles.scss), which needs the
+  // streaming-only `start="0"` cleaned up.
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const correctStarts = () => normalizeListStarts(container)
+    correctStarts()
+    const observer = new MutationObserver(correctStarts)
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['start'],
+    })
+    return () => observer.disconnect()
+  }, [])
 
   // Answers arrive as a growing snapshot, but the renderer takes deltas and caches the
   // blocks it has settled, so only the new text is parsed on each update.
@@ -52,7 +81,7 @@ export function MarkdownRender({ children, done = true, reasoning = '' }) {
   )
 
   return (
-    <div dir="auto">
+    <div dir="auto" ref={containerRef}>
       <HyperMarkdown
         ref={rendererRef}
         streaming
@@ -71,6 +100,7 @@ MarkdownRender.propTypes = {
   children: PropTypes.string.isRequired,
   done: PropTypes.bool,
   reasoning: PropTypes.string,
+  literalTags: PropTypes.bool,
 }
 
 export default memo(MarkdownRender)

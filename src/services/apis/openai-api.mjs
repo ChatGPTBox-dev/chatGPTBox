@@ -101,7 +101,7 @@ function shouldUseOpenAIRequestShaping(request) {
   return hasNativeOpenAIRequestUrl(request?.requestUrl)
 }
 
-function resolveProviderRequestShapingId(request) {
+export function resolveProviderRequestShapingId(request) {
   if (shouldUseOpenAIRequestShaping(request)) return 'openai'
   return request?.providerId
 }

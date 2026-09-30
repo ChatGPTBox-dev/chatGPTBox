@@ -7,7 +7,7 @@ import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
 import { getExtraBodyParams } from './extra-body-params.mjs'
 
-function shouldDisableDefaultThinking(model) {
+export function shouldDisableDefaultThinking(model) {
   return model === 'claude-sonnet-5'
 }
 

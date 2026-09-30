@@ -228,6 +228,16 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
                 )
               }
             }),
+            // The renderer stylesheet is swapped too: the KaTeX selectors and fonts it
+            // carries must not reach the KaTeX-free artifacts.
+            new webpack.NormalModuleReplacementPlugin(/mykatex\.min\.css/, (result) => {
+              if (result.request) {
+                result.request = result.request.replace(
+                  'mykatex.min.css',
+                  'mykatex-without-katex.css',
+                )
+              }
+            }),
           ]
         : []),
     ],

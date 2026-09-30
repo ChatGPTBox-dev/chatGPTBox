@@ -13,6 +13,12 @@ import {
   getCustomOpenAIProviders,
   OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID,
 } from '../../services/apis/provider-registry.mjs'
+import { canTestConnectionSession } from '../../services/apis/connection-test-groups.mjs'
+import {
+  getConnectionTestButtonStyle,
+  getConnectionTestLabel,
+  getConnectionTestTitle,
+} from './connection-test-status.mjs'
 import {
   applySelectedProviderToApiMode,
   applyDeletedProviderSecrets,
@@ -70,6 +76,20 @@ const defaultProviderDraft = {
 const defaultProviderDraftValidation = {
   name: false,
   apiUrl: false,
+}
+
+// Results are keyed by what the mode is, not by where it happens to sit in the list, so
+// reordering or deleting a row cannot attach a result to a different provider.
+function getConnectionTestKey(apiMode) {
+  return [
+    apiMode?.groupName,
+    apiMode?.itemName,
+    apiMode?.customName,
+    apiMode?.providerId,
+    apiMode?.customUrl,
+  ]
+    .map((part) => String(part ?? '').trim())
+    .join('\u0000')
 }
 
 export function ApiModes({ config, updateConfig }) {
@@ -270,8 +290,9 @@ export function ApiModes({ config, updateConfig }) {
     setIsProviderEditorOpen(true)
   }
 
-  const runConnectionTest = async (index, apiMode) => {
-    setConnectionTests((current) => ({ ...current, [index]: { pending: true } }))
+  const runConnectionTest = async (apiMode) => {
+    const key = getConnectionTestKey(apiMode)
+    setConnectionTests((current) => ({ ...current, [key]: { pending: true } }))
     let result
     try {
       result = await Browser.runtime.sendMessage({
@@ -281,23 +302,10 @@ export function ApiModes({ config, updateConfig }) {
     } catch (error) {
       result = { ok: false, error: error?.message ?? String(error) }
     }
-    setConnectionTests((current) => ({ ...current, [index]: { ...result, pending: false } }))
+    setConnectionTests((current) => ({ ...current, [key]: { ...result, pending: false } }))
   }
 
-  const renderConnectionTest = (index) => {
-    const test = connectionTests[index]
-    if (!test) return null
-    const color = test.pending ? undefined : test.ok ? '#2da44e' : '#d1242f'
-    return (
-      <div title={test.error ?? ''} style={{ color }}>
-        {test.pending
-          ? t('Testing...')
-          : test.ok
-          ? `${t('Reachable')} ${test.elapsedMs}ms`
-          : t('Unreachable')}
-      </div>
-    )
-  }
+  const getConnectionTest = (apiMode) => connectionTests[getConnectionTestKey(apiMode)]
 
   const onSaveProviderEditing = (event) => {
     event.preventDefault()
@@ -659,16 +667,25 @@ export function ApiModes({ config, updateConfig }) {
               />
               {getApiModeDisplayLabel(apiMode, t, effectiveProviders)}
               <div style={{ flexGrow: 1 }} />
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div
-                  style={{ cursor: 'pointer' }}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    runConnectionTest(index, apiMode)
-                  }}
-                >
-                  {t('Test')}
-                </div>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                {canTestConnectionSession({ apiMode }) && (
+                  <button
+                    type="button"
+                    title={getConnectionTestTitle(getConnectionTest(apiMode), t)}
+                    style={{
+                      cursor: 'pointer',
+                      width: 'auto',
+                      marginBottom: 0,
+                      ...getConnectionTestButtonStyle(getConnectionTest(apiMode)),
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      runConnectionTest(apiMode)
+                    }}
+                  >
+                    {getConnectionTestLabel(getConnectionTest(apiMode), t)}
+                  </button>
+                )}
                 <div
                   style={{ cursor: 'pointer' }}
                   onClick={(e) => {
@@ -718,7 +735,6 @@ export function ApiModes({ config, updateConfig }) {
                 >
                   <TrashIcon />
                 </div>
-                {renderConnectionTest(index)}
               </div>
             </label>
           )),

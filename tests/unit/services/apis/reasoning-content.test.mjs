@@ -65,3 +65,39 @@ test('an answer with no reasoning behaves as before', async (t) => {
   assert.equal(port.postedMessages.filter((message) => message.reasoning).length, 0)
   assert.equal(session.conversationRecords[0].answer, 'Plain')
 })
+
+test('reasoning-only chunks do not repost the unchanged answer', async (t) => {
+  const { port } = await run(t, [
+    'data: {"choices":[{"delta":{"content":"The answer."}}]}\n\n',
+    'data: {"choices":[{"delta":{"reasoning_content":"more thinking"}}]}\n\n',
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n',
+  ])
+
+  const answerUpdates = port.postedMessages.filter((message) => message.answer)
+  assert.deepEqual(
+    answerUpdates.map((message) => message.answer),
+    ['The answer.'],
+  )
+})
+
+test('thinking written inside the answer is moved to the reasoning channel', async (t) => {
+  const { port, session } = await run(t, [
+    'data: {"choices":[{"delta":{"content":"<think>weighing "}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"options</think>\\n\\nThe answer."},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n',
+  ])
+
+  const reasoningUpdates = port.postedMessages
+    .filter((message) => message.reasoning)
+    .map((message) => message.reasoning)
+  assert.deepEqual(reasoningUpdates, ['weighing ', 'weighing options'])
+
+  const answerUpdates = port.postedMessages
+    .filter((message) => message.answer !== undefined && message.answer !== null)
+    .map((message) => message.answer)
+  // Nothing is posted for the answer while the thinking is still streaming.
+  assert.deepEqual(answerUpdates, ['The answer.'])
+
+  assert.equal(session.conversationRecords[0].answer, 'The answer.')
+})
