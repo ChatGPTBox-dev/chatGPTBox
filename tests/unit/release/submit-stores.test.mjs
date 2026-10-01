@@ -82,6 +82,33 @@ test('findMissingEnv does not require Chrome credentials when publishing through
   assert.deepEqual(findMissingEnv(env), [])
 })
 
+test('findMissingEnv still requires Firefox and Edge credentials when publishing Chrome through the action', () => {
+  const requiredStoreEnv = [
+    'FIREFOX_EXTENSION_ID',
+    'FIREFOX_JWT_ISSUER',
+    'FIREFOX_JWT_SECRET',
+    'EDGE_PRODUCT_ID',
+    'EDGE_CLIENT_ID',
+    'EDGE_API_KEY',
+  ]
+  const env = {
+    CHROME_PUBLISH_VIA_ACTION: 'true',
+    FIREFOX_EXTENSION_ID: 'chatgptbox',
+    FIREFOX_JWT_ISSUER: 'firefox-issuer',
+    FIREFOX_JWT_SECRET: 'firefox-secret',
+    EDGE_PRODUCT_ID: 'edge-product',
+    EDGE_CLIENT_ID: 'edge-client',
+    EDGE_API_KEY: 'edge-key',
+  }
+
+  for (const name of requiredStoreEnv) {
+    const envWithoutStoreValue = { ...env }
+    delete envWithoutStoreValue[name]
+
+    assert.deepEqual(findMissingEnv(envWithoutStoreValue), [name])
+  }
+})
+
 test('findMissingEnv treats whitespace-only secrets as missing', () => {
   const env = {
     CHROME_EXTENSION_ID: 'chrome-id',
