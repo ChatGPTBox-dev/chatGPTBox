@@ -14,10 +14,12 @@ register(
 
 const deferred = () => {
   let resolve
-  const promise = new Promise((resolvePromise) => {
+  let reject
+  const promise = new Promise((resolvePromise, rejectPromise) => {
     resolve = resolvePromise
+    reject = rejectPromise
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
 const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -164,6 +166,135 @@ test('the newest async selection-tool result wins when completions arrive out of
   assert.deepEqual(state.observedStateUpdates, [])
   assert.equal(state.lastQuestion, 'second prompt')
   assert.equal(state.conversationRenderCount, renderCount)
+
+  act(() => render(null, container))
+})
+
+test('a current selection-tool prompt failure is contained and the toolbar remains usable', async () => {
+  const failedPrompt = deferred()
+  const retryPrompt = deferred()
+  const state = globalThis.__FLOATING_TOOLBAR_TEST__
+  let promptCall = 0
+  state.genPrompt = () => {
+    promptCall += 1
+    return promptCall === 1 ? failedPrompt.promise : retryPrompt.promise
+  }
+
+  const container = createContainer()
+  mountToolbar(container)
+
+  const button = container.querySelector('.chatgptbox-selection-toolbar-button')
+  assert.ok(button)
+  act(() => {
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+
+  const failure = new Error('prompt generation failed')
+  const errors = []
+  const originalConsoleError = console.error
+  console.error = (...args) => errors.push(args)
+
+  try {
+    state.observeStateUpdates = true
+    failedPrompt.reject(failure)
+    await failedPrompt.promise.catch(() => {})
+    await nextTask()
+    state.observeStateUpdates = false
+
+    assert.deepEqual(state.observedStateUpdates, [])
+    assert.equal(state.lastQuestion, null)
+    assert.equal(state.conversationRenderCount, 0)
+    assert.ok(container.querySelector('.chatgptbox-selection-toolbar-button'))
+    assert.equal(errors.length, 1)
+    assert.equal(errors[0][0], '[FloatingToolbar] Failed to generate selection tool prompt:')
+    assert.equal(errors[0][1], failure)
+
+    state.observedStateUpdates = []
+    const retryButton = container.querySelector('.chatgptbox-selection-toolbar-button')
+    assert.ok(retryButton)
+    act(() => {
+      retryButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    assert.equal(promptCall, 2)
+
+    state.observeStateUpdates = true
+    await act(async () => {
+      retryPrompt.resolve('retry prompt')
+      await retryPrompt.promise
+      await Promise.resolve()
+    })
+    state.observeStateUpdates = false
+
+    assert.deepEqual(state.observedStateUpdates, ['retry prompt', true])
+    assert.equal(state.lastQuestion, 'retry prompt')
+    assert.equal(errors.length, 1)
+  } finally {
+    state.observeStateUpdates = false
+    console.error = originalConsoleError
+  }
+
+  act(() => render(null, container))
+})
+
+test('a stale selection-tool prompt failure is contained without affecting the newest result', async () => {
+  const firstPrompt = deferred()
+  const secondPrompt = deferred()
+  const state = globalThis.__FLOATING_TOOLBAR_TEST__
+  let promptCall = 0
+  state.genPrompt = () => {
+    promptCall += 1
+    return promptCall === 1 ? firstPrompt.promise : secondPrompt.promise
+  }
+
+  const container = createContainer()
+  mountToolbar(container)
+
+  let button = container.querySelector('.chatgptbox-selection-toolbar-button')
+  assert.ok(button)
+  act(() => {
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+
+  button = container.querySelector('.chatgptbox-selection-toolbar-button')
+  assert.ok(button)
+  act(() => {
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  assert.equal(promptCall, 2)
+
+  const errors = []
+  const originalConsoleError = console.error
+  console.error = (...args) => errors.push(args)
+
+  try {
+    state.observeStateUpdates = true
+    await act(async () => {
+      secondPrompt.resolve('second prompt')
+      await secondPrompt.promise
+      await Promise.resolve()
+    })
+    state.observeStateUpdates = false
+
+    assert.deepEqual(state.observedStateUpdates, ['second prompt', true])
+    assert.equal(state.lastQuestion, 'second prompt')
+    const renderCount = state.conversationRenderCount
+
+    state.observedStateUpdates = []
+    const staleFailure = new Error('stale prompt generation failed')
+    state.observeStateUpdates = true
+    firstPrompt.reject(staleFailure)
+    await firstPrompt.promise.catch(() => {})
+    await nextTask()
+    state.observeStateUpdates = false
+
+    assert.deepEqual(state.observedStateUpdates, [])
+    assert.equal(state.lastQuestion, 'second prompt')
+    assert.equal(state.conversationRenderCount, renderCount)
+    assert.deepEqual(errors, [])
+  } finally {
+    state.observeStateUpdates = false
+    console.error = originalConsoleError
+  }
 
   act(() => render(null, container))
 })
