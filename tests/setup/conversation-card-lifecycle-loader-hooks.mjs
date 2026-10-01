@@ -46,9 +46,9 @@ const sources = {
     export const createElementAtPosition = () => document.createElement('div')
     export const getApiModesFromConfig = () => []
     export const getUniquelySelectedApiModeIndex = () => -1
-    export const isFirefox = () => false
-    export const isMobile = () => false
-    export const isSafari = () => false
+    export const isFirefox = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.isFirefox
+    export const isMobile = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.isMobile
+    export const isSafari = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.isSafari
     export const isUsingModelName = () => false
     export const modelNameToDesc = () => 'Test Model'
   `,
@@ -60,7 +60,19 @@ const sources = {
   `,
   'test:conversation-file-saver': 'export default { saveAs() {} }',
   'test:conversation-floating-toolbar': 'export default function FloatingToolbar() { return null }',
-  'test:conversation-window-size': 'export const useClampWindowSize = () => [1000, 1000]',
+  'test:conversation-window-size': `
+    export const useClampWindowSize = (
+      widthRange = [0, Infinity],
+      heightRange = [0, Infinity],
+    ) => {
+      const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+      const [width, height] = state.windowSize ?? [1000, 1000]
+      return [
+        Math.min(widthRange[1], Math.max(width, widthRange[0])),
+        Math.min(heightRange[1], Math.max(height, heightRange[0])),
+      ]
+    }
+  `,
   'test:conversation-config': `
     export const getUserConfig = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.getUserConfig()
     export const isUsingBingWebModel = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.foreground

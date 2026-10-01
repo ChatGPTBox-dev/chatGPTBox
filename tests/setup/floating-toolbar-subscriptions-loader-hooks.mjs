@@ -28,8 +28,15 @@ const sources = {
     export const setElementPositionInViewport = (_container, x, y) => ({ x, y })
   `,
   'test:subscription-draggable': `
-    export default function Draggable(props) {
-      return props.children
+    import { Component } from 'preact'
+    export class DraggableCore extends Component {
+      handleDragStop(event) {
+        this.props.onStop?.(event, {})
+      }
+
+      render() {
+        return this.props.children
+      }
     }
   `,
   'test:subscription-i18n': 'export const useTranslation = () => ({ t: (value) => value })',
@@ -62,6 +69,10 @@ const sources = {
 }
 
 export async function resolve(specifier, context, nextResolve) {
+  if (context.parentURL?.startsWith('test:subscription-') && specifier === 'preact') {
+    return nextResolve(specifier, { ...context, parentURL: import.meta.url })
+  }
+
   if (context.parentURL?.endsWith('/src/components/FloatingToolbar/index.jsx')) {
     if (specifier === '../../hooks/use-clamp-window-size') {
       return nextResolve('../../hooks/use-clamp-window-size.mjs', context)

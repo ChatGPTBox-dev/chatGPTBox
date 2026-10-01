@@ -85,7 +85,7 @@ function ConversationCard(props) {
   const portRef = useRef(port)
   const foregroundMessageListeners = useRef([])
   const foregroundPortsRef = useRef(new Set())
-  const [completeDraggable, setCompleteDraggable] = useState(false)
+  const completeDraggable = useMemo(() => !isSafari() && !isFirefox() && !isMobile(), [])
   const useForegroundFetch = isUsingBingWebModel(session)
   const [apiModes, setApiModes] = useState([])
 
@@ -158,10 +158,6 @@ function ConversationCard(props) {
       }
       setConversationItemData(ret)
     }
-  }, [])
-
-  useEffect(() => {
-    setCompleteDraggable(!isSafari() && !isFirefox() && !isMobile())
   }, [])
 
   useEffect(() => {
@@ -514,20 +510,41 @@ function ConversationCard(props) {
   }
 
   const retryFn = useMemo(() => getRetryFn(session), [session, isReady, conversationItemData, port])
+  const useDedicatedDragHandle = props.draggable && !completeDraggable
+  const dedicatedDragHandleWidth = isMobile() ? '44px' : '24px'
+  const constrainFloatingHeight = props.draggable && !props.pageMode
+  const floatingViewportMaxHeight = window.CSS?.supports?.('max-height', '100dvh')
+    ? '100dvh'
+    : '100vh'
 
   return (
-    <div className="gpt-inner">
+    <div
+      className="gpt-inner"
+      style={
+        constrainFloatingHeight
+          ? { maxHeight: floatingViewportMaxHeight, boxSizing: 'border-box' }
+          : undefined
+      }
+    >
       <div
         className={
           props.draggable ? `gpt-header${completeDraggable ? ' draggable' : ''}` : 'gpt-header'
         }
-        style="user-select:none;"
+        style={{
+          userSelect: 'none',
+          ...(useDedicatedDragHandle ? { flexWrap: 'wrap' } : {}),
+        }}
       >
         <span
           className="gpt-util-group"
           style={{
             padding: '15px 0 15px 15px',
-            ...(props.notClampSize ? {} : { flexGrow: isSafari() ? 0 : 1 }),
+            ...(props.notClampSize
+              ? {}
+              : {
+                  flexGrow: isSafari() ? 0 : 1,
+                  ...(useDedicatedDragHandle ? { minWidth: '180px' } : {}),
+                }),
             ...(isSafari() ? { maxWidth: '200px' } : {}),
           }}
         >
@@ -557,8 +574,17 @@ function ConversationCard(props) {
             <img src={logo} style="user-select:none;width:20px;height:20px;" />
           )}
           <select
-            style={props.notClampSize ? {} : { width: 0, flexGrow: 1 }}
+            style={
+              props.notClampSize
+                ? {}
+                : {
+                    width: 0,
+                    flexGrow: 1,
+                    ...(useDedicatedDragHandle ? { minWidth: 0 } : {}),
+                  }
+            }
             className="normal-button"
+            title={selectedApiModeLabel || currentAiName}
             required
             value={selectedApiModeValue}
             onChange={(e) => {
@@ -603,15 +629,19 @@ function ConversationCard(props) {
             <option value={-1}>{t(Models.customModel.desc)}</option>
           </select>
         </span>
-        {props.draggable && !completeDraggable && (
-          <div className="draggable" style={{ flexGrow: 2, cursor: 'move', height: '55px' }} />
+        {useDedicatedDragHandle && (
+          <div
+            className="draggable"
+            style={{ flex: `0 0 ${dedicatedDragHandleWidth}`, cursor: 'move', height: '55px' }}
+          />
         )}
         <span
           className="gpt-util-group"
           style={{
             padding: '15px 15px 15px 0',
             justifyContent: 'flex-end',
-            flexGrow: props.draggable && !completeDraggable ? 0 : 1,
+            flexGrow: useDedicatedDragHandle ? 0 : 1,
+            ...(useDedicatedDragHandle ? { marginLeft: 'auto' } : {}),
           }}
         >
           {!config.disableWebModeHistory && session && session.conversationId && (
@@ -752,7 +782,11 @@ function ConversationCard(props) {
         style={
           props.notClampSize
             ? { flexGrow: 1, minHeight: 0 }
-            : { maxHeight: windowSize[1] * 0.55 + 'px', resize: 'vertical' }
+            : {
+                maxHeight: windowSize[1] * 0.55 + 'px',
+                resize: 'vertical',
+                ...(constrainFloatingHeight ? { flexShrink: 1, minHeight: 0 } : {}),
+              }
         }
       >
         {conversationItemData.map((data, idx) => (

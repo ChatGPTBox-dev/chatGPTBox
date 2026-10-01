@@ -112,6 +112,10 @@ const createRuntimePort = () => {
 const resetState = () => {
   const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
   state.foreground = false
+  state.isFirefox = false
+  state.isMobile = false
+  state.isSafari = false
+  state.windowSize = [1000, 1000]
   state.config = defaultConfig()
   state.ports = []
   state.inputBoxProps = null
@@ -139,6 +143,22 @@ const mountCard = (container, props = {}) => {
       container,
     )
   })
+}
+
+const withDynamicViewportSupport = (supported, callback) => {
+  const descriptor = Object.getOwnPropertyDescriptor(window, 'CSS')
+  Object.defineProperty(window, 'CSS', {
+    configurable: true,
+    value: {
+      supports: (property, value) => supported && property === 'max-height' && value === '100dvh',
+    },
+  })
+  try {
+    return callback()
+  } finally {
+    if (descriptor) Object.defineProperty(window, 'CSS', descriptor)
+    else delete window.CSS
+  }
 }
 
 before(async () => {
@@ -194,6 +214,74 @@ after(() => {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor)
     else delete globalThis[name]
   }
+})
+
+test('floating conversation caps its height and lets the body shrink in a short viewport', () => {
+  withDynamicViewportSupport(false, () => {
+    const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+    const container = document.createElement('div')
+    container.style.width = '300px'
+    document.body.append(container)
+    state.isFirefox = true
+    state.windowSize = [600, 350]
+
+    mountCard(container, { draggable: true, closeable: true })
+
+    const inner = container.querySelector('.gpt-inner')
+    const header = container.querySelector('.gpt-header')
+    const body = container.querySelector('.markdown-body')
+    const dragHandle = container.querySelector('.draggable')
+    assert.ok(inner)
+    assert.ok(header)
+    assert.ok(body)
+    assert.ok(dragHandle)
+
+    assert.equal(inner.style.maxHeight, '100vh')
+    assert.equal(inner.style.boxSizing, 'border-box')
+    assert.equal(header.style.flexWrap, 'wrap')
+    assert.equal(dragHandle.style.flex, '0 0 24px')
+    assert.equal(Number.parseFloat(body.style.maxHeight), state.windowSize[1] * 0.55)
+    assert.equal(Number.parseFloat(body.style.minHeight), 0)
+    assert.equal(body.style.flexShrink, '1')
+  })
+})
+
+test('floating mobile conversation prefers the dynamic viewport height when supported', () => {
+  withDynamicViewportSupport(true, () => {
+    const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+    const container = document.createElement('div')
+    document.body.append(container)
+    state.isMobile = true
+
+    mountCard(container, { draggable: true, closeable: true })
+
+    const inner = container.querySelector('.gpt-inner')
+    const dragHandle = container.querySelector('.draggable')
+    assert.ok(inner)
+    assert.ok(dragHandle)
+
+    assert.equal(inner.style.maxHeight, '100dvh')
+    assert.equal(inner.style.boxSizing, 'border-box')
+    assert.equal(dragHandle.style.flex, '0 0 44px')
+  })
+})
+
+test('independent conversation page keeps its existing unconstrained height behavior', () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+
+  mountCard(container, { draggable: true, notClampSize: true, pageMode: true })
+
+  const inner = container.querySelector('.gpt-inner')
+  const body = container.querySelector('.markdown-body')
+  assert.ok(inner)
+  assert.ok(body)
+
+  assert.equal(inner.style.maxHeight, '')
+  assert.equal(inner.style.boxSizing, '')
+  assert.equal(body.style.maxHeight, '')
+  assert.equal(body.style.flexGrow, '1')
+  assert.equal(Number.parseFloat(body.style.minHeight), 0)
 })
 
 test('unmount disconnects the owned runtime Port without reconnecting', () => {

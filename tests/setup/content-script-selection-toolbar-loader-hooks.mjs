@@ -110,6 +110,7 @@ const sources = {
     export default function ConversationCard(props) {
       const state = globalThis.__FLOATING_TOOLBAR_TEST__
       state.onClose = props.onClose
+      state.onUpdate = props.onUpdate
       state.conversationRenderCount = (state.conversationRenderCount ?? 0) + 1
       state.lastQuestion = props.question
       useLayoutEffect(() => () => {
@@ -131,14 +132,54 @@ const sources = {
   'test:floating-utils': `
     export const getClientPosition = () => ({ x: 0, y: 0 })
     export const isMobile = () => false
-    export const setElementPositionInViewport = (_container, x, y) => ({ x, y })
-  `,
-  'test:floating-draggable': `
-    export default function Draggable(props) {
-      return props.children
+    export const setElementPositionInViewport = (container, x, y) => {
+      const state = globalThis.__FLOATING_TOOLBAR_TEST__
+      state.positionUpdates?.push({ container, x, y })
+      const nextPosition = state.nextClampedPosition ?? { x, y }
+      container.style.left = nextPosition.x + 'px'
+      container.style.top = nextPosition.y + 'px'
+      return nextPosition
     }
   `,
-  'test:floating-window-size': 'export const useClampWindowSize = () => [1000, 1000]',
+  'test:floating-draggable': `
+    import { Component } from 'preact'
+    export class DraggableCore extends Component {
+      handleDragStop(event) {
+        const state = globalThis.__FLOATING_TOOLBAR_TEST__
+        state.draggableCoreStopCount = (state.draggableCoreStopCount ?? 0) + 1
+        this.props.onStop(event, {})
+      }
+
+      render() {
+        const state = globalThis.__FLOATING_TOOLBAR_TEST__
+        const transform = this.props.children.props.style?.transform ?? ''
+        const match = /translate\\((-?[\\d.]+)px, (-?[\\d.]+)px\\)/.exec(transform)
+        state.dragPosition = match
+          ? { x: Number.parseFloat(match[1]), y: Number.parseFloat(match[2]) }
+          : null
+        state.dragHandlers = {
+          onStart: this.props.onStart,
+          onDrag: this.props.onDrag,
+          onStop: this.props.onStop,
+        }
+        return this.props.children
+      }
+    }
+  `,
+  'test:floating-window-size': `
+    import { useLayoutEffect, useState } from 'preact/hooks'
+    export const useClampWindowSize = () => {
+      const state = globalThis.__FLOATING_TOOLBAR_TEST__
+      const getWindowSize = () => state.windowSize ?? [1000, 1000]
+      const [size, setSize] = useState(getWindowSize())
+      useLayoutEffect(() => {
+        const handleResize = () => setSize([...getWindowSize()])
+        window.addEventListener('resize', handleResize)
+        return () => window.removeEventListener('resize', handleResize)
+      }, [])
+      return size
+    }
+  `,
   'test:floating-i18n': 'export const useTranslation = () => ({ t: (value) => value })',
   'test:floating-config': `
     import { useLayoutEffect } from 'preact/hooks'
@@ -163,7 +204,10 @@ const sources = {
 }
 
 export async function resolve(specifier, context, nextResolve) {
-  if (context.parentURL?.startsWith('test:') && specifier === 'preact/hooks') {
+  if (
+    context.parentURL?.startsWith('test:') &&
+    (specifier === 'preact' || specifier === 'preact/hooks')
+  ) {
     return nextResolve(specifier, { ...context, parentURL: import.meta.url })
   }
 

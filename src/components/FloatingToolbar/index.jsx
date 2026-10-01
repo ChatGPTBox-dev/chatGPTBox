@@ -4,7 +4,7 @@ import ConversationCard from '../ConversationCard'
 import PropTypes from 'prop-types'
 import { config as toolsConfig } from '../../content-script/selection-tools'
 import { getClientPosition, isMobile, setElementPositionInViewport } from '../../utils'
-import Draggable from 'react-draggable'
+import { DraggableCore } from 'react-draggable'
 import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
 import { useTranslation } from 'react-i18next'
 import { useConfig } from '../../hooks/use-config.mjs'
@@ -21,7 +21,13 @@ function FloatingToolbar(props) {
   const [position, setPosition] = useState(getClientPosition(props.container))
   const [virtualPosition, setVirtualPosition] = useState({ x: 0, y: 0 })
   const mountedRef = useRef(true)
+  const positionRef = useRef(position)
   const positionTimerRef = useRef(null)
+  const virtualPositionRef = useRef(virtualPosition)
+  const isDraggingRef = useRef(false)
+  const draggableCoreRef = useRef(null)
+  const lastDragEventRef = useRef(null)
+  const activeTouchIdentifierRef = useRef(null)
   const toolRequestVersionRef = useRef(0)
   const windowSize = useClampWindowSize([750, 1500], [0, Infinity])
   const config = useConfig(() => {
@@ -41,6 +47,106 @@ function FloatingToolbar(props) {
       })
     }
   })
+
+  const showConversation = Boolean(triggered || (prompt && !selection))
+  const updatePosition = useCallback(() => {
+    const currentPosition = positionRef.current
+    const newPosition = setElementPositionInViewport(
+      props.container,
+      currentPosition.x,
+      currentPosition.y,
+    )
+    if (currentPosition.x !== newPosition.x || currentPosition.y !== newPosition.y) {
+      positionRef.current = newPosition
+      setPosition(newPosition)
+    }
+  }, [props.container])
+  const finishDrag = useCallback(() => {
+    if (!isDraggingRef.current) return
+
+    const currentPosition = positionRef.current
+    const offset = virtualPositionRef.current
+    const nextPosition = {
+      x: currentPosition.x + offset.x,
+      y: currentPosition.y + offset.y,
+    }
+    const resetVirtualPosition = { x: 0, y: 0 }
+
+    isDraggingRef.current = false
+    lastDragEventRef.current = null
+    activeTouchIdentifierRef.current = null
+    positionRef.current = nextPosition
+    virtualPositionRef.current = resetVirtualPosition
+    setPosition(nextPosition)
+    setVirtualPosition(resetVirtualPosition)
+  }, [])
+
+  useLayoutEffect(() => {
+    positionRef.current = position
+    virtualPositionRef.current = virtualPosition
+
+    if (
+      !render ||
+      !showConversation ||
+      isDraggingRef.current ||
+      virtualPosition.x !== 0 ||
+      virtualPosition.y !== 0
+    ) {
+      return
+    }
+    updatePosition()
+  }, [position, virtualPosition, render, showConversation, updatePosition, windowSize])
+
+  useEffect(() => {
+    if (!render || !showConversation || typeof window.ResizeObserver !== 'function') return
+
+    const observer = new window.ResizeObserver(() => {
+      if (!mountedRef.current || isDraggingRef.current) return
+      updatePosition()
+    })
+    observer.observe(props.container)
+    return () => observer.disconnect()
+  }, [render, showConversation, props.container, updatePosition])
+
+  useEffect(() => {
+    if (!showConversation) return
+
+    const ownerDocument = props.container.ownerDocument
+    const ownerWindow = ownerDocument.defaultView ?? window
+    const handleBlur = () => {
+      const lastDragEvent = lastDragEventRef.current
+      if (isDraggingRef.current && lastDragEvent) {
+        draggableCoreRef.current?.handleDragStop?.(lastDragEvent)
+      }
+      finishDrag()
+    }
+    const handleTouchCancel = (event) => {
+      if (!isDraggingRef.current) return
+
+      const activeIdentifier = activeTouchIdentifierRef.current
+      const canceledTouches = event.changedTouches
+      let activeTouchCanceled = false
+      if (activeIdentifier !== null && canceledTouches) {
+        for (let i = 0; i < canceledTouches.length; i += 1) {
+          if (canceledTouches[i]?.identifier === activeIdentifier) {
+            activeTouchCanceled = true
+            break
+          }
+        }
+      }
+      if (!activeTouchCanceled) return
+
+      draggableCoreRef.current?.handleDragStop?.(event)
+      finishDrag()
+    }
+
+    ownerWindow.addEventListener('blur', handleBlur)
+    ownerDocument.addEventListener('touchcancel', handleTouchCancel)
+    return () => {
+      ownerWindow.removeEventListener('blur', handleBlur)
+      ownerDocument.removeEventListener('touchcancel', handleTouchCancel)
+    }
+  }, [showConversation, props.container, finishDrag])
 
   useLayoutEffect(() => {
     mountedRef.current = true
@@ -69,24 +175,33 @@ function FloatingToolbar(props) {
 
   if (!render) return <div />
 
-  if (triggered || (prompt && !selection)) {
-    const updatePosition = () => {
-      const newPosition = setElementPositionInViewport(props.container, position.x, position.y)
-      if (position.x !== newPosition.x || position.y !== newPosition.y) setPosition(newPosition) // clear extra virtual position offset
-    }
-
+  if (showConversation) {
     const dragEvent = {
+      onStart: (e) => {
+        isDraggingRef.current = true
+        lastDragEventRef.current = e
+        activeTouchIdentifierRef.current =
+          e?.type === 'touchstart'
+            ? e.targetTouches?.[0]?.identifier ?? e.changedTouches?.[0]?.identifier ?? null
+            : null
+      },
       onDrag: (e, ui) => {
-        setVirtualPosition({ x: virtualPosition.x + ui.deltaX, y: virtualPosition.y + ui.deltaY })
-      },
-      onStop: () => {
-        setPosition({ x: position.x + virtualPosition.x, y: position.y + virtualPosition.y })
-        setVirtualPosition({ x: 0, y: 0 })
-      },
-    }
+        if (!isDraggingRef.current) return false
+        lastDragEventRef.current = e
+        if (e?.type === 'mousemove' && e.buttons === 0) {
+          finishDrag()
+          return false
+        }
 
-    if (virtualPosition.x === 0 && virtualPosition.y === 0) {
-      updatePosition() // avoid jitter
+        const currentVirtualPosition = virtualPositionRef.current
+        const nextVirtualPosition = {
+          x: currentVirtualPosition.x + ui.deltaX,
+          y: currentVirtualPosition.y + ui.deltaY,
+        }
+        virtualPositionRef.current = nextVirtualPosition
+        setVirtualPosition(nextVirtualPosition)
+      },
+      onStop: finishDrag,
     }
 
     const onClose = useCallback(() => {
@@ -100,22 +215,27 @@ function FloatingToolbar(props) {
     }, [])
 
     const onUpdate = useCallback(() => {
+      if (isDraggingRef.current) return
       updatePosition()
-    }, [position])
+    }, [updatePosition])
 
     if (config.alwaysPinWindow) onDock()
 
     return (
       <div data-theme={config.themeMode}>
-        <Draggable
+        <DraggableCore
+          ref={draggableCoreRef}
           handle=".draggable"
+          onStart={dragEvent.onStart}
           onDrag={dragEvent.onDrag}
           onStop={dragEvent.onStop}
-          position={virtualPosition}
         >
           <div
             className="chatgptbox-selection-window"
-            style={{ width: windowSize[0] * 0.4 + 'px' }}
+            style={{
+              width: windowSize[0] * 0.4 + 'px',
+              transform: `translate(${virtualPosition.x}px, ${virtualPosition.y}px)`,
+            }}
           >
             <div className="chatgptbox-container">
               <ConversationCard
@@ -131,7 +251,7 @@ function FloatingToolbar(props) {
               />
             </div>
           </div>
-        </Draggable>
+        </DraggableCore>
       </div>
     )
   } else {
