@@ -7,6 +7,8 @@ import { Hyperlink } from './Hyperlink'
 import { highlightOptions } from './highlight-options.mjs'
 import { mathPlugin } from './math-plugin.mjs'
 import { normalizeListStarts } from './list-markers.mjs'
+import { buildStreamedContent } from './reasoning-content.mjs'
+import { escapeReasoningTags } from './special-tags.mjs'
 import { createStreamDelta } from './stream-delta.mjs'
 
 // This component can land in a shared chunk, whose CSS is never packaged (see build.mjs),
@@ -26,13 +28,21 @@ const ALLOWED_TAGS = { p: ['className'] }
  * @param {object} props
  * @param {string} props.children markdown, or the whole answer so far while streaming
  * @param {boolean} [props.done] false while the answer is still arriving
+ * @param {string} [props.reasoning] thinking to show ahead of the answer
+ * @param {boolean} [props.literalTags] the text is user input: every reasoning tag is shown
+ *   as written, instead of a leading block being presented as thinking
  */
-export function MarkdownRender({ children, done = true }) {
+export function MarkdownRender({ children, done = true, reasoning = '', literalTags = false }) {
   const { t } = useTranslation()
   const rendererRef = useRef(null)
   const containerRef = useRef(null)
   const deltaRef = useRef(null)
   if (deltaRef.current === null) deltaRef.current = createStreamDelta()
+  const content = buildStreamedContent(
+    escapeReasoningTags(children, { preserveLeadingBlock: !literalTags }),
+    reasoning,
+    done,
+  )
 
   // The renderer draws its own markers with `li::before`, but a nested bullet list inherits
   // the numbered marker of the list around it and its counter ignores `start`. The markers
@@ -58,7 +68,7 @@ export function MarkdownRender({ children, done = true }) {
   useLayoutEffect(() => {
     const renderer = rendererRef.current
     if (!renderer) return
-    const step = deltaRef.current.next(children, done)
+    const step = deltaRef.current.next(content, done)
     if (!step) return
     if (step.reset) renderer.reset()
     renderer.write(step.write, step.finalize)
@@ -89,6 +99,8 @@ export function MarkdownRender({ children, done = true }) {
 MarkdownRender.propTypes = {
   children: PropTypes.string.isRequired,
   done: PropTypes.bool,
+  reasoning: PropTypes.string,
+  literalTags: PropTypes.bool,
 }
 
 export default memo(MarkdownRender)
