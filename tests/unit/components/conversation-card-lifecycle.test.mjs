@@ -126,6 +126,7 @@ const resetState = () => {
     state.generateAnswersCount += 1
   }
   state.runtimeOnMessage.clear()
+  state.answerContents = []
 }
 
 const mountCard = (container, props = {}) => {
@@ -235,6 +236,34 @@ test('remote runtime Port disconnect reconnects and unmount cleans the replaceme
   assert.equal(replacementPort.disconnectCount, 1)
   assert.equal(replacementPort.disconnected, true)
   assert.equal(state.ports.length, 2)
+})
+
+test('a remote Port disconnect during a foreground generation does not unlock sending', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  state.foreground = true
+  state.generateAnswers = () => {
+    state.generateAnswersCount += 1
+    return new Promise(() => {})
+  }
+
+  mountCard(container)
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+
+  state.inputBoxProps.onSubmit('question')
+  await waitFor(() => state.generateAnswersCount === 1, 'foreground provider did not start')
+  await waitFor(() => state.inputBoxProps.enabled === false, 'sending was not locked')
+
+  act(() => state.ports[0].emitRemoteDisconnect())
+
+  // The keepalive Port is replaced, but the foreground stream still owns the answer, so
+  // sending stays locked until that stream ends on its own.
+  assert.equal(state.ports.length, 2)
+  assert.equal(state.inputBoxProps.enabled, false)
 })
 
 test('close button disposes foreground transport before onClose', async () => {
@@ -729,4 +758,81 @@ test('provider failure disconnects fake Port and removes stale listeners', async
   assert.equal(disconnectCount, 1)
 
   act(() => render(null, container))
+})
+
+test('a burst of streamed chunks stays buffered until completion flushes it', () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const session = {
+    ...baseSession(),
+    question: 'why?',
+    conversationRecords: [{ question: 'why?', answer: 'partial' }],
+  }
+
+  mountCard(container, { question: 'why?', session })
+  const port = state.ports[0]
+
+  act(() => port.onMessage.trigger({ answer: 'a' }))
+  act(() => port.onMessage.trigger({ answer: 'ab' }))
+  assert.equal(state.answerContents.includes('ab'), false, 'the burst must not render per chunk')
+
+  act(() => port.onMessage.trigger({ answer: 'abc', done: true, session }))
+
+  assert.equal(state.answerContents.includes('abc'), true, 'completion must flush the newest chunk')
+})
+
+test('switching the question drops a buffered answer from the previous one', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+
+  mountCard(container, { question: 'first', session: { ...baseSession(), question: 'first' } })
+  const port = state.ports[0]
+
+  act(() => port.onMessage.trigger({ answer: 'stale answer' }))
+
+  act(() => {
+    render(
+      h(ConversationCard, {
+        session: { ...baseSession(), question: 'second' },
+        question: 'second',
+      }),
+      container,
+    )
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 32))
+
+  assert.equal(state.answerContents.includes('stale answer'), false)
+})
+
+test('a dropped transport flushes the buffered answer before reconnecting', () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const session = {
+    ...baseSession(),
+    question: 'why?',
+    conversationRecords: [{ question: 'why?', answer: 'partial' }],
+  }
+
+  mountCard(container, { question: 'why?', session })
+  const port = state.ports[0]
+
+  act(() => port.onMessage.trigger({ answer: 'newest chunk' }))
+  assert.equal(
+    state.answerContents.includes('newest chunk'),
+    false,
+    'the chunk must be buffered first',
+  )
+
+  act(() => port.emitRemoteDisconnect())
+
+  assert.equal(state.ports.length, 2)
+  assert.equal(
+    state.answerContents.includes('newest chunk'),
+    true,
+    'a dropped transport must flush the newest chunk synchronously',
+  )
 })
