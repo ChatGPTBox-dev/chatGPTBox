@@ -1,4 +1,13 @@
-import { AlwaysCustomGroups, ModelGroups, ModelMode, Models } from '../config/index.mjs'
+import {
+  AlwaysCustomGroups,
+  defaultConfig,
+  ModelGroups,
+  ModelMode,
+  Models,
+} from '../config/index.mjs'
+import { resolveGeminiWebPreset } from './gemini-web-preset.mjs'
+
+const GEMINI_WEB_DEFAULT_MODEL = 'bardWebFree'
 
 function normalizeProviderId(value) {
   return String(value || '')
@@ -174,7 +183,33 @@ export function getApiModesFromConfig(config, onlyActive) {
       }
       return Boolean(apiMode.itemName)
     })
-  const activeApiModes = Array.isArray(config.activeApiModes) ? config.activeApiModes : []
+  const configuredActiveApiModes = Array.isArray(config.activeApiModes) ? config.activeApiModes : []
+  const configuredKnownDefaultIds = Array.isArray(config.knownApiModeDefaultIds)
+    ? config.knownApiModeDefaultIds
+    : []
+  const hasConfiguredGeminiWebMode = normalizedCustomApiModes.some(
+    (apiMode) => apiMode.groupName === 'bardWebModelKeys',
+  )
+  const hasHandledGeminiWebDefault = configuredKnownDefaultIds.includes(GEMINI_WEB_DEFAULT_MODEL)
+  const usesLiveDefaultApiModes =
+    Number(config.configSchemaVersion) >= 2 &&
+    configuredKnownDefaultIds.length === 0 &&
+    normalizedCustomApiModes.length === 0 &&
+    configuredActiveApiModes.length === defaultConfig.activeApiModes.length &&
+    configuredActiveApiModes.every(
+      (modelName, index) => modelName === defaultConfig.activeApiModes[index],
+    )
+  const shouldIncludeGeminiWebDefault =
+    Object.hasOwn(config, 'geminiWebModel') &&
+    usesLiveDefaultApiModes &&
+    !hasConfiguredGeminiWebMode &&
+    !hasHandledGeminiWebDefault &&
+    !configuredActiveApiModes.includes(GEMINI_WEB_DEFAULT_MODEL)
+  const activeApiModes = hasConfiguredGeminiWebMode
+    ? configuredActiveApiModes.filter((modelName) => modelName !== GEMINI_WEB_DEFAULT_MODEL)
+    : shouldIncludeGeminiWebDefault
+    ? [...configuredActiveApiModes, GEMINI_WEB_DEFAULT_MODEL]
+    : configuredActiveApiModes
   const customApiModeIndexesByCanonicalModelName = normalizedCustomApiModes.reduce(
     (result, apiMode, index) => {
       const canonicalModelName = apiModeToModelName(apiMode)
@@ -296,7 +331,10 @@ export function reconcileMaterializedApiModeDefaults(config, defaultIds, knownDe
       },
       false,
     )
-    const materializedMode = materializedModes[0]
+    const { canonicalModelName } = resolveCanonicalActiveApiModeInfo(defaultId, config)
+    const materializedMode = materializedModes.find(
+      (apiMode) => apiModeToModelName(apiMode) === canonicalModelName,
+    )
     if (!materializedMode) continue
 
     const identity = getApiModeDefaultIdentity(materializedMode)
@@ -324,11 +362,21 @@ export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = fa
   const normalizeForCompare = (value, { includeProviderState = true } = {}) => {
     const normalized = normalizeApiMode(value)
     if (!normalized) return null
+    const isGeminiWebMode = normalized.groupName === 'bardWebModelKeys'
     const normalizedForCompare = {
       groupName: normalized.groupName,
       itemName: normalized.itemName,
-      isCustom: normalized.isCustom,
-      customName: normalized.customName,
+      ...(isGeminiWebMode
+        ? {}
+        : {
+            isCustom: normalized.isCustom,
+            customName: normalized.customName,
+          }),
+    }
+    if (isGeminiWebMode) {
+      const { model, extendedThinking } = resolveGeminiWebPreset(normalized, configOrSession)
+      normalizedForCompare.geminiWebModel = model
+      normalizedForCompare.geminiWebExtendedThinking = extendedThinking
     }
     if (includeProviderState) {
       normalizedForCompare.providerId = normalized.providerId
@@ -353,6 +401,18 @@ export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = fa
     if (!targetApiMode || !selectedApiMode || !rawSelectedApiMode) return false
     if (selectedApiMode.groupName !== targetApiMode.groupName) return false
 
+    const isGeminiWebMode = selectedApiMode.groupName === 'bardWebModelKeys'
+    if (isGeminiWebMode) {
+      const selectedPreset = resolveGeminiWebPreset(selectedApiMode, configOrSession)
+      const targetPreset = resolveGeminiWebPreset(targetApiMode, configOrSession)
+      if (
+        selectedPreset.model !== targetPreset.model ||
+        selectedPreset.extendedThinking !== targetPreset.extendedThinking
+      ) {
+        return false
+      }
+    }
+
     const isLegacyCustomSession =
       selectedApiMode.groupName === 'customApiModelKeys' &&
       (!Object.hasOwn(rawSelectedApiMode, 'itemName') ||
@@ -362,9 +422,10 @@ export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = fa
       if (targetApiMode.groupName !== 'customApiModelKeys') return false
       if (selectedApiMode.customName !== targetApiMode.customName) return false
     } else if (
-      selectedApiMode.itemName !== targetApiMode.itemName ||
-      selectedApiMode.isCustom !== targetApiMode.isCustom ||
-      selectedApiMode.customName !== targetApiMode.customName
+      !isGeminiWebMode &&
+      (selectedApiMode.itemName !== targetApiMode.itemName ||
+        selectedApiMode.isCustom !== targetApiMode.isCustom ||
+        selectedApiMode.customName !== targetApiMode.customName)
     ) {
       return false
     }

@@ -39,15 +39,28 @@ globalThis.chrome.cookies = {
 
 import {
   registerPortListener,
+  claimLatestPortSessionRequest,
   getChatGptAccessToken,
   getBingAccessToken,
-  getBardCookies,
   getClaudeSessionKey,
 } from '../../../src/services/wrappers.mjs'
 import Browser from 'webextension-polyfill'
 import { normalizeApiMode } from '../../../src/utils/model-name-convert.mjs'
 import { FETCH_REQUEST_FAILED } from '../../../src/utils/fetch-sse.mjs'
 import { formatErrorMessage } from '../../../src/utils/error-text.mjs'
+
+test('claimLatestPortSessionRequest aborts a registered superseded request', () => {
+  const port = createFakePort()
+  let abortCount = 0
+  port._abortSupersededSessionRequest = () => {
+    abortCount += 1
+  }
+
+  const isLatest = claimLatestPortSessionRequest(port)
+
+  assert.equal(abortCount, 1)
+  assert.equal(isLatest(), true)
+})
 
 const setStorage = (values) => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage(values)
@@ -625,24 +638,6 @@ test('getBingAccessToken returns undefined when cookie missing', async () => {
 
   const token = await getBingAccessToken()
   assert.equal(token, undefined)
-})
-
-// ---------------------------------------------------------------------------
-// getBardCookies
-// ---------------------------------------------------------------------------
-
-test('getBardCookies returns formatted cookie string', async () => {
-  cookieJar['https://google.com/'] = [{ name: '__Secure-1PSID', value: 'bard-sid' }]
-
-  const cookies = await getBardCookies()
-  assert.equal(cookies, '__Secure-1PSID=bard-sid')
-})
-
-test('getBardCookies returns __Secure-1PSID=undefined when cookie missing', async () => {
-  cookieJar['https://google.com/'] = []
-
-  const cookies = await getBardCookies()
-  assert.equal(cookies, '__Secure-1PSID=undefined')
 })
 
 // ---------------------------------------------------------------------------
