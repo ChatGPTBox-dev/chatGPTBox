@@ -45,12 +45,11 @@ import {
   createConversationPortMessage,
   createRetrySession,
   finalizeInterruptedSession,
-  getCompletedAnswerUpdate,
   getInterruptedCompletionState,
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
 } from './session.mjs'
-import { createAnswerBuffer, createFrameScheduler } from './answer-buffer.mjs'
+import { createFrameScheduler, createStreamBuffer } from './stream-buffer.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 const UNMATCHED_API_MODE_VALUE = '__current-session-api-mode__'
@@ -189,7 +188,7 @@ function ConversationCard(props) {
       const newSession = initSession({ ...session, question: props.question })
       partialAnswerRef.current = ''
       retryRecordRef.current = null
-      answerBufferRef.current.discard()
+      streamBufferRef.current.discard()
       setSession(newSession)
       await postMessage({ session: newSession })
     }
@@ -226,33 +225,38 @@ function ConversationCard(props) {
     })
   }
 
-  // Thinking arrives alongside the answer and stays out of the conversation records.
-  const updateReasoning = (value) => {
+  /**
+   * Write the newest streamed text onto the trailing answer item. The reasoning rides in the
+   * same patch as the answer, so a frame that carries both is a single state update.
+   * @param {{content?: string, reasoning?: string, done?: boolean}} patch
+   */
+  const updateStreamItem = ({ content, reasoning, done }) => {
     setConversationItemData((old) => {
+      const index = findLastIndex(old, (v) => v.type === 'answer')
+      if (index === -1) return old
+      const item = old[index]
       const copy = [...old]
-      const index = findLastIndex(copy, (v) => v.type === 'answer')
-      if (index === -1) return copy
       copy[index] = new ConversationItemData(
-        copy[index].type,
-        copy[index].content,
-        copy[index].done,
-        value,
+        item.type,
+        content === undefined ? item.content : content,
+        done === undefined ? item.done : done,
+        reasoning === undefined ? item.reasoning : reasoning,
       )
       return copy
     })
   }
 
-  const answerBufferRef = useRef(null)
-  if (answerBufferRef.current === null) {
-    answerBufferRef.current = createAnswerBuffer({
+  const streamBufferRef = useRef(null)
+  if (streamBufferRef.current === null) {
+    streamBufferRef.current = createStreamBuffer({
       ...createFrameScheduler(),
-      render: (answer) => updateAnswer(answer, false, 'answer'),
+      render: updateStreamItem,
     })
   }
 
   // A buffered frame can outlive a hidden page, so drop it when the card goes away.
   useEffect(() => {
-    return () => answerBufferRef.current?.discard()
+    return () => streamBufferRef.current?.discard()
   }, [])
 
   const portMessageListener = (msg) => {
@@ -260,16 +264,18 @@ function ConversationCard(props) {
     if (isSupersededRequestMessage(msg, requestGenerationIdRef.current)) return
     if (isSupersededGenerationMessage(msg, retryGenerationIdRef.current)) return
 
-    if (msg.answer) {
+    // An answer snapshot can legitimately be empty (an inline thinking tag just resolved
+    // away), so only a missing field means "nothing to update for this channel".
+    if (typeof msg.answer === 'string') {
       partialAnswerRef.current = msg.answer
-      answerBufferRef.current.push(msg.answer)
+      streamBufferRef.current.push({ content: msg.answer })
     }
-    if (msg.reasoning) updateReasoning(msg.reasoning)
+    if (msg.reasoning) streamBufferRef.current.push({ reasoning: msg.reasoning })
     if (msg.session) {
       setSession(msg.done ? { ...msg.session, isRetry: false } : msg.session)
     }
     if (msg.done) {
-      answerBufferRef.current.flush()
+      streamBufferRef.current.flush()
       const partialAnswer = partialAnswerRef.current
       const retryRecord = retryRecordRef.current
       const completionState = getInterruptedCompletionState(msg, partialAnswer, retryRecord)
@@ -280,12 +286,16 @@ function ConversationCard(props) {
       }
       partialAnswerRef.current = ''
       retryRecordRef.current = null
-      const answerUpdate = getCompletedAnswerUpdate(completionState.restoredRetryAnswer)
-      updateAnswer(answerUpdate.value, answerUpdate.appended, 'answer', true)
+      // Replacing the content with the streamed answer (instead of appending nothing) is
+      // what clears a loading placeholder left by a reasoning-only turn.
+      updateAnswer(completionState.restoredRetryAnswer ?? partialAnswer, false, 'answer', true)
       setIsReady(true)
     }
     if (msg.error) {
-      answerBufferRef.current.flush()
+      // The stream ended in an error: close the trailing answer so its reasoning block is
+      // not left open forever.
+      streamBufferRef.current.push({ done: true })
+      streamBufferRef.current.flush()
       const retryRecord = retryRecordRef.current
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       switch (msg.error) {
@@ -472,12 +482,13 @@ function ConversationCard(props) {
         return
       }
       if (disposedRef.current) return
-      // A dropped transport ends the stream without a final message, so flush here: the newest
-      // chunk still renders on a hidden page, where animation frames are paused. A foreground
-      // generation (Bing web) streams through its own transport, though, so this keepalive
-      // port dropping must not unlock sending.
+      // A dropped transport ends the stream without a final message, so flush and close: the
+      // newest chunk still renders on a hidden page, where animation frames are paused. A
+      // foreground generation (Bing web) streams through its own transport, though, so this
+      // keepalive port dropping must not finalize the answer or unlock sending.
       if (foregroundPortsRef.current.size === 0) {
-        answerBufferRef.current.flush()
+        streamBufferRef.current.push({ done: true })
+        streamBufferRef.current.flush()
         setIsReady(true)
       }
       const nextPort = Browser.runtime.connect()
@@ -527,7 +538,7 @@ function ConversationCard(props) {
   }, [port, conversationItemData])
 
   const getRetryFn = (session) => async () => {
-    answerBufferRef.current.discard()
+    streamBufferRef.current.discard()
     // A retry starts a new generation, so the previous attempt's reasoning must go too.
     updateAnswer(
       `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
@@ -728,7 +739,7 @@ function ConversationCard(props) {
               }
               partialAnswerRef.current = ''
               retryRecordRef.current = null
-              answerBufferRef.current.discard()
+              streamBufferRef.current.discard()
               Browser.runtime.sendMessage({
                 type: 'DELETE_CONVERSATION',
                 data: {
@@ -857,7 +868,7 @@ function ConversationCard(props) {
             )
             partialAnswerRef.current = ''
             retryRecordRef.current = null
-            answerBufferRef.current.discard()
+            streamBufferRef.current.discard()
             setConversationItemData([...conversationItemData, newQuestion, newAnswer])
             setIsReady(false)
 

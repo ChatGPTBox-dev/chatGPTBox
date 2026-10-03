@@ -43,7 +43,13 @@ const sources = {
   'test:conversation-item': `
     export default function ConversationItem(props) {
       if (props.type === 'answer') {
-        globalThis.__CONVERSATION_LIFECYCLE_TEST__.answerContents.push(props.content)
+        const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+        state.answerContents.push(props.content)
+        state.answerProps.push({
+          content: props.content,
+          reasoning: props.reasoning,
+          done: props.done,
+        })
       }
       return null
     }

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  createAnswerBuffer,
   createFrameScheduler,
-} from '../../../src/components/ConversationCard/answer-buffer.mjs'
+  createStreamBuffer,
+} from '../../../src/components/ConversationCard/stream-buffer.mjs'
 
 function createFakeFrames() {
   let nextHandle = 1
@@ -32,52 +32,73 @@ function createFakeFrames() {
 function setup() {
   const frames = createFakeFrames()
   const renders = []
-  const buffer = createAnswerBuffer({
+  const buffer = createStreamBuffer({
     requestFrame: frames.requestFrame,
     cancelFrame: frames.cancelFrame,
-    render: (answer) => renders.push(answer),
+    render: (patch) => renders.push(patch),
   })
   return { frames, renders, buffer }
 }
 
-test('a burst of chunks renders once per frame with only the newest text', () => {
+test('a burst of chunks renders once per frame with only the newest values', () => {
   const { frames, renders, buffer } = setup()
 
-  buffer.push('a')
-  buffer.push('ab')
-  buffer.push('abc')
+  buffer.push({ content: 'a' })
+  buffer.push({ content: 'ab' })
+  buffer.push({ content: 'abc' })
   assert.deepEqual(renders, [])
 
   frames.runFrames()
 
-  assert.deepEqual(renders, ['abc'])
+  assert.deepEqual(renders, [{ content: 'abc' }])
+})
+
+test('answer and reasoning arriving together are applied in a single patch', () => {
+  const { frames, renders, buffer } = setup()
+
+  buffer.push({ content: 'The answer.' })
+  buffer.push({ reasoning: 'weighing options' })
+  frames.runFrames()
+
+  assert.deepEqual(renders, [{ content: 'The answer.', reasoning: 'weighing options' }])
+})
+
+test('a patch keeps the fields it does not mention', () => {
+  const { frames, renders, buffer } = setup()
+
+  buffer.push({ content: 'first' })
+  frames.runFrames()
+  buffer.push({ reasoning: 'thinking' })
+  frames.runFrames()
+
+  assert.deepEqual(renders, [{ content: 'first' }, { reasoning: 'thinking' }])
 })
 
 test('a chunk arriving after a frame schedules the next render', () => {
   const { frames, renders, buffer } = setup()
 
-  buffer.push('a')
+  buffer.push({ content: 'a' })
   frames.runFrames()
-  buffer.push('ab')
+  buffer.push({ content: 'ab' })
   frames.runFrames()
 
-  assert.deepEqual(renders, ['a', 'ab'])
+  assert.deepEqual(renders, [{ content: 'a' }, { content: 'ab' }])
 })
 
-test('flush renders the newest chunk so completion cannot drop the last one', () => {
+test('flush renders the newest patch so completion cannot drop the last one', () => {
   const { frames, renders, buffer } = setup()
 
-  buffer.push('a')
-  buffer.push('ab')
+  buffer.push({ content: 'a' })
+  buffer.push({ content: 'ab', done: true })
   buffer.flush()
-  assert.deepEqual(renders, ['ab'])
+  assert.deepEqual(renders, [{ content: 'ab', done: true }])
   assert.equal(frames.cancelled.length, 1)
 
   frames.runFrames()
-  assert.deepEqual(renders, ['ab'], 'the cancelled frame must not render again')
+  assert.deepEqual(renders, [{ content: 'ab', done: true }], 'the cancelled frame must not render')
 })
 
-test('flush without pending text does not render', () => {
+test('flush without a pending patch does not render', () => {
   const { renders, buffer } = setup()
 
   buffer.flush()
@@ -85,10 +106,10 @@ test('flush without pending text does not render', () => {
   assert.deepEqual(renders, [])
 })
 
-test('discard drops the pending text without rendering it', () => {
+test('discard drops the pending patch without rendering it', () => {
   const { frames, renders, buffer } = setup()
 
-  buffer.push('a')
+  buffer.push({ content: 'a' })
   buffer.discard()
   frames.runFrames()
 
@@ -98,12 +119,12 @@ test('discard drops the pending text without rendering it', () => {
 test('pushing after a discard schedules a fresh frame', () => {
   const { frames, renders, buffer } = setup()
 
-  buffer.push('a')
+  buffer.push({ content: 'a' })
   buffer.discard()
-  buffer.push('b')
+  buffer.push({ content: 'b' })
   frames.runFrames()
 
-  assert.deepEqual(renders, ['b'])
+  assert.deepEqual(renders, [{ content: 'b' }])
 })
 
 test('createFrameScheduler uses the host animation frames when available', () => {

@@ -60,13 +60,6 @@ export function createRetrySession(session, conversationRecords, retryRecord) {
   }
 }
 
-export function getCompletedAnswerUpdate(restoredRetryAnswer) {
-  return {
-    value: restoredRetryAnswer ?? '',
-    appended: restoredRetryAnswer === null,
-  }
-}
-
 export function getInterruptedCompletionState(message, partialAnswer, retryRecord) {
   const shouldFinalize = Boolean(
     message.proxyDisconnected || (!message.session && (partialAnswer || retryRecord)),

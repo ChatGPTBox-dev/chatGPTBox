@@ -22,14 +22,15 @@ export function createFrameScheduler(host = globalThis) {
 }
 
 /**
- * Coalesces streamed answer text so a burst of chunks renders once per frame instead of
- * once per chunk, while never losing the newest text.
+ * Coalesces a burst of streamed patches into one render per frame. A patch only carries the
+ * fields it changes and later values win, so an answer chunk and a reasoning chunk that
+ * arrive together reach the state in a single update instead of two.
  * @param {object} params
  * @param {(callback: () => void) => unknown} params.requestFrame
  * @param {(handle: unknown) => void} params.cancelFrame
- * @param {(answer: string) => void} params.render
+ * @param {(patch: object) => void} params.render
  */
-export function createAnswerBuffer({ requestFrame, cancelFrame, render }) {
+export function createStreamBuffer({ requestFrame, cancelFrame, render }) {
   let pending = null
   let frame = null
 
@@ -40,15 +41,15 @@ export function createAnswerBuffer({ requestFrame, cancelFrame, render }) {
   }
 
   const takePending = () => {
-    const answer = pending
+    const patch = pending
     pending = null
-    return answer
+    return patch
   }
 
   return {
-    /** Queue the newest answer, scheduling a render only when none is already scheduled. */
-    push(answer) {
-      pending = answer
+    /** Merge a patch in, scheduling a render only when none is already scheduled. */
+    push(patch) {
+      pending = { ...pending, ...patch }
       if (frame !== null) return
       frame = requestFrame(() => {
         frame = null
@@ -56,13 +57,13 @@ export function createAnswerBuffer({ requestFrame, cancelFrame, render }) {
         if (latest !== null) render(latest)
       })
     },
-    /** Render the newest answer before the conversation is finalized. */
+    /** Render the newest patch before the conversation is finalized. */
     flush() {
       cancelPendingFrame()
       const latest = takePending()
       if (latest !== null) render(latest)
     },
-    /** Drop the newest answer without rendering it, e.g. when a retry starts. */
+    /** Drop the newest patch without rendering it, e.g. when a retry starts. */
     discard() {
       cancelPendingFrame()
       pending = null

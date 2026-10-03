@@ -127,6 +127,7 @@ const resetState = () => {
   }
   state.runtimeOnMessage.clear()
   state.answerContents = []
+  state.answerProps = []
 }
 
 const mountCard = (container, props = {}) => {
@@ -835,4 +836,75 @@ test('a dropped transport flushes the buffered answer before reconnecting', () =
     true,
     'a dropped transport must flush the newest chunk synchronously',
   )
+  const flushed = state.answerProps.filter((props) => props.content === 'newest chunk').at(-1)
+  assert.equal(flushed.done, true, 'a dropped transport must finish the trailing answer')
+})
+
+test('an empty answer snapshot replaces the loading placeholder', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+
+  mountCard(container, { question: 'why?' })
+  assert.match(state.answerProps.at(-1).content, /gpt-loading/)
+
+  act(() => state.ports[0].onMessage.trigger({ answer: '' }))
+  await new Promise((resolve) => setTimeout(resolve, 32))
+
+  assert.equal(state.answerProps.at(-1).content, '')
+})
+
+test('reasoning chunks are coalesced into one render per frame', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+
+  mountCard(container, { question: 'why?' })
+  const port = state.ports[0]
+
+  act(() => port.onMessage.trigger({ reasoning: 'thin' }))
+  act(() => port.onMessage.trigger({ reasoning: 'thinking' }))
+  assert.equal(
+    state.answerProps.some((props) => props.reasoning === 'thinking'),
+    false,
+    'reasoning must be buffered, not rendered per chunk',
+  )
+
+  await new Promise((resolve) => setTimeout(resolve, 32))
+  assert.equal(state.answerProps.at(-1).reasoning, 'thinking')
+})
+
+test('a reasoning-only completion clears the placeholder and finishes the answer', () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const session = { ...baseSession(), question: 'why?' }
+
+  mountCard(container, { question: 'why?', session })
+  const port = state.ports[0]
+
+  act(() => port.onMessage.trigger({ reasoning: 'thinking hard' }))
+  act(() => port.onMessage.trigger({ answer: null, done: true, session }))
+
+  const answer = state.answerProps.at(-1)
+  assert.equal(answer.content, '')
+  assert.equal(answer.reasoning, 'thinking hard')
+  assert.equal(answer.done, true)
+})
+
+test('an error closes the trailing answer so its reasoning stops streaming', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const session = { ...baseSession(), question: 'why?' }
+
+  mountCard(container, { question: 'why?', session })
+  const port = state.ports[0]
+
+  act(() => port.onMessage.trigger({ answer: 'partial answer', reasoning: 'thinking' }))
+  await new Promise((resolve) => setTimeout(resolve, 32))
+  act(() => port.onMessage.trigger({ error: 'boom' }))
+
+  const partial = state.answerProps.filter((props) => props.content === 'partial answer').at(-1)
+  assert.equal(partial.done, true)
 })
