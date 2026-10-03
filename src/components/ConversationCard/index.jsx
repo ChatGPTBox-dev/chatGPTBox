@@ -50,6 +50,7 @@ import {
   isSupersededRequestMessage,
 } from './session.mjs'
 import { createFrameScheduler, createStreamBuffer } from './stream-buffer.mjs'
+import { waitingPlaceholder } from '../MarkdownRender/waiting-placeholder.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 const UNMATCHED_API_MODE_VALUE = '__current-session-api-mode__'
@@ -145,12 +146,7 @@ function ConversationCard(props) {
   useLayoutEffect(() => {
     if (session.conversationRecords.length === 0) {
       if (props.question && triggered)
-        setConversationItemData([
-          new ConversationItemData(
-            'answer',
-            `<p class="gpt-loading">${t(`Waiting for response...`)}</p>`,
-          ),
-        ])
+        setConversationItemData([new ConversationItemData('answer', waitingPlaceholder(t))])
     } else {
       const ret = []
       for (const record of session.conversationRecords) {
@@ -264,8 +260,8 @@ function ConversationCard(props) {
     if (isSupersededRequestMessage(msg, requestGenerationIdRef.current)) return
     if (isSupersededGenerationMessage(msg, retryGenerationIdRef.current)) return
 
-    // An answer snapshot can legitimately be empty (an inline thinking tag just resolved
-    // away), so only a missing field means "nothing to update for this channel".
+    // Only a missing field means "nothing to update for this channel": the answer may
+    // legitimately arrive as an empty string.
     if (typeof msg.answer === 'string') {
       partialAnswerRef.current = msg.answer
       streamBufferRef.current.push({ content: msg.answer })
@@ -343,7 +339,7 @@ function ConversationCard(props) {
             const lastItem = currentItems[currentItems.length - 1]
             if (
               lastItem &&
-              (lastItem.content.includes('gpt-loading') || lastItem.type === 'error')
+              (lastItem.content === waitingPlaceholder(t) || lastItem.type === 'error')
             ) {
               const updatedItems = [...currentItems]
               updatedItems[updatedItems.length - 1] = new ConversationItemData(
@@ -540,13 +536,7 @@ function ConversationCard(props) {
   const getRetryFn = (session) => async () => {
     streamBufferRef.current.discard()
     // A retry starts a new generation, so the previous attempt's reasoning must go too.
-    updateAnswer(
-      `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
-      false,
-      'answer',
-      false,
-      '',
-    )
+    updateAnswer(waitingPlaceholder(t), false, 'answer', false, '')
     setIsReady(false)
 
     const conversationRecords = session.conversationRecords.map((record) => ({ ...record }))
@@ -841,12 +831,7 @@ function ConversationCard(props) {
           className="manual-btn"
           style={{ display: 'flex', justifyContent: 'center' }}
           onClick={() => {
-            setConversationItemData([
-              new ConversationItemData(
-                'answer',
-                `<p class="gpt-loading">${t(`Waiting for response...`)}</p>`,
-              ),
-            ])
+            setConversationItemData([new ConversationItemData('answer', waitingPlaceholder(t))])
             setTriggered(true)
             setIsReady(false)
           }}
@@ -862,10 +847,7 @@ function ConversationCard(props) {
           reverseResizeDir={props.pageMode}
           onSubmit={async (question) => {
             const newQuestion = new ConversationItemData('question', question)
-            const newAnswer = new ConversationItemData(
-              'answer',
-              `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
-            )
+            const newAnswer = new ConversationItemData('answer', waitingPlaceholder(t))
             partialAnswerRef.current = ''
             retryRecordRef.current = null
             streamBufferRef.current.discard()

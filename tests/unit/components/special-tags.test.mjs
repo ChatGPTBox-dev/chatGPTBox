@@ -25,18 +25,9 @@ test('other tags and autolinks are left alone', () => {
   assert.equal(escapeReasoningTags(text), text)
 })
 
-test('a leading reasoning block can be kept for the renderer', () => {
+test('a leading reasoning block is escaped, so it cannot open one', () => {
   const answer = '<think>secret</think>\n\nThe answer.'
-  assert.equal(escapeReasoningTags(answer, { preserveLeadingBlock: true }), answer)
   assert.equal(escapeReasoningTags(answer), '&lt;think>secret&lt;/think>\n\nThe answer.')
-})
-
-test('a later block is escaped even when a leading block is kept', () => {
-  const answer = '<think>secret</think>\n\nMention <think> again.'
-  assert.equal(
-    escapeReasoningTags(answer, { preserveLeadingBlock: true }),
-    '<think>secret</think>\n\nMention &lt;think> again.',
-  )
 })
 
 test('fenced code and inline code keep their text untouched', () => {

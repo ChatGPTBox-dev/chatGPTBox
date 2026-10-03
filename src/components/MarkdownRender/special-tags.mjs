@@ -1,12 +1,7 @@
-// The renderer treats all three names as reasoning tags, so one source keeps the patterns
-// that look for them in sync.
+// The renderer treats all three names as reasoning tags, so one source keeps the pattern in
+// sync.
 const REASONING_TAG_NAME = 'think|thinking|reasoning'
 const REASONING_TAG_PATTERN = new RegExp(`</?\\s*(?:${REASONING_TAG_NAME})\\b[^>]*>`, 'gi')
-// A leading block runs to its closing tag, or to the end of the text while it is still open.
-const LEADING_REASONING_BLOCK_PATTERN = new RegExp(
-  `^\\s*<(?:${REASONING_TAG_NAME})\\b[^>]*>[\\s\\S]*?(?:</\\s*(?:${REASONING_TAG_NAME})\\s*>|$)`,
-  'i',
-)
 const FENCE_PATTERN = /^ {0,3}(?:```+|~~~+)/
 
 function escapeTags(text) {
@@ -56,30 +51,21 @@ function escapeTagsOutsideCode(text) {
 }
 
 /**
- * Show `<think>`-style tags as literal text. HyperMarkdown treats them as markup: a leading
- * one becomes a reasoning block, and any other one is stripped out of the answer. That is
- * wrong for text the user typed, and for prose or examples that merely mention a tag.
+ * Show `<think>`-style tags as literal text.
  *
- * Fenced code blocks and inline code are left alone — their content is already rendered as
- * literal text, and escaping it there would show the escape characters themselves.
+ * HyperMarkdown treats them as markup: a leading one becomes a reasoning block, and any other
+ * one is stripped out of the answer. That is wrong for text the user typed, and for prose that
+ * merely mentions a tag.
+ *
+ * A reasoning model's thinking never reaches this: it is rendered from its own field, so this
+ * only has to neutralise tags left in ordinary content. Fenced code and inline code are left
+ * alone -- their content is literal text already, and the streaming renderer does not look for
+ * a reasoning tag inside them.
  *
  * @param {string} text
- * @param {{preserveLeadingBlock?: boolean}} [options] keep a leading reasoning block intact,
- *   for providers that stream their thinking inside the answer
  * @returns {string}
  */
-export function escapeReasoningTags(text, { preserveLeadingBlock = false } = {}) {
+export function escapeReasoningTags(text) {
   if (typeof text !== 'string' || !text.includes('<')) return text
-
-  let head = ''
-  let body = text
-  if (preserveLeadingBlock) {
-    const leading = LEADING_REASONING_BLOCK_PATTERN.exec(text)
-    if (leading) {
-      head = leading[0]
-      body = text.slice(head.length)
-    }
-  }
-
-  return head + escapeTagsOutsideCode(body)
+  return escapeTagsOutsideCode(text)
 }

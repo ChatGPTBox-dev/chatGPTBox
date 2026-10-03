@@ -1,48 +1,35 @@
-import { memo, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import PropTypes from 'prop-types'
 import { HyperMarkdown } from '@aeven-ai/hypermarkdown'
-import { highlightPlugin } from '@aeven-ai/hypermarkdown/plugins/code'
-import { Hyperlink } from './Hyperlink'
-import { highlightOptions } from './highlight-options.mjs'
-import { mathPlugin } from './math-plugin.mjs'
 import { normalizeListStarts } from './list-markers.mjs'
-import { buildStreamedContent } from './reasoning-content.mjs'
 import { escapeReasoningTags } from './special-tags.mjs'
 import { createStreamDelta } from './stream-delta.mjs'
+import { waitingPlaceholder } from './waiting-placeholder.mjs'
+import ReasoningPanel from './ReasoningPanel.jsx'
+import { ALLOWED_TAGS, COMPONENTS, CONTROLS, PLUGINS } from './renderer-config.mjs'
 
 // This component can land in a shared chunk, whose CSS is never packaged (see build.mjs),
 // so its stylesheets are imported by the content-script entry instead.
-
-// rehype-react keys elements by component identity, so these maps have to stay stable
-// across renders or every block remounts.
-const PLUGINS = { math: mathPlugin(), code: highlightPlugin(highlightOptions) }
-const COMPONENTS = { a: Hyperlink }
-// Fullscreen and the HTML preview expect the host to hide its own chrome around them,
-// which this card does not do; the copy button is the part that works on its own.
-const CONTROLS = { code: { fullscreen: false, preview: false }, table: { fullscreen: false } }
-// The loading placeholder is injected as HTML and styled through this class.
-const ALLOWED_TAGS = { p: ['className'] }
 
 /**
  * @param {object} props
  * @param {string} props.children markdown, or the whole answer so far while streaming
  * @param {boolean} [props.done] false while the answer is still arriving
  * @param {string} [props.reasoning] thinking to show ahead of the answer
- * @param {boolean} [props.literalTags] the text is user input: every reasoning tag is shown
- *   as written, instead of a leading block being presented as thinking
  */
-export function MarkdownRender({ children, done = true, reasoning = '', literalTags = false }) {
+export function MarkdownRender({ children, done = true, reasoning = '' }) {
   const { t } = useTranslation()
   const rendererRef = useRef(null)
   const containerRef = useRef(null)
   const deltaRef = useRef(null)
   if (deltaRef.current === null) deltaRef.current = createStreamDelta()
-  const content = buildStreamedContent(
-    escapeReasoningTags(children, { preserveLeadingBlock: !literalTags }),
-    reasoning,
-    done,
-  )
+  // The card's placeholder is not answer text, so until real text arrives the thinking is
+  // still the part that is streaming.
+  const answerStarted = children !== '' && children !== waitingPlaceholder(t)
+  // Thinking is rendered from its own field, so any reasoning tag left in ordinary content is
+  // just text: it is escaped so the renderer cannot turn it into a block or strip it.
+  const content = escapeReasoningTags(children)
 
   // The renderer draws its own markers with `li::before`, but a nested bullet list inherits
   // the numbered marker of the list around it and its counter ignores `start`. The markers
@@ -74,21 +61,17 @@ export function MarkdownRender({ children, done = true, reasoning = '', literalT
     renderer.write(step.write, step.finalize)
   })
 
-  // `{seconds}` is filled in by the renderer, and is not i18next interpolation syntax.
-  const translations = useMemo(
-    () => ({ thinking: t('Thinking Content'), thoughtFor: t('Thought for {seconds}s') }),
-    [t],
-  )
-
   return (
     <div dir="auto" ref={containerRef}>
+      {reasoning ? (
+        <ReasoningPanel reasoning={reasoning} streaming={!done && !answerStarted} />
+      ) : null}
       <HyperMarkdown
         ref={rendererRef}
         streaming
         plugins={PLUGINS}
         components={COMPONENTS}
         controls={CONTROLS}
-        translations={translations}
         allowedTags={ALLOWED_TAGS}
         lineNumbers={false}
       />
@@ -100,7 +83,6 @@ MarkdownRender.propTypes = {
   children: PropTypes.string.isRequired,
   done: PropTypes.bool,
   reasoning: PropTypes.string,
-  literalTags: PropTypes.bool,
 }
 
 export default memo(MarkdownRender)

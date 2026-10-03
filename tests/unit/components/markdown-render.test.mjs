@@ -126,10 +126,25 @@ test('reasoning stays open while streaming and collapses once done', () => {
 })
 
 test('a question that mentions a reasoning tag renders it as text', () => {
-  const container = mount({ children: 'Use <think> like this.', literalTags: true })
+  const container = mount({ children: 'Use <think> like this.' })
 
   assert.equal(container.querySelector('.reasoning-wrapper'), null)
   assert.match(container.textContent, /Use <think> like this\./)
+})
+
+test('a reasoning tag in the answer renders as text, never as a thinking block', () => {
+  const container = mount({ children: '<think>not thinking</think>\n\nJust text.' })
+
+  assert.equal(container.querySelector('.reasoning-wrapper'), null)
+  assert.match(container.textContent, /<think>not thinking<\/think>/)
+})
+
+test('a reasoning tag inside a code fence stays in the answer', () => {
+  const container = mount({ children: 'Example:\n\n```html\n<think>x</think>\n```' })
+
+  assert.equal(container.querySelector('.reasoning-wrapper'), null)
+  assert.ok(container.querySelector('pre code'))
+  assert.match(container.textContent, /<think>x<\/think>/)
 })
 
 test('raw html in an answer is preserved', () => {
@@ -145,4 +160,68 @@ test('links render through the shared Hyperlink component', () => {
   assert.equal(link.getAttribute('href'), 'https://example.com/docs')
   assert.equal(link.getAttribute('target'), '_blank')
   assert.equal(link.getAttribute('rel'), 'nofollow noopener noreferrer')
+})
+
+test('an answer that mentions the loading class still renders with its reasoning', () => {
+  const container = mount({
+    children: 'The class gpt-loading marks the waiting placeholder.',
+    reasoning: 'weighing options',
+    done: true,
+  })
+
+  assert.ok(container.querySelector('.reasoning-wrapper.collapsed'))
+  assert.match(container.textContent, /gpt-loading marks the waiting placeholder/)
+})
+
+test('a closing tag inside code in the reasoning cannot leak into the answer', () => {
+  const container = mount({
+    children: 'The answer.',
+    reasoning: 'The user wrote `</think>` in code, then explained it.',
+    done: true,
+  })
+
+  assert.ok(container.querySelector('.reasoning-wrapper.collapsed'))
+  assert.match(container.textContent, /The answer\./)
+  assert.doesNotMatch(container.textContent, /then explained it/)
+})
+
+test('reasoning stays open when its code mentions a closing tag', () => {
+  const container = mount({
+    children: LOADING,
+    reasoning: 'The user wrote `</think>` in code.',
+    done: false,
+  })
+
+  assert.ok(container.querySelector('.reasoning-wrapper.open'))
+})
+
+test('a reasoning tag inside the thinking stays literal, not a nested block', () => {
+  const container = mount({
+    children: LOADING,
+    reasoning: '<think>nested</think> still thinking',
+    done: false,
+  })
+
+  assert.equal(container.querySelectorAll('.reasoning-wrapper').length, 1)
+  assert.match(container.textContent, /<think>nested<\/think>/)
+})
+
+test('the thinking is rendered as markdown inside its own block', () => {
+  const container = mount({ children: LOADING, reasoning: 'weighing **options**', done: false })
+
+  const content = container.querySelector('.reasoning-content')
+  assert.ok(content, 'the thinking block holds the content')
+  assert.ok(content.querySelector('strong'), 'the thinking goes through the markdown pipeline')
+})
+
+test('the thinking highlights code the same way the answer does', () => {
+  const container = mount({
+    children: LOADING,
+    reasoning: '```js\nconst answer = 42\n```',
+    done: false,
+  })
+
+  const code = container.querySelector('.reasoning-content pre code')
+  assert.ok(code, 'the thinking renders its code block')
+  assert.ok(code.classList.contains('hljs'), 'the thinking uses the same highlight plugin')
 })

@@ -1,10 +1,14 @@
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
-import { isEmpty } from 'lodash-es'
-import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
+import {
+  createApiResponseError,
+  getCompletionPromptBase,
+  parseJsonMessage,
+  pushRecord,
+  setAbortController,
+} from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
-import { splitInlineReasoning } from './inline-reasoning.mjs'
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -15,33 +19,48 @@ function buildHeaders(apiKey, extraHeaders = {}) {
   return headers
 }
 
-function buildMessageAnswer(answer, data, allowLegacyResponseField) {
+/**
+ * The answer carried by one response payload. Chat completions and legacy completions put
+ * the text in different places, and content that is not a plain string is ignored rather
+ * than coerced, so a stray object can never reach the card.
+ */
+function appendAnswerChunk(answer, data, allowLegacyResponseField) {
   if (allowLegacyResponseField && typeof data?.response === 'string' && data.response) {
     return data.response
   }
 
-  const delta = data?.choices?.[0]?.delta?.content
-  const content = data?.choices?.[0]?.message?.content
-  const text = data?.choices?.[0]?.text
+  const choice = data?.choices?.[0]
+  const delta = choice?.delta?.content
   if (typeof delta === 'string') return answer + delta
+
+  // A non-streaming body, or a provider that sends the full message, replaces the answer.
+  const content = choice?.message?.content
   if (typeof content === 'string' && content) return content
+
+  const text = choice?.text
   if (typeof text === 'string' && text) return answer + text
+
   return answer
+}
+
+/**
+ * The thinking a reasoning model keeps out of its content: DeepSeek's `reasoning_content`,
+ * OpenRouter-style `reasoning`, or a whole non-streaming message. It is read verbatim, so
+ * nothing is parsed out of, or into, the answer.
+ */
+function readReasoningChunk(data) {
+  const choice = data?.choices?.[0]
+  const delta = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning
+  if (typeof delta === 'string' && delta) return { text: delta, replace: false }
+
+  const message = choice?.message?.reasoning_content ?? choice?.message?.reasoning
+  if (typeof message === 'string' && message) return { text: message, replace: true }
+
+  return null
 }
 
 function hasFinished(data) {
   return Boolean(data?.choices?.[0]?.finish_reason)
-}
-
-/**
- * Reasoning models put their thinking in their own field rather than in the content, and
- * deliberately do not replay it in context. Surfacing it separately keeps it out of the
- * conversation records.
- */
-function getReasoningDelta(data) {
-  const delta = data?.choices?.[0]?.delta
-  const reasoning = delta?.reasoning_content ?? delta?.reasoning
-  return typeof reasoning === 'string' ? reasoning : ''
 }
 
 /**
@@ -88,6 +107,9 @@ export async function generateAnswersWithOpenAICompatible({
   session.conversationRecords = conversationRecords
   const safeExtraBody = { ...extraBody }
   delete safeExtraBody.temperature
+  // Azure deployments are addressed by the URL, not by the body, so an empty model means
+  // "send none" rather than "send an empty string".
+  const modelParam = model ? { model } : {}
   if (endpointType === 'completion') {
     const prompt =
       (await getCompletionPromptBase()) +
@@ -95,7 +117,7 @@ export async function generateAnswersWithOpenAICompatible({
       `Human: ${question}\nAI: `
     requestBody = {
       prompt,
-      model,
+      ...modelParam,
       stream: true,
       max_tokens: config.maxResponseTokenLength,
       ...getTemperatureParams(config, model),
@@ -118,7 +140,7 @@ export async function generateAnswersWithOpenAICompatible({
     delete safeExtraBody[conflictingTokenParamKey]
     requestBody = {
       messages,
-      model,
+      ...modelParam,
       stream: true,
       ...tokenParams,
       ...getTemperatureParams(config, model),
@@ -132,39 +154,27 @@ export async function generateAnswersWithOpenAICompatible({
   let postedReasoning = ''
   let finished = false
 
-  // The answer channel may carry the thinking itself, wrapped in a leading <think>-style
-  // block, instead of (or alongside) a dedicated reasoning field; both sources reach the
-  // reader as reasoning and stay out of the conversation records.
-  const resolveStreamText = () => {
-    const inline = splitInlineReasoning(answer)
-    return {
-      // A block that never closed is thinking that was cut off mid-thought, so it is not an
-      // answer either: recording it would send the model its own unfinished reasoning back.
-      answer: inline.answer,
-      reasoning: [reasoning, inline.reasoning].filter(Boolean).join('\n\n'),
-    }
-  }
-
+  // The thinking is whatever the reasoning field carried; the content channel is the answer,
+  // verbatim. Nothing is parsed out of the answer, so a model or a reader that writes a
+  // "<think>" tag is writing text, and the renderer shows it as such.
   const postStreamText = () => {
-    const streamText = resolveStreamText()
-    if (streamText.answer !== postedAnswer) {
-      postedAnswer = streamText.answer
-      port.postMessage({ answer: streamText.answer, done: false, session: null })
+    if (answer !== postedAnswer) {
+      postedAnswer = answer
+      port.postMessage({ answer, done: false, session: null })
     }
-    if (streamText.reasoning && streamText.reasoning !== postedReasoning) {
-      postedReasoning = streamText.reasoning
-      port.postMessage({ reasoning: streamText.reasoning, done: false, session: null })
+    if (reasoning && reasoning !== postedReasoning) {
+      postedReasoning = reasoning
+      port.postMessage({ reasoning, done: false, session: null })
     }
   }
 
   const finish = () => {
     if (finished) return
     finished = true
-    const { answer: finalAnswer, reasoning: finalReasoning } = resolveStreamText()
     // A turn that was nothing but thinking has no answer to record; keeping it out of the
     // records is what stops the model from being sent its own unfinished reasoning back as
     // context. A plain empty answer is still recorded, as it always has been.
-    if (finalAnswer || !finalReasoning) pushRecord(session, question, finalAnswer)
+    if (answer || !reasoning) pushRecord(session, question, answer)
     port.postMessage({ answer: null, done: true, session: session })
   }
 
@@ -179,17 +189,15 @@ export async function generateAnswersWithOpenAICompatible({
         finish()
         return
       }
-      let data
-      try {
-        data = JSON.parse(message)
-      } catch (error) {
-        console.debug('json error', error)
-        return
-      }
+      const data = parseJsonMessage(message)
+      if (data === undefined) return
 
-      const reasoningDelta = getReasoningDelta(data)
-      if (reasoningDelta) reasoning += reasoningDelta
-      answer = buildMessageAnswer(answer, data, allowLegacyResponseField)
+      const reasoningChunk = readReasoningChunk(data)
+      if (reasoningChunk) {
+        // A delta grows the thinking; a full message that replaces the content replaces it too.
+        reasoning = reasoningChunk.replace ? reasoningChunk.text : reasoning + reasoningChunk.text
+      }
+      answer = appendAnswerChunk(answer, data, allowLegacyResponseField)
       // A chunk can carry reasoning only; an unchanged answer is not posted again.
       postStreamText()
 
@@ -202,11 +210,10 @@ export async function generateAnswersWithOpenAICompatible({
       try {
         if (!finished) {
           if (aborted) {
-            const streamText = resolveStreamText()
-            const shouldPostSession = Boolean(streamText.answer) || session.isRetry
+            const shouldPostSession = Boolean(answer) || session.isRetry
             if (shouldPostSession && isCurrentSessionRequest()) {
-              if (streamText.answer) {
-                pushRecord(session, question, streamText.answer)
+              if (answer) {
+                pushRecord(session, question, answer)
               }
               session.isRetry = false
               try {
@@ -232,8 +239,7 @@ export async function generateAnswersWithOpenAICompatible({
       port.onMessage.removeListener(messageListener)
       port.onDisconnect.removeListener(disconnectListener)
       if (resp instanceof Error) throw resp
-      const error = await resp.json().catch(() => ({}))
-      throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
+      throw await createApiResponseError(resp)
     },
   })
 }
