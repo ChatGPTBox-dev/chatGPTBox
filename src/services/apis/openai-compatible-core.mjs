@@ -4,6 +4,7 @@ import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { splitInlineReasoning } from './inline-reasoning.mjs'
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -30,6 +31,17 @@ function buildMessageAnswer(answer, data, allowLegacyResponseField) {
 
 function hasFinished(data) {
   return Boolean(data?.choices?.[0]?.finish_reason)
+}
+
+/**
+ * Reasoning models put their thinking in their own field rather than in the content, and
+ * deliberately do not replay it in context. Surfacing it separately keeps it out of the
+ * conversation records.
+ */
+function getReasoningDelta(data) {
+  const delta = data?.choices?.[0]?.delta
+  const reasoning = delta?.reasoning_content ?? delta?.reasoning
+  return typeof reasoning === 'string' ? reasoning : ''
 }
 
 /**
@@ -115,11 +127,44 @@ export async function generateAnswersWithOpenAICompatible({
   }
 
   let answer = ''
+  let reasoning = ''
+  let postedAnswer = ''
+  let postedReasoning = ''
   let finished = false
+
+  // Reasoning that arrives through its own field wins. Providers that put the thinking in
+  // the answer instead (a leading <think>-style block) get the same treatment, so it is
+  // shown as reasoning and stays out of the conversation records.
+  const resolveStreamText = ({ final = false } = {}) => {
+    if (reasoning) return { answer, reasoning }
+    const inline = splitInlineReasoning(answer)
+    // A block that never closed is only thinking while the stream is still running. Once it
+    // has ended the text is kept as the answer, so a response truncated mid-thinking (or an
+    // answer that merely starts with a tag) is not lost from the conversation.
+    if (final && inline.unclosed) return { answer, reasoning: '' }
+    return { answer: inline.answer, reasoning: inline.reasoning }
+  }
+
+  const postStreamText = () => {
+    const streamText = resolveStreamText()
+    if (streamText.answer !== postedAnswer) {
+      postedAnswer = streamText.answer
+      port.postMessage({ answer: streamText.answer, done: false, session: null })
+    }
+    if (streamText.reasoning && streamText.reasoning !== postedReasoning) {
+      postedReasoning = streamText.reasoning
+      port.postMessage({ reasoning: streamText.reasoning, done: false, session: null })
+    }
+  }
+
   const finish = () => {
     if (finished) return
     finished = true
-    pushRecord(session, question, answer)
+    // Finalisation only ever differs from what was streamed by no longer treating an
+    // unclosed block as thinking. The card already shows that text in its thinking block,
+    // so it is recorded here without being posted again as an answer — sending it would
+    // make the renderer show the same thinking twice.
+    pushRecord(session, question, resolveStreamText({ final: true }).answer)
     port.postMessage({ answer: null, done: true, session: session })
   }
 
@@ -142,8 +187,11 @@ export async function generateAnswersWithOpenAICompatible({
         return
       }
 
+      const reasoningDelta = getReasoningDelta(data)
+      if (reasoningDelta) reasoning += reasoningDelta
       answer = buildMessageAnswer(answer, data, allowLegacyResponseField)
-      port.postMessage({ answer: answer, done: false, session: null })
+      // A chunk can carry reasoning only; an unchanged answer is not posted again.
+      postStreamText()
 
       if (hasFinished(data)) {
         finish()
@@ -154,10 +202,11 @@ export async function generateAnswersWithOpenAICompatible({
       try {
         if (!finished) {
           if (aborted) {
-            const shouldPostSession = Boolean(answer) || session.isRetry
+            const streamText = resolveStreamText({ final: true })
+            const shouldPostSession = Boolean(streamText.answer) || session.isRetry
             if (shouldPostSession && isCurrentSessionRequest()) {
-              if (answer) {
-                pushRecord(session, question, answer)
+              if (streamText.answer) {
+                pushRecord(session, question, streamText.answer)
               }
               session.isRetry = false
               try {

@@ -61,11 +61,12 @@ class ConversationItemData extends Object {
    * @param {string} content
    * @param {bool} done
    */
-  constructor(type, content, done = false) {
+  constructor(type, content, done = false, reasoning = '') {
     super()
     this.type = type
     this.content = content
     this.done = done
+    this.reasoning = reasoning
   }
 }
 
@@ -207,8 +208,9 @@ function ConversationCard(props) {
    * @param {boolean} appended
    * @param {'question'|'answer'|'error'} newType
    * @param {boolean} done
+   * @param {string} [reasoning] reasoning for the replacement; omit to keep the existing one
    */
-  const updateAnswer = (value, appended, newType, done = false) => {
+  const updateAnswer = (value, appended, newType, done = false, reasoning) => {
     setConversationItemData((old) => {
       const copy = [...old]
       const index = findLastIndex(copy, (v) => v.type === 'answer' || v.type === 'error')
@@ -216,8 +218,25 @@ function ConversationCard(props) {
       copy[index] = new ConversationItemData(
         newType,
         appended ? copy[index].content + value : value,
+        done,
+        reasoning === undefined ? copy[index].reasoning : reasoning,
       )
-      copy[index].done = done
+      return copy
+    })
+  }
+
+  // Thinking arrives alongside the answer and stays out of the conversation records.
+  const updateReasoning = (value) => {
+    setConversationItemData((old) => {
+      const copy = [...old]
+      const index = findLastIndex(copy, (v) => v.type === 'answer')
+      if (index === -1) return copy
+      copy[index] = new ConversationItemData(
+        copy[index].type,
+        copy[index].content,
+        copy[index].done,
+        value,
+      )
       return copy
     })
   }
@@ -244,6 +263,7 @@ function ConversationCard(props) {
       partialAnswerRef.current = msg.answer
       answerBufferRef.current.push(msg.answer)
     }
+    if (msg.reasoning) updateReasoning(msg.reasoning)
     if (msg.session) {
       setSession(msg.done ? { ...msg.session, isRetry: false } : msg.session)
     }
@@ -278,6 +298,8 @@ function ConversationCard(props) {
               )}`,
             false,
             'error',
+            false,
+            '',
           )
           break
         case 'CLOUDFLARE':
@@ -292,6 +314,8 @@ function ConversationCard(props) {
               )}`,
             false,
             'error',
+            false,
+            '',
           )
           break
         default: {
@@ -496,7 +520,14 @@ function ConversationCard(props) {
 
   const getRetryFn = (session) => async () => {
     answerBufferRef.current.discard()
-    updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
+    // A retry starts a new generation, so the previous attempt's reasoning must go too.
+    updateAnswer(
+      `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
+      false,
+      'answer',
+      false,
+      '',
+    )
     setIsReady(false)
 
     const conversationRecords = session.conversationRecords.map((record) => ({ ...record }))
@@ -525,7 +556,8 @@ function ConversationCard(props) {
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       partialAnswerRef.current = ''
       retryRecordRef.current = null
-      updateAnswer(e?.message ?? String(e), false, 'error')
+      // The renderer takes text, so the thrown error is stored as its message.
+      updateAnswer(e?.message ?? String(e), false, 'error', false, '')
       setIsReady(true)
     }
   }
@@ -781,6 +813,7 @@ function ConversationCard(props) {
             descName={data.type === 'answer' && currentAiName}
             onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
             done={data.done}
+            reasoning={data.reasoning}
           />
         ))}
       </div>
@@ -826,7 +859,7 @@ function ConversationCard(props) {
               await postMessage({ session: newSession })
             } catch (e) {
               if (disposedRef.current) return
-              updateAnswer(e?.message ?? String(e), false, 'error')
+              updateAnswer(e?.message ?? String(e), false, 'error', false, '')
             }
             if (disposedRef.current || !bodyRef.current) return
             bodyRef.current.scrollTo({
