@@ -238,6 +238,34 @@ test('remote runtime Port disconnect reconnects and unmount cleans the replaceme
   assert.equal(state.ports.length, 2)
 })
 
+test('a remote Port disconnect during a foreground generation does not unlock sending', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  state.foreground = true
+  state.generateAnswers = () => {
+    state.generateAnswersCount += 1
+    return new Promise(() => {})
+  }
+
+  mountCard(container)
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+
+  state.inputBoxProps.onSubmit('question')
+  await waitFor(() => state.generateAnswersCount === 1, 'foreground provider did not start')
+  await waitFor(() => state.inputBoxProps.enabled === false, 'sending was not locked')
+
+  act(() => state.ports[0].emitRemoteDisconnect())
+
+  // The keepalive Port is replaced, but the foreground stream still owns the answer, so
+  // sending stays locked until that stream ends on its own.
+  assert.equal(state.ports.length, 2)
+  assert.equal(state.inputBoxProps.enabled, false)
+})
+
 test('close button disposes foreground transport before onClose', async () => {
   const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
   const container = document.createElement('div')

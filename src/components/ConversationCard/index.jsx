@@ -448,13 +448,17 @@ function ConversationCard(props) {
         return
       }
       if (disposedRef.current) return
-      // A dropped transport ends the stream without a final message. Flush here so the newest
-      // chunk renders even on a hidden page, where animation frames are paused.
-      answerBufferRef.current.flush()
+      // A dropped transport ends the stream without a final message, so flush here: the newest
+      // chunk still renders on a hidden page, where animation frames are paused. A foreground
+      // generation (Bing web) streams through its own transport, though, so this keepalive
+      // port dropping must not unlock sending.
+      if (foregroundPortsRef.current.size === 0) {
+        answerBufferRef.current.flush()
+        setIsReady(true)
+      }
       const nextPort = Browser.runtime.connect()
       portRef.current = nextPort
       setPort(nextPort)
-      setIsReady(true)
     }
 
     const closeChatsMessageListener = (message) => {
