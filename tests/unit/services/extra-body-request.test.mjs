@@ -32,30 +32,79 @@ async function captureRequestBody(t, chunks, run) {
   return requestBody
 }
 
+function openAiCompatibleRequest({ endpointType = 'chat', model = 'gpt-5', extraBody }) {
+  return {
+    port: createFakePort(),
+    question: 'hi',
+    session: { conversationRecords: [] },
+    endpointType,
+    requestUrl: `https://example.com/v1/${
+      endpointType === 'chat' ? 'chat/completions' : 'completions'
+    }`,
+    model,
+    apiKey: 'key',
+    provider: 'openai',
+    config: {
+      maxConversationContextLength: 9,
+      maxResponseTokenLength: 1000,
+      temperatureOverrideEnabled: false,
+      temperature: 1,
+      extraBody,
+    },
+  }
+}
+
 test('OpenAI-compatible requests send the extra body without losing the SSE stream', async (t) => {
   const requestBody = await captureRequestBody(t, CHAT_CHUNKS, () =>
-    generateAnswersWithOpenAICompatible({
-      port: createFakePort(),
-      question: 'hi',
-      session: { conversationRecords: [] },
-      endpointType: 'chat',
-      requestUrl: 'https://example.com/v1/chat/completions',
-      model: 'gpt-5',
-      apiKey: 'key',
-      provider: 'openai',
-      config: {
-        maxConversationContextLength: 9,
-        maxResponseTokenLength: 1000,
-        temperatureOverrideEnabled: false,
-        temperature: 1,
-        extraBody: '{"reasoning_effort":"high","stream":false}',
-      },
-    }),
+    generateAnswersWithOpenAICompatible(
+      openAiCompatibleRequest({ extraBody: '{"reasoning_effort":"high","stream":false}' }),
+    ),
   )
 
   assert.equal(requestBody.reasoning_effort, 'high')
   assert.equal(requestBody.stream, true)
   assert.equal(requestBody.model, 'gpt-5')
+})
+
+test('OpenAI-compatible chat requests keep only the token key the model family uses', async (t) => {
+  const requestBody = await captureRequestBody(t, CHAT_CHUNKS, () =>
+    generateAnswersWithOpenAICompatible(
+      openAiCompatibleRequest({ extraBody: '{"max_tokens":123,"max_completion_tokens":456}' }),
+    ),
+  )
+
+  // gpt-5 sends max_completion_tokens, so that is where the override lands.
+  assert.equal(requestBody.max_completion_tokens, 456)
+  assert.equal('max_tokens' in requestBody, false)
+})
+
+test('OpenAI-compatible chat requests drop the unused token key for max_tokens models', async (t) => {
+  const requestBody = await captureRequestBody(t, CHAT_CHUNKS, () =>
+    generateAnswersWithOpenAICompatible(
+      openAiCompatibleRequest({
+        model: 'gpt-4.1',
+        extraBody: '{"max_tokens":123,"max_completion_tokens":456}',
+      }),
+    ),
+  )
+
+  assert.equal(requestBody.max_tokens, 123)
+  assert.equal('max_completion_tokens' in requestBody, false)
+})
+
+test('OpenAI-compatible completion requests stay on max_tokens', async (t) => {
+  const requestBody = await captureRequestBody(t, CHAT_CHUNKS, () =>
+    generateAnswersWithOpenAICompatible(
+      openAiCompatibleRequest({
+        endpointType: 'completion',
+        model: 'gpt-3.5-turbo-instruct',
+        extraBody: '{"max_tokens":123,"max_completion_tokens":456}',
+      }),
+    ),
+  )
+
+  assert.equal(requestBody.max_tokens, 123)
+  assert.equal('max_completion_tokens' in requestBody, false)
 })
 
 test('Azure OpenAI requests send the extra body', async (t) => {
