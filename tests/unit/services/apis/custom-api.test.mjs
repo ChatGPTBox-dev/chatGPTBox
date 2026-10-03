@@ -567,7 +567,7 @@ test('retry mode overwrites last conversation record', async (t) => {
   assert.deepEqual(session.conversationRecords[0], { question: 'Q1', answer: 'new answer' })
 })
 
-test('delta.content with empty string is appended (no skip)', async (t) => {
+test('an empty delta.content leaves the answer unchanged and does not repost it', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
     maxConversationContextLength: 2,
@@ -599,9 +599,10 @@ test('delta.content with empty string is appended (no skip)', async (t) => {
     'model',
   )
 
-  // After empty delta, answer should still be "A" (empty appended, not skipped)
+  // The empty delta appends nothing, so the unchanged answer is not posted again.
   const streaming = port.postedMessages.filter((m) => m.done === false)
-  assert.equal(streaming[0].answer, 'A')
-  assert.equal(streaming[1].answer, 'A') // "A" + "" = "A"
-  assert.equal(streaming[2].answer, 'AB')
+  assert.deepEqual(
+    streaming.map((m) => m.answer),
+    ['A', 'AB'],
+  )
 })

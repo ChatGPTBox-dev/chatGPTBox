@@ -1,3 +1,5 @@
+import { isEmpty } from 'lodash-es'
+
 export const getChatSystemPromptBase = async () => {
   return `You are a helpful, creative, clever, and very friendly assistant. You are familiar with various languages in the world.`
 }
@@ -82,4 +84,32 @@ export function pushRecord(session, question, answer) {
 
   if (session.isRetry && lastRecord && lastRecord.question === question) lastRecord.answer = answer
   else session.conversationRecords.push({ question: question, answer: answer })
+}
+
+/**
+ * The user-facing error for a non-ok HTTP response: the provider's JSON body when there is
+ * one, and the status line otherwise. Every transport reports failures the same way.
+ *
+ * @param {Response} resp
+ * @returns {Promise<Error>}
+ */
+export async function createApiResponseError(resp) {
+  const error = await resp.json().catch(() => ({}))
+  return new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
+}
+
+/**
+ * Decode one SSE payload. A line that is not JSON is logged and dropped, which is how a
+ * stray comment or keep-alive is ignored.
+ *
+ * @param {string} message
+ * @returns {any} the decoded payload, or undefined when it was not JSON
+ */
+export function parseJsonMessage(message) {
+  try {
+    return JSON.parse(message)
+  } catch (error) {
+    console.debug('json error', error)
+    return undefined
+  }
 }

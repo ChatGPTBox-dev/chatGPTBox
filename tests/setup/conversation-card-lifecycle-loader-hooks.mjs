@@ -40,7 +40,20 @@ const sources = {
       return null
     }
   `,
-  'test:conversation-item': 'export default function ConversationItem() { return null }',
+  'test:conversation-item': `
+    export default function ConversationItem(props) {
+      if (props.type === 'answer') {
+        const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+        state.answerContents.push(props.content)
+        state.answerProps.push({
+          content: props.content,
+          reasoning: props.reasoning,
+          done: props.done,
+        })
+      }
+      return null
+    }
+  `,
   'test:conversation-utils': `
     export const apiModeToModelName = () => 'test-model'
     export const createElementAtPosition = () => document.createElement('div')

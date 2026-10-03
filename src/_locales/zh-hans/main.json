@@ -179,6 +179,7 @@
   "ChatGLM (CharGLM-3)": "ChatGLM (CharGLM-3, 角色扮演)",
   "Crop Text to ensure the input tokens do not exceed the model's limit": "裁剪文本以确保输入token不超过模型限制",
   "Thinking Content": "思考内容",
+  "Thought for {seconds}s": "思考了 {seconds} 秒",
   "This provider is still used by other API modes or saved conversations": "此提供商仍被其他 API 模式或已保存的对话使用",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "此 API 密钥设定在所选的自定义模式上。在这里编辑会为该模式创建专用提供商。",
   "Use shared key": "使用共享提供商密钥",

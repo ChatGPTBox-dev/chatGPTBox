@@ -267,6 +267,32 @@ test('claude-api: delta.text streams accumulate and message_stop terminates', as
   ])
 })
 
+test('claude-api: thinking deltas stream as reasoning, never as the answer', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const { session, port } = setupCompletionTest()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"weighing "}}\n\n',
+      'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"options"}}\n\n',
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"The answer."}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithClaudeApi(port, 'CurrentQ', session)
+
+  assert.deepEqual(
+    port.postedMessages.filter((message) => message.reasoning).map((message) => message.reasoning),
+    ['weighing ', 'weighing options'],
+  )
+  assert.deepEqual(session.conversationRecords.at(-1), {
+    question: 'CurrentQ',
+    answer: 'The answer.',
+  })
+})
+
 test('claude-api: rejects incomplete Claude responses', async (t) => {
   t.mock.method(console, 'debug', () => {})
 

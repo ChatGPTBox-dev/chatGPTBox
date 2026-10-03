@@ -1,7 +1,11 @@
 import { getUserConfig } from '../../config/index.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import {
+  createApiResponseError,
+  parseJsonMessage,
+  pushRecord,
+  setAbortController,
+} from './shared.mjs'
 import { FETCH_RESPONSE_STREAM_FAILED, fetchSSE } from '../../utils/fetch-sse.mjs'
-import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
@@ -39,6 +43,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
   if (thinking) body.thinking = thinking
 
   let answer = ''
+  let reasoning = ''
   let stopReason = ''
   let completionError
   let wasAborted = false
@@ -56,13 +61,8 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     onMessage(message) {
       console.debug('sse message', message)
 
-      let data
-      try {
-        data = JSON.parse(message)
-      } catch (error) {
-        console.debug('json error', error)
-        return
-      }
+      const data = parseJsonMessage(message)
+      if (data === undefined) return
       if (data?.type === 'error') {
         controller.abort()
         const error = new Error(JSON.stringify(data))
@@ -102,6 +102,14 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
         return
       }
 
+      // Extended thinking arrives as its own delta type. It is shown as reasoning and never
+      // recorded as the answer, exactly like the reasoning field of an OpenAI-compatible API.
+      const thinkingDelta = data?.delta?.thinking
+      if (typeof thinkingDelta === 'string' && thinkingDelta) {
+        reasoning += thinkingDelta
+        port.postMessage({ reasoning, done: false, session: null })
+      }
+
       const delta = data?.delta?.text
       if (delta) {
         answer += delta
@@ -121,8 +129,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
       port.onMessage.removeListener(messageListener)
       port.onDisconnect.removeListener(disconnectListener)
       if (resp instanceof Error) throw resp
-      const error = await resp.json().catch(() => ({}))
-      throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
+      throw await createApiResponseError(resp)
     },
   }).catch((error) => error)
   if (wasAborted) return

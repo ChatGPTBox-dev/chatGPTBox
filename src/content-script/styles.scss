@@ -146,6 +146,44 @@
     word-wrap: break-word;
   }
 
+  // HyperMarkdown draws list markers through `li::before` rules that match any item with
+  // an ancestor list of that kind, and through a counter that ignores the `start` attribute
+  // the renderer emits for lists that do not begin at 1. Bullets nested in a numbered list
+  // therefore come out numbered, and a list that resumes at 3 comes out as "1. 2." (or
+  // "1.1." once the native marker is added on top). Let the browser draw the markers
+  // instead: they follow the list type, honour `start`, and survive re-rendering.
+  .markdown-body .hypermarkdown ol,
+  .markdown-body .hypermarkdown ul {
+    list-style-position: outside !important;
+    padding-left: 2em !important;
+  }
+
+  .markdown-body .hypermarkdown ol {
+    list-style-type: decimal !important;
+  }
+
+  .markdown-body .hypermarkdown ul {
+    list-style-type: disc !important;
+  }
+
+  .markdown-body .hypermarkdown li {
+    padding-left: 0 !important;
+  }
+
+  .markdown-body .hypermarkdown li::before {
+    content: none !important;
+  }
+
+  // The reasoning block renders through its own renderer so that no tag in the answer can
+  // open or close it. That renderer is another `.hypermarkdown` root, which would reset the
+  // small, muted type the reasoning block asks for; let the block's own type win instead.
+  .markdown-body .reasoning-content .hypermarkdown {
+    font-size: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+  }
+
   .markdown-body .octicon {
     display: inline-block;
     fill: currentColor;
