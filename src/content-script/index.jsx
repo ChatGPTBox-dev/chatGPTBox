@@ -397,7 +397,8 @@ async function prepareForSelectionTools() {
         console.debug('[content] Keydown in input/textarea outside toolbar.')
         setTimeout(() => {
           try {
-            if (!window.getSelection()?.toString().trim()) {
+            // Firefox does not expose text field selections via window.getSelection()
+            if (!window.getSelection()?.toString().trim() && !captureEditableSelection()) {
               console.debug('[content] No selection after keydown, deleting toolbar.')
               deleteToolbar()
             }
