@@ -778,3 +778,33 @@ test('switching the question drops a buffered answer from the previous one', asy
 
   assert.equal(state.answerContents.includes('stale answer'), false)
 })
+
+test('a dropped transport flushes the buffered answer before reconnecting', () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const session = {
+    ...baseSession(),
+    question: 'why?',
+    conversationRecords: [{ question: 'why?', answer: 'partial' }],
+  }
+
+  mountCard(container, { question: 'why?', session })
+  const port = state.ports[0]
+
+  act(() => port.onMessage.trigger({ answer: 'newest chunk' }))
+  assert.equal(
+    state.answerContents.includes('newest chunk'),
+    false,
+    'the chunk must be buffered first',
+  )
+
+  act(() => port.emitRemoteDisconnect())
+
+  assert.equal(state.ports.length, 2)
+  assert.equal(
+    state.answerContents.includes('newest chunk'),
+    true,
+    'a dropped transport must flush the newest chunk synchronously',
+  )
+})

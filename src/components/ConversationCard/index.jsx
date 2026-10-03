@@ -448,6 +448,9 @@ function ConversationCard(props) {
         return
       }
       if (disposedRef.current) return
+      // A dropped transport ends the stream without a final message. Flush here so the newest
+      // chunk renders even on a hidden page, where animation frames are paused.
+      answerBufferRef.current.flush()
       const nextPort = Browser.runtime.connect()
       portRef.current = nextPort
       setPort(nextPort)
