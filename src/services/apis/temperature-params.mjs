@@ -47,6 +47,8 @@ function isGeminiWithoutCustomTemperature(model) {
 }
 
 export function canApplyTemperatureOverride(model) {
+  if (model === 'kimi-k3') return false
+
   const normalizedModel = normalizeModelId(model)
   return (
     !isKnownModelWithoutCustomTemperature(normalizedModel) &&
