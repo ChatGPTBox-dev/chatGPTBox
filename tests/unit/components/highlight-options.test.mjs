@@ -43,15 +43,33 @@ test('auto-detection still labels blocks from the configured subset', async () =
 })
 
 test('the subset only narrows detection, not labelled blocks', async () => {
-  // `lua` is registered by lowlight but deliberately left out of the detection subset.
-  assert.equal(highlightOptions.subset.includes('lua'), false)
+  // `objectivec` is registered by lowlight but deliberately left out of the detection subset.
+  assert.equal(highlightOptions.subset.includes('objectivec'), false)
 
-  const [code] = await renderCodeNodes('```lua\nlocal value = 1\n```\n')
+  const [code] = await renderCodeNodes('```objectivec\nNSString *value = @"hi";\n```\n')
 
   assert.ok(
     code.children.some((child) => classNames(child).some((name) => name.startsWith('hljs-'))),
     'expected token spans for a labelled language outside the detection subset',
   )
+})
+
+test('auto-detection keeps the common unlabelled languages', async () => {
+  const cases = [
+    ['diff', 'diff --git a/x b/x\n@@ -1,3 +1,3 @@\n-old line\n+new line'],
+    ['markdown', '# Title\n\nSome *emphasis* and a [link](http://example.com).\n\n- item'],
+    ['lua', 'local function add(a, b)\n  return a + b\nend\nprint(add(1, 2))'],
+  ]
+
+  for (const [language, snippet] of cases) {
+    const [code] = await renderCodeNodes(`\`\`\`\n${snippet}\n\`\`\`\n`)
+    const detected = classNames(code).find((name) => name.startsWith('language-'))
+    assert.equal(
+      detected,
+      `language-${language}`,
+      `expected ${language} to stay auto-detectable, got ${classNames(code).join(', ')}`,
+    )
+  }
 })
 
 test('an unknown language label is ignored instead of failing the render', async () => {
