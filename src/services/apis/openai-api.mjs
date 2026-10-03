@@ -1,8 +1,16 @@
 import { getUserConfig } from '../../config/index.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { generateAnswersWithOpenAICompatible } from './openai-compatible-core.mjs'
+import { withAbortController } from './shared.mjs'
 import {
+  generateAnswersWithOpenAIResponses,
+  isResponsesRouteUnsupportedError,
+} from './openai-responses-core.mjs'
+import {
+  API_PROTOCOL_RESPONSES,
+  deriveResponsesUrlFromChatUrl,
   getOpenAICompatibleRequestDiagnostic,
+  normalizeExplicitApiProtocol,
   resolveOpenAICompatibleRequest,
 } from './provider-registry.mjs'
 
@@ -74,6 +82,46 @@ function buildOpenAICompatibleResolutionErrorMessage(diagnostic) {
     `Failed to resolve OpenAI-compatible provider settings for ${groupName}/${normalizedProviderId}. ` +
     hint
   )
+}
+
+function hasOpenAILineage(request) {
+  return (
+    request?.providerId === 'openai' ||
+    request?.secretProviderId === 'openai' ||
+    request?.provider?.sourceProviderId === 'openai'
+  )
+}
+
+function shouldUseResponsesProtocol(request, config, session) {
+  // The legacy prompt-based completions endpoint has no Responses equivalent.
+  if (request?.endpointType === 'completion') return false
+  const explicitProtocol =
+    normalizeExplicitApiProtocol(session?.apiMode?.apiProtocol) ||
+    normalizeExplicitApiProtocol(request?.provider?.apiProtocol)
+  if (explicitProtocol) return explicitProtocol === API_PROTOCOL_RESPONSES
+  if (
+    String(config?.openaiApiProtocol || '')
+      .trim()
+      .toLowerCase() !== API_PROTOCOL_RESPONSES
+  ) {
+    return false
+  }
+  return hasOpenAILineage(request)
+}
+
+function resolveResponsesRequestUrl(request) {
+  if (request?.apiProtocol === API_PROTOCOL_RESPONSES) return request.requestUrl
+  return (
+    String(request?.provider?.responsesUrl || '').trim() ||
+    deriveResponsesUrlFromChatUrl(request?.requestUrl)
+  )
+}
+
+function shouldFallbackToChatCompletions(error) {
+  // Only fall back on initial HTTP failures. Mid-stream errors (no status)
+  // may already have emitted partial answers; retrying via Chat would duplicate them.
+  if (error?.status == null) return false
+  return isResponsesRouteUnsupportedError(error)
 }
 
 function hasNativeOpenAIRequestUrl(requestUrl) {
@@ -153,6 +201,14 @@ function hasNativeOllamaChatApiPath(requestUrl) {
     return /(^|\/)api\/chat$/i.test(normalizedPathname)
   } catch {
     return false
+  }
+}
+
+function assertSupportedChatEndpoint(requestUrl) {
+  if (hasNativeOllamaChatApiPath(requestUrl)) {
+    throw new Error(
+      'Unsupported native Ollama chat endpoint. Use the OpenAI-compatible /v1/chat/completions endpoint instead.',
+    )
   }
 }
 
@@ -304,37 +360,90 @@ export async function generateAnswersWithOpenAiApiCompat(
  * @param {UserConfig} config
  */
 export async function generateAnswersWithOpenAICompatibleApi(port, question, session, config) {
+  return withAbortController(port, (abortContext) =>
+    generateOpenAICompatibleRequest(port, question, session, config, abortContext),
+  )
+}
+
+async function generateOpenAICompatibleRequest(port, question, session, config, abortContext) {
   const runtimeConfig = await resolveOpenAICompatibleRuntimeConfig(config)
+  if (abortContext.controller.signal.aborted) return
   const request = resolveOpenAICompatibleRequest(runtimeConfig, session)
   if (!request) {
     const diagnostic = getOpenAICompatibleRequestDiagnostic(runtimeConfig, session)
     console.warn('[openai-compatible] Failed to resolve provider request', diagnostic)
     throw new Error(buildOpenAICompatibleResolutionErrorMessage(diagnostic))
   }
-  if (hasNativeOllamaChatApiPath(request.requestUrl)) {
-    throw new Error(
-      'Unsupported native Ollama chat endpoint. Use the OpenAI-compatible /v1/chat/completions endpoint instead.',
-    )
-  }
-
   const model = resolveModelName(session, runtimeConfig)
   const providerRequestShapingId = resolveProviderRequestShapingId(request)
-  await generateAnswersWithOpenAICompatible({
-    port,
-    question,
-    session,
-    endpointType: request.endpointType,
-    requestUrl: request.requestUrl,
-    model,
-    apiKey: request.apiKey,
-    config: runtimeConfig,
-    provider: providerRequestShapingId,
-    extraHeaders: getOpenRouterAttributionHeaders(request.requestUrl),
-    allowLegacyResponseField: request.provider.allowLegacyResponseField,
-  })
+  let completedRequest = request
+  if (shouldUseResponsesProtocol(request, runtimeConfig, session)) {
+    const responsesRequestUrl = resolveResponsesRequestUrl(request)
+    try {
+      await generateAnswersWithOpenAIResponses({
+        abortContext,
+        port,
+        question,
+        session,
+        requestUrl: responsesRequestUrl,
+        model,
+        apiKey: request.apiKey,
+        config: runtimeConfig,
+        provider: providerRequestShapingId,
+        extraHeaders: getOpenRouterAttributionHeaders(responsesRequestUrl),
+      })
+    } catch (error) {
+      if (abortContext.controller.signal.aborted) return
+      if (!shouldFallbackToChatCompletions(error)) throw error
+      if (!request.chatCompletionsUrl) throw error
+      const fallbackChatUrl = request.chatCompletionsUrl
+      try {
+        if (!['http:', 'https:'].includes(new URL(fallbackChatUrl).protocol)) throw error
+      } catch {
+        throw error
+      }
+      console.warn(
+        '[openai-compatible] Responses API unsupported, falling back to Chat Completions',
+        { requestUrl: responsesRequestUrl, error },
+      )
+      const fallbackRequest = { ...request, requestUrl: fallbackChatUrl }
+      assertSupportedChatEndpoint(fallbackRequest.requestUrl)
+      await generateAnswersWithOpenAICompatible({
+        abortContext,
+        port,
+        question,
+        session,
+        endpointType: request.endpointType,
+        requestUrl: fallbackRequest.requestUrl,
+        model,
+        apiKey: request.apiKey,
+        config: runtimeConfig,
+        provider: resolveProviderRequestShapingId(fallbackRequest),
+        extraHeaders: getOpenRouterAttributionHeaders(fallbackRequest.requestUrl),
+        allowLegacyResponseField: request.provider.allowLegacyResponseField,
+      })
+      completedRequest = fallbackRequest
+    }
+  } else {
+    assertSupportedChatEndpoint(request.requestUrl)
+    await generateAnswersWithOpenAICompatible({
+      abortContext,
+      port,
+      question,
+      session,
+      endpointType: request.endpointType,
+      requestUrl: request.requestUrl,
+      model,
+      apiKey: request.apiKey,
+      config: runtimeConfig,
+      provider: providerRequestShapingId,
+      extraHeaders: getOpenRouterAttributionHeaders(request.requestUrl),
+      allowLegacyResponseField: request.provider.allowLegacyResponseField,
+    })
+  }
 
-  if (shouldSendOllamaKeepAlive(request)) {
-    const ollamaKeepAliveBaseUrl = resolveOllamaKeepAliveBaseUrl(request)
+  if (!abortContext.controller.signal.aborted && shouldSendOllamaKeepAlive(completedRequest)) {
+    const ollamaKeepAliveBaseUrl = resolveOllamaKeepAliveBaseUrl(completedRequest)
     await touchOllamaKeepAlive(
       ollamaKeepAliveBaseUrl,
       runtimeConfig.ollamaKeepAliveTime,
