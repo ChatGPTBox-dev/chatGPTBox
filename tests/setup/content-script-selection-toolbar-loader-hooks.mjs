@@ -3,6 +3,9 @@ import { fileURLToPath } from 'node:url'
 
 const contentScriptStubs = new Map([
   ['./styles.scss', 'test:styles'],
+  ['@aeven-ai/hypermarkdown/styles.css', 'test:markdown-styles'],
+  ['tippy.js/dist/tippy.css', 'test:tippy-styles'],
+  ['../components/MarkdownRender/mykatex.min.css', 'test:katex-styles'],
   ['../components/DecisionCard', 'test:decision-card'],
   ['./site-adapters', 'test:site-adapters'],
   ['./selection-tools', 'test:selection-tools'],
@@ -34,6 +37,9 @@ const floatingToolbarStubs = new Map([
 
 const sources = {
   'test:styles': '',
+  'test:markdown-styles': '',
+  'test:tippy-styles': '',
+  'test:katex-styles': '',
   'test:decision-card': 'export default function DecisionCard() { return null }',
   'test:site-adapters': 'export const config = {}',
   'test:selection-tools': 'export const config = {}',

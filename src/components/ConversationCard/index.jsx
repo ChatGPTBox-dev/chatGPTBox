@@ -533,7 +533,7 @@ function ConversationCard(props) {
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       partialAnswerRef.current = ''
       retryRecordRef.current = null
-      updateAnswer(e, false, 'error')
+      updateAnswer(e?.message ?? String(e), false, 'error')
       setIsReady(true)
     }
   }
@@ -788,6 +788,7 @@ function ConversationCard(props) {
             type={data.type}
             descName={data.type === 'answer' && currentAiName}
             onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
+            done={data.done}
           />
         ))}
       </div>
@@ -833,7 +834,7 @@ function ConversationCard(props) {
               await postMessage({ session: newSession })
             } catch (e) {
               if (disposedRef.current) return
-              updateAnswer(e, false, 'error')
+              updateAnswer(e?.message ?? String(e), false, 'error')
             }
             if (disposedRef.current || !bodyRef.current) return
             bodyRef.current.scrollTo({

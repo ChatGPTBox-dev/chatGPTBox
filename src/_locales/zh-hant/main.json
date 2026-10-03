@@ -174,6 +174,7 @@
   "Custom": "自訂",
   "Crop Text to ensure the input tokens do not exceed the model's limit": "裁剪文本以確保輸入token不超過模型限制",
   "Thinking Content": "思考內容",
+  "Thought for {seconds}s": "思考了 {seconds} 秒",
   "This provider is still used by other API modes or saved conversations": "此供應商仍被其他 API 模式或已儲存的對話使用中",
   "This API key is set on the selected custom mode. Editing it here will create a dedicated provider for that mode.": "此 API 金鑰已設在目前選取的自訂模式。在這裡編輯會為該模式建立專用供應商。",
   "Use shared key": "使用共用供應商金鑰",

@@ -1,4 +1,9 @@
 import './styles.scss'
+// The Markdown renderer lives in the shared chunk, so its stylesheets are pulled in here
+// instead; without this the minimal variants would emit them into an unshipped chunk.
+import '@aeven-ai/hypermarkdown/styles.css'
+import 'tippy.js/dist/tippy.css'
+import '../components/MarkdownRender/mykatex.min.css'
 import { unmountComponentAtNode } from 'react-dom'
 import { render } from 'preact'
 import DecisionCard from '../components/DecisionCard'
