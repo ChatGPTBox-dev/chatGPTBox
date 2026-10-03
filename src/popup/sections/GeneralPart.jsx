@@ -106,11 +106,23 @@ export function GeneralPart({
   const { t, i18n } = useTranslation()
   const [apiModes, setApiModes] = useState([])
   const [connectionTest, setConnectionTest] = useState(null)
+  // A result describes the endpoint it was actually sent to, so the URL, model and key it
+  // ran with are part of its identity; editing any of them retires the result.
+  const customModelTestSignature = [
+    config.customModelApiUrl,
+    config.customModelName,
+    config.customApiKey,
+  ]
+    .map((part) => String(part ?? ''))
+    .join('\u0000')
+  const customModelTest =
+    connectionTest?.signature === customModelTestSignature ? connectionTest : null
 
   const runCustomModelConnectionTest = async () => {
     // Ignore repeat clicks while a probe is running, so a stale result cannot win.
     if (connectionTest?.pending) return
-    setConnectionTest({ pending: true })
+    const signature = customModelTestSignature
+    setConnectionTest({ pending: true, signature })
     let result
     try {
       result = await Browser.runtime.sendMessage({
@@ -120,7 +132,7 @@ export function GeneralPart({
     } catch (error) {
       result = { ok: false, error: error?.message ?? String(error) }
     }
-    setConnectionTest({ ...result, pending: false })
+    setConnectionTest({ ...result, pending: false, signature })
   }
   const [providerApiKeyDraft, setProviderApiKeyDraft] = useState('')
   const [isOverrideProviderKeyActionPending, setIsOverrideProviderKeyActionPending] =
@@ -735,15 +747,15 @@ export function GeneralPart({
             />
             <button
               type="button"
-              title={getConnectionTestTitle(connectionTest, t)}
-              disabled={Boolean(connectionTest?.pending)}
+              title={getConnectionTestTitle(customModelTest, t)}
+              disabled={Boolean(customModelTest?.pending)}
               style={{
                 whiteSpace: 'nowrap',
-                ...getConnectionTestButtonStyle(connectionTest),
+                ...getConnectionTestButtonStyle(customModelTest),
               }}
               onClick={runCustomModelConnectionTest}
             >
-              {getConnectionTestLabel(connectionTest, t)}
+              {getConnectionTestLabel(customModelTest, t)}
             </button>
           </div>
         )}

@@ -4,6 +4,7 @@ import { getThinkingConfig } from './claude-api.mjs'
 import { canTestConnectionSession } from './connection-test-groups.mjs'
 import { getExtraBodyParams } from './extra-body-params.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
+import { getTemperatureParams } from './temperature-params.mjs'
 import {
   hasNativeOllamaChatApiPath,
   resolveModelName,
@@ -23,9 +24,9 @@ function trimTrailingSlashes(value) {
 }
 
 /**
- * Mirror the request the live OpenAI-compatible path builds: same resolved URL, same
- * token parameter for the resolved provider, and the same extra request body. Only the
- * payload size and `stream` differ, so a mode that passes here can be talked to.
+ * Mirror the request the live OpenAI-compatible path builds: same resolved URL, same token
+ * parameter for the resolved provider, same temperature and extra request body, sized down
+ * to a single "ping" with `stream: false`, so a mode that passes here can be talked to.
  * @returns {{requestUrl: string, headers: Record<string, string>, body: object} | null}
  */
 function buildOpenAICompatibleTestRequest(config, session) {
@@ -43,6 +44,12 @@ function buildOpenAICompatibleTestRequest(config, session) {
           model,
           TEST_MAX_TOKENS,
         )
+  // The live path drops the token key the model family does not use, so the probe has to
+  // strip the same key from the configured body instead of re-adding it through the merge.
+  const conflictingTokenParamKey =
+    'max_completion_tokens' in tokenParams ? 'max_tokens' : 'max_completion_tokens'
+  const configuredExtraBody = getExtraBodyParams(config)
+  delete configuredExtraBody[conflictingTokenParamKey]
   const baseBody =
     request.endpointType === 'completion'
       ? { model, prompt: TEST_PROMPT, ...tokenParams }
@@ -54,7 +61,12 @@ function buildOpenAICompatibleTestRequest(config, session) {
       'Content-Type': 'application/json',
       ...(request.apiKey ? { Authorization: `Bearer ${request.apiKey}` } : {}),
     },
-    body: { ...baseBody, ...getExtraBodyParams(config), stream: false },
+    body: {
+      ...baseBody,
+      ...getTemperatureParams(config, model),
+      ...configuredExtraBody,
+      stream: false,
+    },
   }
 }
 
@@ -72,6 +84,7 @@ function buildAzureTestRequest(config, session) {
     body: {
       messages: TEST_MESSAGES,
       max_tokens: TEST_MAX_TOKENS,
+      ...getTemperatureParams(config),
       ...getExtraBodyParams(config),
       stream: false,
     },
@@ -100,6 +113,7 @@ function buildAnthropicTestRequest(config, session) {
     model,
     messages: TEST_MESSAGES,
     max_tokens: resolveAnthropicTestMaxTokens(extraBody),
+    ...getTemperatureParams(config, model),
   }
   const thinking = getThinkingConfig(model)
   if (thinking) body.thinking = thinking
@@ -161,11 +175,13 @@ async function sendTestRequest({ requestUrl, headers, body }) {
  * session that passes here is one that can be talked to.
  * @param {object} session a session-shaped selector: `{apiMode}` for a configured mode,
  *   `{modelName: 'customModel'}` for the custom model on the General tab
- * @returns {Promise<{ok: boolean, status?: number, elapsedMs: number, error?: string}>}
+ * @returns {Promise<{ok: boolean, status?: number, elapsedMs: number, error?: string,
+ *   unsupported?: boolean}>} `unsupported` marks a mode with no request shape to send,
+ *   which says nothing about the endpoint or the credentials it was configured with
  */
 export async function testConnection(session) {
   if (!canTestConnectionSession(session)) {
-    return { ok: false, elapsedMs: 0, error: 'unsupported-provider' }
+    return { ok: false, unsupported: true, elapsedMs: 0, error: 'unsupported-provider' }
   }
 
   const config = await getUserConfig()
@@ -181,7 +197,7 @@ export async function testConnection(session) {
   // The live path refuses Ollama's native chat endpoint, so a probe against it would
   // report a mode as reachable that can never hold a conversation.
   if (hasNativeOllamaChatApiPath(request.requestUrl)) {
-    return { ok: false, elapsedMs: 0, error: 'unsupported-provider' }
+    return { ok: false, unsupported: true, elapsedMs: 0, error: 'unsupported-provider' }
   }
   return sendTestRequest(request)
 }

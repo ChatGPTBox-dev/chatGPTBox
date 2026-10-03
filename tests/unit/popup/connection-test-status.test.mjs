@@ -20,6 +20,14 @@ test('the button colour carries the result', () => {
   assert.equal(getConnectionTestButtonStyle({ ok: false }).borderColor, '#d1242f')
 })
 
+test('a mode with no request shape stays neutral instead of reading as a failure', () => {
+  const unsupported = { ok: false, unsupported: true, error: 'unsupported-provider' }
+
+  assert.equal(getConnectionTestButtonStyle(unsupported).borderColor, '#57606a')
+  assert.equal(getConnectionTestLabel(unsupported, t), 'Not testable')
+  assert.equal(getConnectionTestTitle(unsupported, t), 'Not testable')
+})
+
 test('the result detail only lives in the tooltip', () => {
   assert.equal(getConnectionTestTitle({ pending: true }, t), 'Testing...')
   assert.equal(getConnectionTestTitle({ ok: true, elapsedMs: 42 }, t), 'Reachable 42ms')

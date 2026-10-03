@@ -117,7 +117,8 @@ test('the configured extra request body is merged into the probe', async (t) => 
       { id: 'test-provider', name: 'Test provider', chatCompletionsUrl: ENDPOINT },
     ],
     providerSecrets: { 'test-provider': 'secret-key' },
-    extraBody: '{"reasoning_effort":"high","stream":true,"max_tokens":99}',
+    extraBody:
+      '{"reasoning_effort":"high","stream":true,"max_tokens":99,"max_completion_tokens":77}',
   })
   const seen = captureFetch(t)
 
@@ -126,8 +127,27 @@ test('the configured extra request body is merged into the probe', async (t) => 
   assert.equal(result.ok, true)
   assert.equal(seen[0].body.reasoning_effort, 'high')
   assert.equal(seen[0].body.max_tokens, 99)
+  // This mode sends max_tokens, so the chat-only key never rides along.
+  assert.equal('max_completion_tokens' in seen[0].body, false)
   // A probe never streams, even when the extra body asks for it.
   assert.equal(seen[0].body.stream, false)
+})
+
+test('the configured temperature override reaches the probe', async (t) => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    customOpenAIProviders: [
+      { id: 'test-provider', name: 'Test provider', chatCompletionsUrl: ENDPOINT },
+    ],
+    providerSecrets: { 'test-provider': 'secret-key' },
+    temperatureOverrideEnabled: true,
+    temperature: 0.3,
+  })
+  const seen = captureFetch(t)
+
+  const result = await testConnection({ apiMode: MODE })
+
+  assert.equal(result.ok, true)
+  assert.equal(seen[0].body.temperature, 0.3)
 })
 
 test('a completion mode is probed with the completion request shape', async (t) => {
@@ -155,6 +175,7 @@ test('an OpenAI-derived custom provider is probed with OpenAI request shaping', 
       },
     ],
     providerSecrets: { 'test-provider': 'secret-key' },
+    extraBody: '{"max_tokens":99}',
   })
   const seen = captureFetch(t)
 
@@ -223,6 +244,7 @@ test('a cookie/web mode is not probed and reports it as unsupported', async (t) 
 
   assert.equal(result.ok, false)
   assert.equal(result.error, 'unsupported-provider')
+  assert.equal(result.unsupported, true)
   assert.equal(seen.length, 0)
 })
 
@@ -243,6 +265,7 @@ test('a native Ollama chat endpoint is reported instead of probed', async (t) =>
 
   assert.equal(result.ok, false)
   assert.equal(result.error, 'unsupported-provider')
+  assert.equal(result.unsupported, true)
   assert.equal(seen.length, 0)
 })
 
