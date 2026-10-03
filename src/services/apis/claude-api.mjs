@@ -7,7 +7,7 @@ import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
 import { getExtraBodyParams } from './extra-body-params.mjs'
 
-function getThinkingConfig(model) {
+export function getThinkingConfig(model) {
   if (model === 'claude-sonnet-5') return { type: 'disabled' }
   if (model === 'claude-sonnet-5-5') return { type: 'between_tools' }
 }
