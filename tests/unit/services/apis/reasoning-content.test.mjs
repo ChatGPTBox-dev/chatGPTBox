@@ -102,21 +102,53 @@ test('thinking written inside the answer is moved to the reasoning channel', asy
   assert.equal(session.conversationRecords[0].answer, 'The answer.')
 })
 
-test('thinking that never closes is kept as the answer once the stream ends', async (t) => {
+test('thinking that never closes is not recorded as an answer', async (t) => {
   const { port, session } = await run(t, [
     'data: {"choices":[{"delta":{"content":"<think>cut off while thinking"}}]}\n\n',
     'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
     'data: [DONE]\n\n',
   ])
 
-  assert.equal(session.conversationRecords[0].answer, '<think>cut off while thinking')
-  // The card already shows that text as thinking, so it must not also arrive as an answer.
+  // The block never closed, so the turn has no answer: recording the thinking would send
+  // the model its own unfinished reasoning back as context.
+  assert.equal(session.conversationRecords.length, 0)
   assert.equal(
-    port.postedMessages.some((message) => message.answer === '<think>cut off while thinking'),
+    port.postedMessages.some(
+      (message) => typeof message.answer === 'string' && message.answer.includes('cut off'),
+    ),
     false,
   )
   assert.deepEqual(
     port.postedMessages.filter((message) => message.reasoning).map((message) => message.reasoning),
     ['cut off while thinking'],
   )
+})
+
+test('thinking split off the answer is combined with an explicit reasoning field', async (t) => {
+  const { port, session } = await run(t, [
+    'data: {"choices":[{"delta":{"reasoning_content":"from the field"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"<think>in the answer</think>\\n\\nThe answer."},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n',
+  ])
+
+  const lastReasoning = port.postedMessages.filter((message) => message.reasoning).at(-1)
+  assert.equal(lastReasoning.reasoning, 'from the field\n\nin the answer')
+  assert.equal(session.conversationRecords[0].answer, 'The answer.')
+})
+
+test('a partial inline tag is cleared once the tag resolves', async (t) => {
+  const { port, session } = await run(t, [
+    'data: {"choices":[{"delta":{"content":"<think"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":">"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"thinking</think>\\n\\nThe answer."},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n',
+  ])
+
+  const answers = port.postedMessages
+    .filter((message) => typeof message.answer === 'string')
+    .map((message) => message.answer)
+  // The partial tag is posted first, then cleared once it turns out to be thinking, so the
+  // card never keeps the stale fragment as its answer.
+  assert.deepEqual(answers, ['<think', '', 'The answer.'])
+  assert.equal(session.conversationRecords[0].answer, 'The answer.')
 })

@@ -1,4 +1,12 @@
-const REASONING_TAG_PATTERN = /<\/?\s*(?:think|thinking|reasoning)\b[^>]*>/gi
+// The renderer treats all three names as reasoning tags, so one source keeps the patterns
+// that look for them in sync.
+const REASONING_TAG_NAME = 'think|thinking|reasoning'
+const REASONING_TAG_PATTERN = new RegExp(`</?\\s*(?:${REASONING_TAG_NAME})\\b[^>]*>`, 'gi')
+// A leading block runs to its closing tag, or to the end of the text while it is still open.
+const LEADING_REASONING_BLOCK_PATTERN = new RegExp(
+  `^\\s*<(?:${REASONING_TAG_NAME})\\b[^>]*>[\\s\\S]*?(?:</\\s*(?:${REASONING_TAG_NAME})\\s*>|$)`,
+  'i',
+)
 const FENCE_PATTERN = /^ {0,3}(?:```+|~~~+)/
 
 function escapeTags(text) {
@@ -66,10 +74,7 @@ export function escapeReasoningTags(text, { preserveLeadingBlock = false } = {})
   let head = ''
   let body = text
   if (preserveLeadingBlock) {
-    const leading =
-      /^\s*<(?:think|thinking|reasoning)\b[^>]*>[\s\S]*?(?:<\/\s*(?:think|thinking|reasoning)\s*>|$)/i.exec(
-        text,
-      )
+    const leading = LEADING_REASONING_BLOCK_PATTERN.exec(text)
     if (leading) {
       head = leading[0]
       body = text.slice(head.length)

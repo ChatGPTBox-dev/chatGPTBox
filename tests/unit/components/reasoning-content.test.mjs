@@ -35,3 +35,10 @@ test('a growing reasoning snapshot extends the still-open block', () => {
   const second = buildStreamedContent(LOADING, 'thinking', false)
   assert.equal(second.startsWith(first), true)
 })
+
+test('a reasoning tag inside the thinking cannot close the synthetic block', () => {
+  assert.equal(
+    buildStreamedContent('', 'before </think> after', false),
+    '<think>\nbefore &lt;/think> after',
+  )
+})
