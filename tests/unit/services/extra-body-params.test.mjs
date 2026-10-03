@@ -30,3 +30,19 @@ test('getExtraBodyParams forwards user fields and keeps stream under extension c
   // The parsed object is rebuilt per call, so repeated reads stay stripped.
   assert.deepEqual(getExtraBodyParams(config), { reasoning_effort: 'high' })
 })
+
+test('getExtraBodyParams strips every key the request builders own', () => {
+  const config = {
+    extraBody: JSON.stringify({
+      reasoning_effort: 'high',
+      top_p: 0.9,
+      stream: false,
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: 'tampered' }],
+      prompt: 'tampered',
+      temperature: 0.1,
+    }),
+  }
+
+  assert.deepEqual(getExtraBodyParams(config), { reasoning_effort: 'high', top_p: 0.9 })
+})

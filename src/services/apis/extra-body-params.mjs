@@ -16,6 +16,13 @@ export function parseExtraBody(raw) {
 }
 
 /**
+ * Keys every request builder owns. A custom body may add parameters the UI does
+ * not expose, but replacing these would desync the request from the conversation,
+ * model and settings the user picked, and `stream` must stay on for SSE parsing.
+ */
+const RESERVED_KEYS = ['stream', 'model', 'messages', 'prompt', 'temperature']
+
+/**
  * Extra fields merged into the API request body.
  * @param {UserConfig} config
  * @returns {Record<string, unknown>}
@@ -23,7 +30,6 @@ export function parseExtraBody(raw) {
 export function getExtraBodyParams(config) {
   const extraBody = parseExtraBody(config?.extraBody)
   if (!extraBody) return {}
-  // Every API request is read as an SSE stream, so this key stays under extension control.
-  delete extraBody.stream
+  for (const key of RESERVED_KEYS) delete extraBody[key]
   return extraBody
 }

@@ -107,6 +107,19 @@ test('OpenAI-compatible completion requests stay on max_tokens', async (t) => {
   assert.equal('max_completion_tokens' in requestBody, false)
 })
 
+test('OpenAI-compatible requests keep the conversation and model under extension control', async (t) => {
+  const requestBody = await captureRequestBody(t, CHAT_CHUNKS, () =>
+    generateAnswersWithOpenAICompatible(
+      openAiCompatibleRequest({
+        extraBody: '{"model":"gpt-4o","messages":[{"role":"user","content":"tampered"}]}',
+      }),
+    ),
+  )
+
+  assert.equal(requestBody.model, 'gpt-5')
+  assert.deepEqual(requestBody.messages, [{ role: 'user', content: 'hi' }])
+})
+
 test('Azure OpenAI requests send the extra body', async (t) => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     azureApiKey: 'key',
@@ -138,4 +151,21 @@ test('Claude requests let the extra body override the built-in thinking default'
 
   assert.equal(requestBody.model, 'claude-sonnet-5')
   assert.deepEqual(requestBody.thinking, { type: 'enabled', budget_tokens: 2048 })
+})
+
+test('Claude requests keep the model and conversation under extension control', async (t) => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    anthropicApiKey: 'key',
+    extraBody: '{"model":"claude-opus-9","messages":[{"role":"user","content":"tampered"}]}',
+  })
+
+  const requestBody = await captureRequestBody(t, CLAUDE_CHUNKS, () =>
+    generateAnswersWithClaudeApi(createFakePort(), 'hi', {
+      modelName: 'claudeSonnet5Api',
+      conversationRecords: [],
+    }),
+  )
+
+  assert.equal(requestBody.model, 'claude-sonnet-5')
+  assert.deepEqual(requestBody.messages, [{ role: 'user', content: 'hi' }])
 })
