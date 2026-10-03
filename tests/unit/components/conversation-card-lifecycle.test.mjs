@@ -126,6 +126,7 @@ const resetState = () => {
     state.generateAnswersCount += 1
   }
   state.runtimeOnMessage.clear()
+  state.answerContents = []
 }
 
 const mountCard = (container, props = {}) => {
@@ -729,4 +730,51 @@ test('provider failure disconnects fake Port and removes stale listeners', async
   assert.equal(disconnectCount, 1)
 
   act(() => render(null, container))
+})
+
+test('a burst of streamed chunks stays buffered until completion flushes it', () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const session = {
+    ...baseSession(),
+    question: 'why?',
+    conversationRecords: [{ question: 'why?', answer: 'partial' }],
+  }
+
+  mountCard(container, { question: 'why?', session })
+  const port = state.ports[0]
+
+  act(() => port.onMessage.trigger({ answer: 'a' }))
+  act(() => port.onMessage.trigger({ answer: 'ab' }))
+  assert.equal(state.answerContents.includes('ab'), false, 'the burst must not render per chunk')
+
+  act(() => port.onMessage.trigger({ answer: 'abc', done: true, session }))
+
+  assert.equal(state.answerContents.includes('abc'), true, 'completion must flush the newest chunk')
+})
+
+test('switching the question drops a buffered answer from the previous one', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+
+  mountCard(container, { question: 'first', session: { ...baseSession(), question: 'first' } })
+  const port = state.ports[0]
+
+  act(() => port.onMessage.trigger({ answer: 'stale answer' }))
+
+  act(() => {
+    render(
+      h(ConversationCard, {
+        session: { ...baseSession(), question: 'second' },
+        question: 'second',
+      }),
+      container,
+    )
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 32))
+
+  assert.equal(state.answerContents.includes('stale answer'), false)
 })

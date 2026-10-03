@@ -137,3 +137,14 @@ test('createFrameScheduler falls back to a timer without animation frames', asyn
 
   assert.deepEqual(renders, ['tick'])
 })
+
+test('the timer fallback cancels a pending frame', async () => {
+  const scheduler = createFrameScheduler({})
+  const renders = []
+  const handle = scheduler.requestFrame(() => renders.push('tick'))
+
+  scheduler.cancelFrame(handle)
+  await new Promise((resolve) => setTimeout(resolve, 32))
+
+  assert.deepEqual(renders, [])
+})

@@ -188,6 +188,7 @@ function ConversationCard(props) {
       const newSession = initSession({ ...session, question: props.question })
       partialAnswerRef.current = ''
       retryRecordRef.current = null
+      answerBufferRef.current.discard()
       setSession(newSession)
       await postMessage({ session: newSession })
     }
