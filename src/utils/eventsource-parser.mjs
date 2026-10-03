@@ -2,7 +2,7 @@
 
 function createParser(onParse) {
   let isFirstChunk
-  let bytes
+  let decoder
   let buffer
   let startingPosition
   let startingFieldLength
@@ -10,6 +10,7 @@ function createParser(onParse) {
   let eventName
   let data
   let extra
+  let discardTrailingNewline
   reset()
   return {
     feed,
@@ -17,25 +18,25 @@ function createParser(onParse) {
   }
   function reset() {
     isFirstChunk = true
-    bytes = []
+    decoder = new TextDecoder()
     buffer = ''
     startingPosition = 0
     startingFieldLength = -1
     eventId = void 0
     eventName = void 0
     data = ''
+    extra = void 0
+    discardTrailingNewline = false
   }
 
   function feed(chunk) {
-    bytes = bytes.concat(Array.from(chunk))
-    buffer = new TextDecoder().decode(new Uint8Array(bytes))
+    buffer += decoder.decode(chunk, { stream: true })
     if (isFirstChunk && hasBom(buffer)) {
       buffer = buffer.slice(BOM.length)
     }
     isFirstChunk = false
     const length = buffer.length
     let position = 0
-    let discardTrailingNewline = false
     while (position < length) {
       if (discardTrailingNewline) {
         if (buffer[position] === '\n') {
@@ -46,7 +47,7 @@ function createParser(onParse) {
       let lineLength = -1
       let fieldLength = startingFieldLength
       let character
-      for (let index = startingPosition; lineLength < 0 && index < length; ++index) {
+      for (let index = position + startingPosition; lineLength < 0 && index < length; ++index) {
         character = buffer[index]
         if (character === ':' && fieldLength < 0) {
           fieldLength = index - position
@@ -69,10 +70,8 @@ function createParser(onParse) {
       position += lineLength + 1
     }
     if (position === length) {
-      bytes = []
       buffer = ''
     } else if (position > 0) {
-      bytes = bytes.slice(new TextEncoder().encode(buffer.slice(0, position)).length)
       buffer = buffer.slice(position)
     }
   }

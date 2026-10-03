@@ -1,5 +1,28 @@
 import { AlwaysCustomGroups, ModelGroups, ModelMode, Models } from '../config/index.mjs'
 
+function normalizeProviderId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function areProviderIdsEquivalent(firstProviderId, secondProviderId) {
+  const normalizedFirstProviderId = normalizeProviderId(firstProviderId)
+  const normalizedSecondProviderId = normalizeProviderId(secondProviderId)
+  if (!normalizedFirstProviderId || !normalizedSecondProviderId) {
+    return String(firstProviderId || '').trim() === String(secondProviderId || '').trim()
+  }
+  return normalizedFirstProviderId === normalizedSecondProviderId
+}
+
+function normalizeProviderEndpointUrl(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
+}
+
 export function modelNameToDesc(modelName, t, extraCustomModelName = '') {
   if (!t) t = (x) => x
   if (modelName in Models) {
@@ -89,12 +112,21 @@ export function normalizeApiMode(apiMode) {
     groupName: apiMode.groupName || '',
     itemName: apiMode.itemName || '',
     isCustom: Boolean(apiMode.isCustom),
-    customName: apiMode.customName || '',
+    customName: typeof apiMode.customName === 'string' ? apiMode.customName : '',
     customUrl: apiMode.customUrl || '',
     apiKey: apiMode.apiKey || '',
     providerId: typeof apiMode.providerId === 'string' ? apiMode.providerId.trim() : '',
     active: apiMode.active !== false,
   }
+}
+
+const alwaysCustomPresetItemNames = {
+  azureOpenAiApiModelKeys: 'azureOpenAi',
+  ollamaApiModelKeys: 'ollamaModel',
+}
+
+function isBuiltInAlwaysCustomPreset(apiMode) {
+  return !apiMode.isCustom && alwaysCustomPresetItemNames[apiMode.groupName] === apiMode.itemName
 }
 
 export function apiModeToModelName(apiMode) {
@@ -136,7 +168,9 @@ export function getApiModesFromConfig(config, onlyActive) {
     .filter((apiMode) => {
       if (!apiMode || !apiMode.groupName) return false
       if (AlwaysCustomGroups.includes(apiMode.groupName)) {
-        return Boolean(apiMode.customName && apiMode.customName.trim())
+        return Boolean(
+          (apiMode.customName && apiMode.customName.trim()) || isBuiltInAlwaysCustomPreset(apiMode),
+        )
       }
       return Boolean(apiMode.itemName)
     })
@@ -219,6 +253,69 @@ export function getApiModesFromConfig(config, onlyActive) {
   ]
 }
 
+function getApiModeDefaultIdentity(apiMode) {
+  const normalized = normalizeApiMode(apiMode)
+  if (!normalized) return ''
+  const customName = normalized.customName.trim()
+  const presetItemName = alwaysCustomPresetItemNames[normalized.groupName] || ''
+  const itemName = customName && presetItemName ? presetItemName : normalized.itemName
+  const isNamedAlwaysCustomPreset =
+    Boolean(customName) && Boolean(presetItemName) && itemName === presetItemName
+  return JSON.stringify({
+    groupName: normalized.groupName,
+    itemName,
+    isCustom: isNamedAlwaysCustomPreset ? true : normalized.isCustom,
+    customName,
+    providerId: normalized.providerId,
+  })
+}
+
+export function reconcileMaterializedApiModeDefaults(config, defaultIds, knownDefaultIds) {
+  const currentModes = Array.isArray(config.customApiModes)
+    ? config.customApiModes.map((apiMode) => ({ ...apiMode }))
+    : []
+  const knownIds = Array.isArray(knownDefaultIds) ? [...knownDefaultIds] : []
+  const knownIdSet = new Set(knownIds)
+  let changed = false
+
+  for (const defaultId of Array.isArray(defaultIds) ? defaultIds : []) {
+    if (knownIdSet.has(defaultId)) continue
+
+    if (defaultId === 'customModel') {
+      knownIds.push(defaultId)
+      knownIdSet.add(defaultId)
+      changed = true
+      continue
+    }
+
+    const materializedModes = getApiModesFromConfig(
+      {
+        ...config,
+        activeApiModes: [defaultId],
+        customApiModes: [],
+      },
+      false,
+    )
+    const materializedMode = materializedModes[0]
+    if (!materializedMode) continue
+
+    const identity = getApiModeDefaultIdentity(materializedMode)
+    const alreadyExists = currentModes.some(
+      (apiMode) => getApiModeDefaultIdentity(apiMode) === identity,
+    )
+    if (!alreadyExists) currentModes.push({ ...materializedMode, active: true })
+    knownIds.push(defaultId)
+    knownIdSet.add(defaultId)
+    changed = true
+  }
+
+  return {
+    customApiModes: currentModes,
+    knownApiModeDefaultIds: knownIds,
+    changed,
+  }
+}
+
 export function getApiModesStringArrayFromConfig(config, onlyActive) {
   return getApiModesFromConfig(config, onlyActive).map(apiModeToModelName)
 }
@@ -274,6 +371,17 @@ export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = fa
 
     if (!selectedApiMode.providerId) return true
     if (selectedApiMode.providerId === targetApiMode.providerId) return true
+    if (areProviderIdsEquivalent(selectedApiMode.providerId, targetApiMode.providerId)) {
+      return true
+    }
+    if (
+      Array.isArray(targetApiMode.legacyProviderIds) &&
+      targetApiMode.legacyProviderIds.some((providerId) =>
+        areProviderIdsEquivalent(providerId, selectedApiMode.providerId),
+      )
+    ) {
+      return true
+    }
     if (!targetApiMode.providerId) return isLegacyCustomSession
     return isLegacyCustomSession
   }
@@ -316,14 +424,21 @@ export function getUniquelySelectedApiModeIndex(
 ) {
   if (!Array.isArray(apiModes) || apiModes.length === 0) return -1
 
-  let selectedIndex = -1
+  const selectedIndexes = []
   for (const [index, apiMode] of apiModes.entries()) {
     if (!isApiModeSelected(apiMode, configOrSession, { sessionCompat })) continue
-    if (selectedIndex !== -1) return -1
-    selectedIndex = index
+    selectedIndexes.push(index)
   }
 
-  return selectedIndex
+  if (selectedIndexes.length === 1) return selectedIndexes[0]
+  if (!sessionCompat || selectedIndexes.length === 0) return -1
+
+  const selectedCustomUrl = normalizeProviderEndpointUrl(configOrSession?.apiMode?.customUrl)
+  if (!selectedCustomUrl) return -1
+  const urlMatchedIndexes = selectedIndexes.filter(
+    (index) => normalizeProviderEndpointUrl(apiModes[index]?.customUrl) === selectedCustomUrl,
+  )
+  return urlMatchedIndexes.length === 1 ? urlMatchedIndexes[0] : -1
 }
 
 // also match custom modelName, e.g. when modelName is bingFree4, configOrSession model is bingFree4-fast, it returns true

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { beforeEach, test } from 'node:test'
+import { before, beforeEach, test } from 'node:test'
+import i18n from 'i18next'
 import { createFakePort } from '../helpers/port.mjs'
 
 // ---------------------------------------------------------------------------
@@ -45,15 +46,38 @@ import {
 } from '../../../src/services/wrappers.mjs'
 import Browser from 'webextension-polyfill'
 import { normalizeApiMode } from '../../../src/utils/model-name-convert.mjs'
+import { FETCH_REQUEST_FAILED } from '../../../src/utils/fetch-sse.mjs'
+import { formatErrorMessage } from '../../../src/utils/error-text.mjs'
 
 const setStorage = (values) => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage(values)
 }
 
+before(async () => {
+  const summary = 'The browser could not complete the request to the API endpoint.'
+  await i18n.init({
+    resources: {
+      en: { translation: { [summary]: summary } },
+      'zh-Hant': { translation: { [summary]: '瀏覽器無法完成對 API 端點的請求。' } },
+    },
+    fallbackLng: 'en',
+  })
+})
+
 function triggerConnect(port) {
   for (const listener of Array.from(onConnectListeners)) {
     listener(port)
   }
+}
+
+function waitForPortError(port) {
+  const postMessage = port.postMessage.bind(port)
+  return new Promise((resolve) => {
+    port.postMessage = (message) => {
+      postMessage(message)
+      if (message.error) resolve(message.error)
+    }
+  })
 }
 
 beforeEach(() => {
@@ -90,6 +114,62 @@ test('registerPortListener calls executor with session, port, and config', async
   assert.ok(result.config)
   // Session should be posted back before executor runs
   assert.equal(port.postedMessages[0].session, result.session)
+})
+
+test('registerPortListener scopes error translations to each request', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  t.mock.method(console, 'error', () => {})
+  setStorage({
+    hideContextMenu: true,
+    modelName: 'chatgptApi4oMini',
+    preferredLanguage: 'zh-Hant',
+    userLanguage: 'en',
+  })
+  await i18n.changeLanguage('en')
+
+  let releaseFirstRequest
+  const firstRequestRelease = new Promise((resolve) => {
+    releaseFirstRequest = resolve
+  })
+  let markFirstRequestStarted
+  const firstRequestStarted = new Promise((resolve) => {
+    markFirstRequestStarted = resolve
+  })
+  const executor = t.mock.fn(async (session) => {
+    if (session.requestId === 'first') {
+      markFirstRequestStarted()
+      await firstRequestRelease
+    }
+    const error = new TypeError('Failed to fetch')
+    error.code = FETCH_REQUEST_FAILED
+    throw error
+  })
+
+  registerPortListener(executor)
+  const firstPort = createFakePort()
+  const firstErrorPosted = waitForPortError(firstPort)
+  triggerConnect(firstPort)
+  firstPort.emitMessage({ session: { requestId: 'first' } })
+  await firstRequestStarted
+
+  setStorage({
+    hideContextMenu: true,
+    modelName: 'chatgptApi4oMini',
+    preferredLanguage: 'en',
+    userLanguage: 'en',
+  })
+  const secondPort = createFakePort()
+  const secondErrorPosted = waitForPortError(secondPort)
+  triggerConnect(secondPort)
+  secondPort.emitMessage({ session: { requestId: 'second' } })
+
+  const secondError = await secondErrorPosted
+  releaseFirstRequest()
+  const firstError = await firstErrorPosted
+
+  assert.match(firstError, /^瀏覽器無法完成對 API 端點的請求。/)
+  assert.match(secondError, /^The browser could not complete the request to the API endpoint\./)
+  assert.equal(i18n.language, 'en')
 })
 
 test('registerPortListener defaults modelName from config when not set', async (t) => {
@@ -222,6 +302,116 @@ test('registerPortListener ignores messages without session', async (t) => {
   assert.deepEqual(port.postedMessages, [])
 })
 
+test('registerPortListener tags responses with proxy and request generation ids', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({ modelName: 'chatgptApi4oMini' })
+
+  let resolveExec
+  const execDone = new Promise((resolve) => {
+    resolveExec = resolve
+  })
+  const executor = t.mock.fn(async (_session, requestPort) => {
+    requestPort.postMessage({ done: true })
+    resolveExec()
+  })
+
+  registerPortListener(executor)
+  const port = createFakePort()
+  triggerConnect(port)
+
+  port.emitMessage({
+    session: { conversationRecords: [] },
+    proxyGenerationId: 7,
+    requestGenerationId: 11,
+  })
+  await execDone
+
+  assert.equal(port.postedMessages.length, 2)
+  assert.equal(
+    port.postedMessages.every(
+      (message) => message.proxyGenerationId === 7 && message.requestGenerationId === 11,
+    ),
+    true,
+  )
+})
+
+test('registerPortListener drops responses from a superseded session request', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({ modelName: 'chatgptApi4oMini' })
+
+  const requestPorts = []
+  const connectionPorts = []
+  let resolveRequest
+  const requestReady = () =>
+    new Promise((resolve) => {
+      resolveRequest = resolve
+    })
+  let ready = requestReady()
+  const executor = t.mock.fn(
+    async (
+      _session,
+      requestPort,
+      _config,
+      _isLatestSessionRequest,
+      _requestGenerationId,
+      connectionPort,
+    ) => {
+      requestPorts.push(requestPort)
+      connectionPorts.push(connectionPort)
+      resolveRequest()
+    },
+  )
+
+  registerPortListener(executor)
+  const port = createFakePort()
+  triggerConnect(port)
+
+  port.emitMessage({ session: { conversationRecords: [] } })
+  await ready
+  ready = requestReady()
+  port.emitMessage({ session: { conversationRecords: [] } })
+  await ready
+
+  assert.notEqual(requestPorts[0], requestPorts[1])
+  assert.deepEqual(connectionPorts, [port, port])
+
+  requestPorts[0].postMessage({ done: true })
+  assert.equal(port.postedMessages.length, 2)
+  requestPorts[1].postMessage({ done: true })
+
+  assert.equal(port.postedMessages.length, 3)
+  assert.deepEqual(port.postedMessages.at(-1), { done: true })
+})
+
+test('registerPortListener allows a stopped request to post before its replacement starts', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({ modelName: 'chatgptApi4oMini' })
+
+  let requestPort
+  let resolveExec
+  const execReady = new Promise((resolve) => {
+    resolveExec = resolve
+  })
+  const executor = t.mock.fn(async (_session, currentRequestPort) => {
+    requestPort = currentRequestPort
+    resolveExec()
+  })
+
+  registerPortListener(executor)
+  const port = createFakePort()
+  triggerConnect(port)
+
+  port.emitMessage({ session: { conversationRecords: [] } })
+  await execReady
+  port.emitMessage({ stop: true })
+  requestPort.postMessage({ session: { conversationRecords: [] } })
+
+  assert.deepEqual(port.postedMessages.slice(-2), [
+    { done: true },
+    { session: { conversationRecords: [] } },
+  ])
+})
+
 test('registerPortListener catches executor errors and calls handlePortError', async (t) => {
   t.mock.method(console, 'debug', () => {})
   t.mock.method(console, 'error', () => {})
@@ -247,7 +437,7 @@ test('registerPortListener catches executor errors and calls handlePortError', a
 
   assert.equal(executor.mock.calls.length, 1)
   // handlePortError should have posted an error message
-  assert.ok(port.postedMessages.some((m) => m.error === 'executor boom'))
+  assert.ok(port.postedMessages.some((m) => m.error === formatErrorMessage('executor boom')))
 })
 
 test('registerPortListener removes listeners on port disconnect', async (t) => {

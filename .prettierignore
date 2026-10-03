@@ -1,3 +1,6 @@
 build/
 src/manifest.json
 src/manifest.v2.json
+package-lock.json
+badges/
+coverage/

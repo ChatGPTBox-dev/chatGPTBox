@@ -4,11 +4,15 @@ import {
   getNavigatorLanguage,
   getPreferredLanguageKey,
   Models,
+  defaultApiModeIds,
   chatgptApiModelKeys,
   gptApiModelKeys,
   claudeApiModelKeys,
+  mistralApiModelKeys,
   openRouterApiModelKeys,
+  nvidiaNimApiModelKeys,
   aimlApiModelKeys,
+  xaiApiModelKeys,
   isUsingAimlApiModel,
   isUsingAzureOpenAiApiModel,
   isUsingBingWebModel,
@@ -17,17 +21,19 @@ import {
   isUsingChatgptApiModel,
   isUsingClaudeApiModel,
   isUsingCustomModel,
-  isUsingCustomNameOnlyModel,
   isUsingDeepSeekApiModel,
+  isUsingNvidiaNimApiModel,
   isUsingGeminiWebModel,
   isUsingGithubThirdPartyApiModel,
   isUsingMoonshotApiModel,
+  isUsingMistralApiModel,
   isUsingMoonshotWebModel,
   isUsingMultiModeModel,
   isUsingOllamaApiModel,
   isUsingOpenAiApiModel,
   isUsingGptCompletionApiModel,
   isUsingOpenRouterApiModel,
+  isUsingXaiApiModel,
 } from '../../../src/config/index.mjs'
 import {
   LEGACY_MODEL_KEY_MIGRATIONS,
@@ -43,6 +49,13 @@ const representativeChatgptApiModelNames = [
   'chatgptApi5_4Mini',
   'chatgptApi5_4Nano',
   'chatgptApi5_5',
+  'chatgptApi5_6',
+  'chatgptApi5_6Sol',
+  'chatgptApi5_6Terra',
+  'chatgptApi5_6Luna',
+  'chatgptApi6Sol',
+  'chatgptApi6Luna',
+  'chatgptApi6_1Sol',
 ]
 const representativeGptCompletionApiModelNames = ['gptApiInstruct']
 const representativeClaudeApiModelNames = ['claudeOpus48Api', 'claudeSonnet46Api']
@@ -73,9 +86,17 @@ afterEach(() => {
   restoreNavigator()
 })
 
-test('getNavigatorLanguage returns zhHant for zh-TW style locales', () => {
+test('GPT-6 defaults use GPT-6.1 Sol and GPT-6 Luna', () => {
+  assert.equal(defaultApiModeIds.includes('chatgptApi6_1Sol'), true)
+  assert.equal(defaultApiModeIds.includes('chatgptApi6Luna'), true)
+  assert.equal(defaultApiModeIds.includes('chatgptApi6Sol'), false)
+  assert.equal(defaultApiModeIds.includes('chatgptApi5_6Sol'), false)
+  assert.equal(defaultApiModeIds.includes('chatgptApi5_6Luna'), false)
+})
+
+test('getNavigatorLanguage returns zh-Hant for zh-TW style locales', () => {
   setNavigatorLanguage('zh-TW')
-  assert.equal(getNavigatorLanguage(), 'zhHant')
+  assert.equal(getNavigatorLanguage(), 'zh-Hant')
 })
 
 test('legacy model key migration targets remain valid model presets', () => {
@@ -105,19 +126,19 @@ test('canonicalized legacy model keys still match their provider predicates', ()
   }
 })
 
-test('getNavigatorLanguage returns first two letters for non-zhHant locales', () => {
+test('getNavigatorLanguage resolves supported regional locales', () => {
   setNavigatorLanguage('en-US')
   assert.equal(getNavigatorLanguage(), 'en')
 })
 
-test('getNavigatorLanguage normalizes mixed-case zh-TW locale to zhHant', () => {
+test('getNavigatorLanguage normalizes mixed-case zh-TW locale to zh-Hant', () => {
   setNavigatorLanguage('ZH-TW')
-  assert.equal(getNavigatorLanguage(), 'zhHant')
+  assert.equal(getNavigatorLanguage(), 'zh-Hant')
 })
 
-test('getNavigatorLanguage treats zh-Hant locale as zhHant', () => {
+test('getNavigatorLanguage keeps canonical zh-Hant locale', () => {
   setNavigatorLanguage('zh-Hant')
-  assert.equal(getNavigatorLanguage(), 'zhHant')
+  assert.equal(getNavigatorLanguage(), 'zh-Hant')
 })
 
 test('isUsingChatgptApiModel matches representative chatgpt API keys', () => {
@@ -219,10 +240,24 @@ test('isUsingMoonshotApiModel detects moonshot API models', () => {
   assert.equal(isUsingMoonshotApiModel({ modelName: 'moonshotWebFree' }), false)
 })
 
+test('isUsingMistralApiModel accepts exported Mistral API model keys', () => {
+  for (const modelName of mistralApiModelKeys) {
+    assert.equal(isUsingMistralApiModel({ modelName }), true)
+  }
+  assert.equal(isUsingMistralApiModel({ modelName: 'chatgptApi4oMini' }), false)
+})
+
 test('isUsingDeepSeekApiModel detects DeepSeek models', () => {
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_v4_flash' }), true)
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'deepseek_v4_pro' }), true)
   assert.equal(isUsingDeepSeekApiModel({ modelName: 'chatgptApi4oMini' }), false)
+})
+
+test('isUsingNvidiaNimApiModel accepts exported NVIDIA NIM API model keys', () => {
+  for (const modelName of nvidiaNimApiModelKeys) {
+    assert.equal(isUsingNvidiaNimApiModel({ modelName }), true)
+  }
+  assert.equal(isUsingNvidiaNimApiModel({ modelName: 'chatgptApi4oMini' }), false)
 })
 
 test('isUsingOpenRouterApiModel matches representative OpenRouter API keys', () => {
@@ -236,6 +271,13 @@ test('isUsingOpenRouterApiModel accepts exported OpenRouter API model keys', () 
   for (const modelName of openRouterApiModelKeys) {
     assert.equal(isUsingOpenRouterApiModel({ modelName }), true)
   }
+})
+
+test('isUsingXaiApiModel accepts exported xAI API model keys', () => {
+  for (const modelName of xaiApiModelKeys) {
+    assert.equal(isUsingXaiApiModel({ modelName }), true)
+  }
+  assert.equal(isUsingXaiApiModel({ modelName: 'chatgptApi4oMini' }), false)
 })
 
 test('isUsingAimlApiModel matches representative AI/ML API keys', () => {
@@ -281,12 +323,6 @@ test('isUsingGithubThirdPartyApiModel detects waylaidwanderer models', () => {
   assert.equal(isUsingGithubThirdPartyApiModel({ modelName: 'chatgptApi4oMini' }), false)
 })
 
-test('isUsingCustomNameOnlyModel detects poeAiWebCustom', () => {
-  assert.equal(isUsingCustomNameOnlyModel({ modelName: 'poeAiWebCustom' }), true)
-  assert.equal(isUsingCustomNameOnlyModel({ modelName: 'poeAiWebSage' }), false)
-  assert.equal(isUsingCustomNameOnlyModel({ modelName: 'customModel' }), false)
-})
-
 // ── getPreferredLanguageKey ──────────────────────────────────────────
 
 describe('getPreferredLanguageKey', () => {
@@ -304,12 +340,10 @@ describe('getPreferredLanguageKey', () => {
   test('falls back to userLanguage when preference is auto', async () => {
     globalThis.__TEST_BROWSER_SHIM__.setStorage({ preferredLanguage: 'auto' })
     const key = await getPreferredLanguageKey()
-    // defaultConfig.userLanguage is derived from navigator.language ('en-US' → 'en')
     assert.equal(key, 'en')
   })
 
-  test('uses defaultConfig when storage is empty', async () => {
-    // defaultConfig.preferredLanguage = getNavigatorLanguage() which is 'en' in the shim
+  test('uses the browser language when storage is empty', async () => {
     const key = await getPreferredLanguageKey()
     assert.equal(key, 'en')
   })

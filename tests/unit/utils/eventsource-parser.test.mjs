@@ -6,6 +6,13 @@ const encoder = new TextEncoder()
 
 const toBytes = (text) => encoder.encode(text)
 
+const parseChunks = (...chunks) => {
+  const parsed = []
+  const parser = createParser((event) => parsed.push(event))
+  for (const chunk of chunks) parser.feed(chunk)
+  return parsed
+}
+
 test('createParser parses basic SSE event data', () => {
   const parsed = []
   const parser = createParser((event) => parsed.push(event))
@@ -70,6 +77,135 @@ test('createParser handles \\r\\n line endings', () => {
 
   assert.equal(parsed.length, 1)
   assert.equal(parsed[0].data, 'hello\nworld')
+})
+
+test('createParser keeps CRLF separators intact across chunks', () => {
+  const parsed = []
+  const parser = createParser((event) => parsed.push(event))
+
+  parser.feed(toBytes('data: hello\r'))
+  parser.feed(toBytes('\ndata: world\r'))
+  parser.feed(toBytes('\n\r'))
+  parser.feed(toBytes('\n'))
+
+  assert.equal(parsed.length, 1)
+  assert.equal(parsed[0].data, 'hello\nworld')
+})
+
+test('createParser preserves an LF delimiter after a complete CRLF line', () => {
+  const parsed = parseChunks(toBytes('data: a\r\n'), toBytes('\n'))
+
+  assert.equal(parsed.length, 1)
+  assert.equal(parsed[0].data, 'a')
+})
+
+test('createParser preserves mixed CRLF and LF event lines across chunks', () => {
+  const parsed = parseChunks(toBytes('data: a\r\ndata: b\n'), toBytes('\n'))
+
+  assert.equal(parsed.length, 1)
+  assert.equal(parsed[0].data, 'a\nb')
+})
+
+test('createParser preserves split CRLF state across empty chunks', () => {
+  const parsed = parseChunks(toBytes('data: a\r'), toBytes(''), toBytes('\n\n'))
+
+  assert.equal(parsed.length, 1)
+  assert.equal(parsed[0].data, 'a')
+})
+
+test('createParser produces the same events at every single chunk boundary', () => {
+  const stream = toBytes('data: alpha\r\n\ndata: beta\ndata: gamma\r\r')
+  const expected = [
+    {
+      type: 'event',
+      id: undefined,
+      event: undefined,
+      data: 'alpha',
+      extra: undefined,
+    },
+    {
+      type: 'event',
+      id: undefined,
+      event: undefined,
+      data: 'beta\ngamma',
+      extra: undefined,
+    },
+  ]
+
+  for (let split = 0; split <= stream.length; ++split) {
+    const actual = parseChunks(stream.slice(0, split), stream.slice(split))
+    assert.deepEqual(actual, expected, `split at byte ${split}`)
+  }
+})
+
+test('createParser preserves UTF-8 data at every byte boundary', () => {
+  const stream = toBytes('data: 台灣🙂 café\n\n')
+  const expected = [
+    {
+      type: 'event',
+      id: undefined,
+      event: undefined,
+      data: '台灣🙂 café',
+      extra: undefined,
+    },
+  ]
+
+  for (let split = 0; split <= stream.length; ++split) {
+    const actual = parseChunks(stream.slice(0, split), stream.slice(split))
+    assert.deepEqual(actual, expected, `split at byte ${split}`)
+  }
+})
+
+test('createParser preserves pending data after a leading UTF-8 BOM', () => {
+  const parsed = parseChunks(toBytes('\uFEFFdata: a\n\ndata:'), toBytes(' b\n\n'))
+
+  assert.deepEqual(
+    parsed.map((event) => event.data),
+    ['a', 'b'],
+  )
+})
+
+test('createParser preserves pending data after invalid UTF-8 replacement', () => {
+  const firstChunk = new Uint8Array([...toBytes('data: '), 0xff, ...toBytes('\n\ndata:')])
+  const parsed = parseChunks(firstChunk, toBytes(' b\n\n'))
+
+  assert.deepEqual(
+    parsed.map((event) => event.data),
+    ['�', 'b'],
+  )
+})
+
+test('createParser reset discards pending decoder bytes', () => {
+  const parsed = []
+  const parser = createParser((event) => parsed.push(event))
+
+  parser.feed(toBytes('🙂').slice(0, 2))
+  parser.reset()
+  parser.feed(toBytes('data: clean\n\n'))
+
+  assert.deepEqual(
+    parsed.map((event) => event.data),
+    ['clean'],
+  )
+})
+
+test('createParser reset discards pending event metadata', () => {
+  const parsed = []
+  const parser = createParser((event) => parsed.push(event))
+
+  parser.feed(toBytes('meta: {"source":"stale"}\n'))
+  parser.reset()
+  parser.feed(toBytes('data: clean\n\n'))
+
+  assert.deepEqual(parsed, [
+    {
+      type: 'event',
+      id: undefined,
+      event: undefined,
+      data: 'clean',
+      extra: undefined,
+    },
+  ])
 })
 
 test('createParser handles \\r only line endings', () => {

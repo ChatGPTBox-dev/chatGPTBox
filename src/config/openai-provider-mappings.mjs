@@ -1,11 +1,15 @@
 export const LEGACY_API_KEY_FIELD_BY_PROVIDER_ID = {
   openai: 'apiKey',
   deepseek: 'deepSeekApiKey',
+  'nvidia-nim': 'nvidiaNimApiKey',
   moonshot: 'moonshotApiKey',
+  mistral: 'mistralApiKey',
   openrouter: 'openRouterApiKey',
   aiml: 'aimlApiKey',
   chatglm: 'chatglmApiKey',
   ollama: 'ollamaApiKey',
+  google: 'googleApiKey',
+  xai: 'xaiApiKey',
   'legacy-custom-default': 'customApiKey',
 }
 
@@ -20,11 +24,15 @@ export const OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID = {
   chatgptApiModelKeys: 'openai',
   gptApiModelKeys: 'openai',
   moonshotApiModelKeys: 'moonshot',
+  mistralApiModelKeys: 'mistral',
   deepSeekApiModelKeys: 'deepseek',
+  nvidiaNimApiModelKeys: 'nvidia-nim',
   openRouterApiModelKeys: 'openrouter',
   aimlModelKeys: 'aiml',
   aimlApiModelKeys: 'aiml',
   chatglmApiModelKeys: 'chatglm',
   ollamaApiModelKeys: 'ollama',
+  googleApiModelKeys: 'google',
+  xaiApiModelKeys: 'xai',
   customApiModelKeys: 'legacy-custom-default',
 }

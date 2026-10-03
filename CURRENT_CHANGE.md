@@ -1,25 +1,12 @@
-Special thanks to @PeterDaveHello for his contributions to ChatGPTBox.
-
-The store release will move directly from v2.5.9 to v2.6.1. For the v2.6.0 changes, please see https://github.com/ChatGPTBox-dev/chatGPTBox/releases/tag/v2.6.0.
+This is a small maintenance release with new model support, localization improvements, and security updates.
 
 ## Changes
 
-### New Models
+- Add support for OpenAI GPT-6 Astra, Anthropic Claude Fable 5 / 5.1, and Google Gemini 3.8 Flash.
+- Improve language and locale handling, including better Chinese script detection and standardized language tags.
+- Improve preferred-language instructions sent to AI models.
+- Update remaining repository references after the move to `ChatGPTBox-dev/chatGPTBox`.
+- Update dependencies to address security issues reported by `npm audit`.
+- Add related regression tests and minor maintenance updates.
 
-- Add Claude Opus 4.8 support.
-
-### Improvements
-
-- Update LLM provider presets and related test fixtures.
-- Improve migration compatibility for users who selected legacy models in the previous version.
-- Add an automated store submission flow to make project maintenance easier.
-
-### Fixes
-
-- Omit `temperature` for Claude Opus 4.7 and 4.8.
-
-## Contributors
-
-A huge thank you to everyone who contributed to this release through code, bug reports, reviews, testing, and ideas.
-
-**Full Changelog**: [v2.6.0...v2.6.1](https://github.com/ChatGPTBox-dev/chatGPTBox/compare/v2.6.0...v2.6.1)
+**Full Changelog**: [v2.7.0...v2.7.1](https://github.com/ChatGPTBox-dev/chatGPTBox/compare/v2.7.0...v2.7.1)

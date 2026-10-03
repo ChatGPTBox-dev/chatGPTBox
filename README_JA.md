@@ -2,7 +2,7 @@
     <img src="./src/logo.png">
 </p>
 
-<h1 align="center">ChatGPT Box</h1>
+<h1 align="center">ChatGPTBox</h1>
 
 <div align="center">
 
@@ -11,7 +11,8 @@
 [![license][license-image]][license-url]
 [![release][release-image]][release-url]
 [![size](https://img.shields.io/badge/minified%20size-390%20kB-blue)][release-url]
-[![verfiy][verify-image]][verify-url]
+[![verify][verify-image]][verify-url]
+[![coverage][coverage-image]][coverage-url]
 
 [English](README.md) &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&nbsp; [简体中文](README_ZH.md) &nbsp;&nbsp;|&nbsp;&nbsp; 日本語 &nbsp;&nbsp;|&nbsp;&nbsp; [Türkçe](README_TR.md)
 
@@ -22,7 +23,7 @@
 [![Firefox][Firefox-image]][Firefox-url]
 [![Safari][Safari-image]][Safari-url]
 [![Android][Android-image]][Android-url]
-[![Github][Github-image]][Github-url]
+[![GitHub][Github-image]][Github-url]
 
 [ガイド](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [プレビュー](#プレビュー) &nbsp;&nbsp;|&nbsp;&nbsp; [開発 & コントリビュート][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [ビデオデモ](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [クレジット](#クレジット)
 
@@ -40,6 +41,10 @@
 
 [verify-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/verify-configs.yml
 
+[coverage-image]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ChatGPTBox-dev/chatGPTBox/master/badges/coverage.json
+
+[coverage-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/pr-tests.yml
+
 [Chrome-image]: https://img.shields.io/badge/-Chrome-brightgreen?logo=google-chrome&logoColor=white
 
 [Chrome-url]: https://chrome.google.com/webstore/detail/chatgptbox/eobbhoofkanlmddnplfhnmkfbnlhpbbo
@@ -54,7 +59,7 @@
 
 [Safari-image]: https://img.shields.io/badge/-Safari-blue?logo=safari&logoColor=white
 
-[Safari-url]: https://apps.apple.com/app/fission-chatbox/id6446611121
+[Safari-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Install#install-to-safarimacos
 
 [Android-image]: https://img.shields.io/badge/-Android-brightgreen?logo=android&logoColor=white
 
@@ -70,11 +75,11 @@
 
 - この拡張機能はあなたのデータを収集しません。コード内の `fetch(` と `XMLHttpRequest(` をグローバル検索して、すべてのネットワークリクエストの呼び出しを見つけることで確認できます。コードの量はそれほど多くないので、簡単にできます。
 
-- このツールは、あなたが明示的に要求しない限り、ChatGPT にデータを送信しません。デフォルトでは、拡張機能は手動で有効にする必要があります ChatGPT へのリクエストは、"Ask ChatGPT" をクリックするか、選択フローティングツールをトリガーした場合にのみ送信されます。(issue #407)
+- このツールは、AI 搭載機能がトリガーされない限り、設定された AI サービスにプロンプトやページの内容を送信しません。デフォルトでは、拡張機能を手動で有効にする必要があります。(issue #407)
 
 - https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api のようなプロジェクトを使用して、LLM APIをOpenAI形式に変換し、それらをChatGPTBoxの `カスタムモデル` モードと組み合わせて使用することができます
 
-- もちろんです。ChatGPTBoxの `カスタムモデル` モードを使用する際には、[Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models もご利用いただけます
+- ChatGPTBoxの `カスタムモデル` モードを使用する際には、[Ollama](https://github.com/ChatGPTBox-dev/chatGPTBox/issues/616#issuecomment-1975186467) / https://openrouter.ai/docs#models もご利用いただけます
 
 ## ✨ 機能
 

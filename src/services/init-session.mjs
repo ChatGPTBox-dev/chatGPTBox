@@ -29,7 +29,6 @@ import { t } from 'i18next'
  * @property {string|null} bingWeb_jailbreakConversationId
  * @property {string|null} bingWeb_parentMessageId
  * @property {Object|null} bingWeb_jailbreakConversationCache
- * @property {number|null} poe_chatId
  * @property {object|null} bard_conversationObj
  * @property {object|null} claude_conversation
  * @property {object|null} moonshot_conversation
@@ -93,9 +92,6 @@ export function initSession({
     bingWeb_jailbreakConversationId: null,
     bingWeb_parentMessageId: null,
     bingWeb_jailbreakConversationCache: null,
-
-    // poe
-    poe_chatId: null,
 
     // bard
     bard_conversationObj: null,

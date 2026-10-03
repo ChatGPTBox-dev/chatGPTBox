@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
-import { getUserConfig } from '../../../src/config/index.mjs'
+import Browser from 'webextension-polyfill'
+import { defaultApiModeIds, getUserConfig } from '../../../src/config/index.mjs'
+import {
+  getApiModesFromConfig,
+  modelNameToApiMode,
+} from '../../../src/utils/model-name-convert.mjs'
+import { resolveOpenAICompatibleRequest } from '../../../src/services/apis/provider-registry.mjs'
+
+const newlyReservedBuiltinProviders = [
+  { id: 'xai', legacyKey: 'xaiApiKey' },
+  { id: 'nvidia-nim', legacyKey: 'nvidiaNimApiKey' },
+  { id: 'mistral', legacyKey: 'mistralApiKey' },
+]
 
 function createCustomApiMode(overrides = {}) {
   return {
@@ -85,19 +97,25 @@ test('getUserConfig migrates legacy model keys in selected config fields', async
 
   assert.equal(config.modelName, 'chatgptFree4oMini')
   assert.equal(storage.modelName, 'chatgptFree4oMini')
-  assert.deepEqual(config.activeApiModes, [
-    'chatgptFree4oMini',
-    'claudeSonnet46Api',
-    'moonshot_k2_5',
-    'openRouter_deepseek_v4_flash',
-  ])
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(
+    config.customApiModes.map((apiMode) => apiMode.itemName),
+    [
+      'chatgptFree4oMini',
+      'claudeSonnet46Api',
+      'moonshot_k2_5',
+      'openRouter_deepseek_v4_flash',
+      'aiml_openai_gpt_5_5',
+    ],
+  )
   assert.deepEqual(storage.activeApiModes, config.activeApiModes)
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
   assert.equal(config.apiMode.groupName, 'claudeApiModelKeys')
   assert.equal(config.apiMode.itemName, 'claudeSonnet46Api')
   assert.equal(storage.apiMode.itemName, 'claudeSonnet46Api')
-  assert.equal(config.customApiModes[0].groupName, 'aimlModelKeys')
-  assert.equal(config.customApiModes[0].itemName, 'aiml_openai_gpt_5_5')
-  assert.equal(storage.customApiModes[0].itemName, 'aiml_openai_gpt_5_5')
+  assert.equal(config.customApiModes.at(-1).groupName, 'aimlModelKeys')
+  assert.equal(config.customApiModes.at(-1).itemName, 'aiml_openai_gpt_5_5')
+  assert.equal(storage.customApiModes.at(-1).itemName, 'aiml_openai_gpt_5_5')
 })
 
 test('getUserConfig reuses custom mode key promoted earlier in the same migration pass', async () => {
@@ -268,6 +286,38 @@ test('getUserConfig persists normalization-only sourceProviderId migrations', as
   assert.equal(storedProvider.sourceProviderId, 'openai')
 })
 
+test('getUserConfig persists provider lineage and path normalization by itself', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    providerSecrets: {},
+    customApiModes: [],
+    activeApiModes: [],
+    knownApiModeDefaultIds: defaultApiModeIds,
+    customOpenAIProviders: [
+      {
+        id: 'foo',
+        name: 'Foo Proxy',
+        baseUrl: '',
+        chatCompletionsPath: 'v1/chat/completions',
+        completionsPath: 'v1/completions',
+        chatCompletionsUrl: 'https://foo.example.com/v1/chat/completions',
+        completionsUrl: '',
+        enabled: true,
+        allowLegacyResponseField: true,
+        legacyProviderIds: ['FOO', 'Old_Id', 'old-id'],
+      },
+    ],
+  })
+
+  await getUserConfig()
+  const storedProvider = globalThis.__TEST_BROWSER_SHIM__.getStorage().customOpenAIProviders[0]
+
+  assert.equal(storedProvider.chatCompletionsPath, '/v1/chat/completions')
+  assert.equal(storedProvider.completionsPath, '/v1/completions')
+  assert.deepEqual(storedProvider.legacyProviderIds, ['old-id'])
+})
+
 test('getUserConfig remaps preserved custom sourceProviderId when provider ids are renamed', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 0,
@@ -435,7 +485,42 @@ test('getUserConfig does not reuse builtin provider secret for renamed colliding
   assert.equal(config.providerSecrets['openai-2'], undefined)
 })
 
-test('getUserConfig keeps original secret when colliding custom provider raw id is already normalized', async () => {
+test('getUserConfig keeps a raw-id secret on unchanged and renamed duplicate providers', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 0,
+    providerSecrets: {
+      MyProxy: 'shared-provider-secret',
+    },
+    customOpenAIProviders: [
+      {
+        id: 'MyProxy',
+        name: 'Primary Proxy',
+        chatCompletionsUrl: 'https://primary.example.com/v1/chat/completions',
+      },
+      {
+        id: 'MyProxy',
+        name: 'Duplicate Proxy',
+        chatCompletionsUrl: 'https://duplicate.example.com/v1/chat/completions',
+      },
+    ],
+  })
+
+  const config = await getUserConfig()
+  const primaryProvider = config.customOpenAIProviders.find(
+    (provider) => provider.name === 'Primary Proxy',
+  )
+  const duplicateProvider = config.customOpenAIProviders.find(
+    (provider) => provider.name === 'Duplicate Proxy',
+  )
+
+  assert.equal(primaryProvider.id, 'myproxy')
+  assert.equal(duplicateProvider.id, 'myproxy-2')
+  assert.equal(config.providerSecrets.myproxy, 'shared-provider-secret')
+  assert.equal(config.providerSecrets['myproxy-2'], 'shared-provider-secret')
+  assert.equal(Object.hasOwn(config.providerSecrets, 'MyProxy'), false)
+})
+
+test('getUserConfig keeps a shared secret on already-normalized duplicate providers', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 0,
     providerSecrets: {
@@ -456,17 +541,316 @@ test('getUserConfig keeps original secret when colliding custom provider raw id 
   })
 
   const config = await getUserConfig()
-  const primaryProvider = config.customOpenAIProviders.find(
-    (provider) => provider.name === 'Primary Proxy',
-  )
-  const duplicateProvider = config.customOpenAIProviders.find(
-    (provider) => provider.name === 'Duplicate Proxy',
-  )
 
-  assert.equal(primaryProvider.id, 'myproxy')
-  assert.equal(duplicateProvider.id, 'myproxy-2')
   assert.equal(config.providerSecrets.myproxy, 'shared-provider-secret')
   assert.equal(config.providerSecrets['myproxy-2'], 'shared-provider-secret')
+})
+
+test('getUserConfig keeps distinct secrets for canonically duplicate provider IDs', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 0,
+    providerSecrets: {
+      Foo: 'primary-provider-secret',
+      foo: 'duplicate-provider-secret',
+    },
+    customOpenAIProviders: [
+      {
+        id: 'Foo',
+        name: 'Primary Proxy',
+        chatCompletionsUrl: 'https://primary.example.com/v1/chat/completions',
+      },
+      {
+        id: 'foo',
+        name: 'Duplicate Proxy',
+        chatCompletionsUrl: 'https://duplicate.example.com/v1/chat/completions',
+      },
+    ],
+  })
+
+  const config = await getUserConfig()
+
+  assert.equal(config.providerSecrets.foo, 'primary-provider-secret')
+  assert.equal(config.providerSecrets['foo-2'], 'duplicate-provider-secret')
+  assert.equal(Object.hasOwn(config.providerSecrets, 'Foo'), false)
+})
+
+test('getUserConfig keeps asymmetric secrets on their raw canonical provider', async () => {
+  const providers = [
+    {
+      id: 'Foo',
+      name: 'Uppercase Proxy',
+      chatCompletionsUrl: 'https://uppercase.example.com/v1/chat/completions',
+    },
+    {
+      id: 'foo',
+      name: 'Lowercase Proxy',
+      chatCompletionsUrl: 'https://lowercase.example.com/v1/chat/completions',
+    },
+  ]
+
+  for (const orderedProviders of [providers, [...providers].reverse()]) {
+    for (const [secretId, secret, expectedUpperSecret, expectedLowerSecret] of [
+      ['Foo', 'uppercase-secret', 'uppercase-secret', undefined],
+      ['foo', 'lowercase-secret', undefined, 'lowercase-secret'],
+    ]) {
+      globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+        configSchemaVersion: 0,
+        providerSecrets: { [secretId]: secret },
+        customOpenAIProviders: orderedProviders,
+      })
+
+      const config = await getUserConfig()
+      const uppercaseProvider = config.customOpenAIProviders.find(
+        (provider) => provider.name === 'Uppercase Proxy',
+      )
+      const lowercaseProvider = config.customOpenAIProviders.find(
+        (provider) => provider.name === 'Lowercase Proxy',
+      )
+
+      assert.equal(config.providerSecrets[uppercaseProvider.id], expectedUpperSecret)
+      assert.equal(config.providerSecrets[lowercaseProvider.id], expectedLowerSecret)
+
+      const remigratedConfig = await getUserConfig()
+      assert.deepEqual(remigratedConfig.customOpenAIProviders, config.customOpenAIProviders)
+      assert.deepEqual(remigratedConfig.providerSecrets, config.providerSecrets)
+    }
+  }
+})
+
+test('getUserConfig uses raw IDs to remap modes for canonically duplicate providers', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 0,
+    providerSecrets: {
+      Foo: 'primary-provider-secret',
+      foo: 'duplicate-provider-secret',
+    },
+    customOpenAIProviders: [
+      {
+        id: 'Foo',
+        name: 'Primary Proxy',
+        chatCompletionsUrl: 'https://primary.example.com/v1/chat/completions',
+      },
+      {
+        id: 'foo',
+        name: 'Duplicate Proxy',
+        chatCompletionsUrl: 'https://duplicate.example.com/v1/chat/completions',
+      },
+    ],
+    customApiModes: [
+      createCustomApiMode({ customName: 'Primary mode', providerId: 'Foo' }),
+      createCustomApiMode({ customName: 'Duplicate mode', providerId: 'foo' }),
+    ],
+    apiMode: createCustomApiMode({ customName: 'Duplicate mode', providerId: 'foo' }),
+  })
+
+  const config = await getUserConfig()
+  const primaryMode = config.customApiModes.find((mode) => mode.customName === 'Primary mode')
+  const duplicateMode = config.customApiModes.find((mode) => mode.customName === 'Duplicate mode')
+
+  assert.equal(primaryMode.providerId, 'foo')
+  assert.equal(duplicateMode.providerId, 'foo-2')
+  assert.equal(config.apiMode.providerId, 'foo-2')
+  assert.equal(
+    resolveOpenAICompatibleRequest(config, { apiMode: primaryMode })?.apiKey,
+    'primary-provider-secret',
+  )
+  assert.equal(
+    resolveOpenAICompatibleRequest(config, { apiMode: duplicateMode })?.apiKey,
+    'duplicate-provider-secret',
+  )
+})
+
+test('getUserConfig keeps selected raw provider ID distinct in matching mode signatures', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 0,
+    providerSecrets: {
+      Foo: 'primary-provider-secret',
+      foo: 'duplicate-provider-secret',
+    },
+    customOpenAIProviders: [
+      {
+        id: 'Foo',
+        name: 'Primary Proxy',
+        chatCompletionsUrl: 'https://primary.example.com/v1/chat/completions',
+      },
+      {
+        id: 'foo',
+        name: 'Duplicate Proxy',
+        chatCompletionsUrl: 'https://duplicate.example.com/v1/chat/completions',
+      },
+    ],
+    customApiModes: [
+      createCustomApiMode({ customName: 'Shared mode', providerId: 'Foo' }),
+      createCustomApiMode({ customName: 'Shared mode', providerId: 'foo' }),
+    ],
+    apiMode: createCustomApiMode({ customName: 'Shared mode', providerId: 'Foo' }),
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(
+    config.customApiModes
+      .filter((mode) => mode.customName === 'Shared mode')
+      .map((mode) => mode.providerId),
+    ['foo', 'foo-2'],
+  )
+  assert.equal(config.apiMode.providerId, 'foo')
+  assert.equal(config.providerSecrets[config.apiMode.providerId], 'primary-provider-secret')
+})
+
+test('getUserConfig preserves selected raw provider disambiguation without a listed match', async () => {
+  for (const [listedProviderId, selectedProviderId, migratedListedId, migratedSelectedId] of [
+    ['Foo', 'foo', 'foo', 'foo-2'],
+    ['foo', 'Foo', 'foo-2', 'foo'],
+  ]) {
+    globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+      configSchemaVersion: 0,
+      providerSecrets: {
+        Foo: 'primary-provider-secret',
+        foo: 'duplicate-provider-secret',
+      },
+      customOpenAIProviders: [
+        {
+          id: 'Foo',
+          name: 'Primary Proxy',
+          chatCompletionsUrl: 'https://primary.example.com/v1/chat/completions',
+        },
+        {
+          id: 'foo',
+          name: 'Duplicate Proxy',
+          chatCompletionsUrl: 'https://duplicate.example.com/v1/chat/completions',
+        },
+      ],
+      customApiModes: [
+        createCustomApiMode({ customName: 'Shared mode', providerId: listedProviderId }),
+      ],
+      apiMode: createCustomApiMode({
+        customName: 'Shared mode',
+        providerId: selectedProviderId,
+      }),
+    })
+
+    const config = await getUserConfig()
+    const migratedMode = config.customApiModes.find((mode) => mode.customName === 'Shared mode')
+
+    assert.equal(migratedMode.providerId, migratedListedId)
+    assert.equal(config.apiMode.providerId, migratedSelectedId)
+  }
+})
+
+test('getUserConfig reuses key promotion for canonically equivalent selected provider ID', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 0,
+    providerSecrets: { MyProxy: 'provider-key' },
+    customOpenAIProviders: [
+      {
+        id: 'MyProxy',
+        name: 'My Proxy',
+        chatCompletionsUrl: 'https://proxy.example.com/v1/chat/completions',
+      },
+    ],
+    customApiModes: [
+      createCustomApiMode({
+        customName: 'Shared mode',
+        providerId: 'MyProxy',
+        apiKey: 'mode-key',
+      }),
+    ],
+    apiMode: createCustomApiMode({
+      customName: 'Shared mode',
+      providerId: 'myproxy',
+      apiKey: 'mode-key',
+    }),
+  })
+
+  const config = await getUserConfig()
+  const migratedMode = config.customApiModes.find((mode) => mode.customName === 'Shared mode')
+
+  assert.equal(migratedMode.providerId, 'shared-mode')
+  assert.equal(config.apiMode.providerId, migratedMode.providerId)
+  assert.equal(config.providerSecrets[migratedMode.providerId], 'mode-key')
+  assert.equal(
+    config.customOpenAIProviders.some((provider) => provider.id === 'shared-mode-2'),
+    false,
+  )
+})
+
+test('getUserConfig remaps modes for duplicate newly reserved provider IDs', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    providerSecrets: {
+      XAI: 'uppercase-provider-secret',
+      xai: 'lowercase-provider-secret',
+    },
+    customOpenAIProviders: [
+      {
+        id: 'XAI',
+        name: 'Uppercase xAI Proxy',
+        chatCompletionsUrl: 'https://uppercase.example.com/v1/chat/completions',
+      },
+      {
+        id: 'xai',
+        name: 'Lowercase xAI Proxy',
+        chatCompletionsUrl: 'https://lowercase.example.com/v1/chat/completions',
+      },
+    ],
+    customApiModes: [
+      createCustomApiMode({ customName: 'Uppercase mode', providerId: 'XAI' }),
+      createCustomApiMode({ customName: 'Lowercase mode', providerId: 'xai' }),
+    ],
+  })
+
+  const config = await getUserConfig()
+  const uppercaseMode = config.customApiModes.find((mode) => mode.customName === 'Uppercase mode')
+  const lowercaseMode = config.customApiModes.find((mode) => mode.customName === 'Lowercase mode')
+
+  assert.equal(uppercaseMode.providerId, 'xai-2')
+  assert.equal(lowercaseMode.providerId, 'xai-3')
+  assert.equal(
+    resolveOpenAICompatibleRequest(config, { apiMode: uppercaseMode })?.apiKey,
+    'uppercase-provider-secret',
+  )
+  assert.equal(
+    resolveOpenAICompatibleRequest(config, { apiMode: lowercaseMode })?.apiKey,
+    'lowercase-provider-secret',
+  )
+})
+
+test('getUserConfig keeps a reserved canonical secret on its exact raw provider', async () => {
+  for (const { id } of newlyReservedBuiltinProviders) {
+    const canonicalAliasProvider = {
+      id: id.toUpperCase(),
+      name: 'Canonical alias provider',
+      chatCompletionsUrl: 'https://alias.example.com/v1/chat/completions',
+    }
+    const exactProvider = {
+      id,
+      name: 'Exact provider',
+      chatCompletionsUrl: 'https://exact.example.com/v1/chat/completions',
+    }
+
+    for (const customOpenAIProviders of [
+      [canonicalAliasProvider, exactProvider],
+      [exactProvider, canonicalAliasProvider],
+    ]) {
+      globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+        configSchemaVersion: 1,
+        providerSecrets: { [id]: 'exact-provider-secret' },
+        customOpenAIProviders,
+      })
+
+      const config = await getUserConfig()
+      const canonicalAlias = config.customOpenAIProviders.find(
+        (provider) => provider.name === canonicalAliasProvider.name,
+      )
+      const exact = config.customOpenAIProviders.find(
+        (provider) => provider.name === exactProvider.name,
+      )
+
+      assert.equal(config.providerSecrets[canonicalAlias.id], undefined)
+      assert.equal(config.providerSecrets[exact.id], 'exact-provider-secret')
+    }
+  }
 })
 
 test('getUserConfig prefers normalized provider secret when raw alias is explicitly empty', async () => {
@@ -799,10 +1183,27 @@ test('getUserConfig materializes distinct providers for legacy custom default ke
   assert.equal(config.apiMode.providerId, modeB.providerId)
   assert.equal(config.providerSecrets['legacy-custom-default'], 'key-a')
   assert.equal(config.providerSecrets[modeB.providerId], 'key-b')
+  assert.equal(materializedProvider.legacyProviderIds, undefined)
   assert.equal(
     materializedProvider.chatCompletionsUrl,
     'https://legacy.example.com/v1/chat/completions',
   )
+  const resolvedModeA = resolveOpenAICompatibleRequest(config, {
+    apiMode: createCustomApiMode({
+      customName: 'legacy-a',
+      providerId: 'legacy-custom-default',
+    }),
+  })
+  const resolvedModeB = resolveOpenAICompatibleRequest(config, {
+    apiMode: createCustomApiMode({
+      customName: 'legacy-b',
+      providerId: 'legacy-custom-default',
+    }),
+  })
+  assert.equal(resolvedModeA?.providerId, 'legacy-custom-default')
+  assert.equal(resolvedModeA?.apiKey, 'key-a')
+  assert.equal(resolvedModeB?.providerId, modeB.providerId)
+  assert.equal(resolvedModeB?.apiKey, 'key-b')
   assert.equal(modeA.apiKey, '')
   assert.equal(modeB.apiKey, '')
   assert.equal(config.apiMode.apiKey, '')
@@ -927,8 +1328,311 @@ test('getUserConfig writes current config schema version during migration', asyn
   const config = await getUserConfig()
   const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
 
-  assert.equal(config.configSchemaVersion, 1)
-  assert.equal(storage.configSchemaVersion, 1)
+  assert.equal(config.configSchemaVersion, 2)
+  assert.equal(storage.configSchemaVersion, 2)
+})
+
+test('getUserConfig keeps untouched profiles on live defaults without persisting a baseline', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+  })
+
+  const config = await getUserConfig()
+  await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(config.activeApiModes, defaultApiModeIds)
+  assert.deepEqual(config.knownApiModeDefaultIds, [])
+  assert.equal(Object.hasOwn(storage, 'activeApiModes'), false)
+  assert.equal(Object.hasOwn(storage, 'knownApiModeDefaultIds'), false)
+})
+
+test('getUserConfig treats imported null sentinels as an untouched live-default profile', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: null,
+    customApiModes: null,
+    knownApiModeDefaultIds: null,
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(config.activeApiModes, defaultApiModeIds)
+  assert.deepEqual(config.customApiModes, [])
+  assert.deepEqual(config.knownApiModeDefaultIds, [])
+  assert.equal(Object.hasOwn(storage, 'activeApiModes'), false)
+  assert.equal(Object.hasOwn(storage, 'knownApiModeDefaultIds'), false)
+})
+
+test('getUserConfig retries live-default sentinel cleanup after remove failure', async (t) => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: null,
+    customApiModes: null,
+    knownApiModeDefaultIds: null,
+  })
+
+  const originalRemove = Browser.storage.local.remove
+  let removeCalls = 0
+  t.mock.method(Browser.storage.local, 'remove', async (keys) => {
+    removeCalls += 1
+    if (removeCalls === 1) throw new Error('remove failed')
+    return originalRemove.call(Browser.storage.local, keys)
+  })
+
+  const firstConfig = await getUserConfig()
+  const storageAfterFailure = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+  const secondConfig = await getUserConfig()
+  const storageAfterRetry = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(firstConfig.activeApiModes, defaultApiModeIds)
+  assert.deepEqual(secondConfig.activeApiModes, defaultApiModeIds)
+  assert.equal(storageAfterFailure.activeApiModes, null)
+  assert.equal(storageAfterFailure.knownApiModeDefaultIds, null)
+  assert.equal(Object.hasOwn(storageAfterRetry, 'activeApiModes'), false)
+  assert.equal(Object.hasOwn(storageAfterRetry, 'knownApiModeDefaultIds'), false)
+  assert.equal(removeCalls, 2)
+})
+
+test('getUserConfig establishes a baseline for old snapshots without backfilling missing defaults', async () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    activeApiModes: [],
+    customApiModes: [existingMode],
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(config.customApiModes, [existingMode])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig materializes a legacy active-only profile', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    activeApiModes: ['chatgptFree35'],
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(
+    config.customApiModes.map((apiMode) => apiMode.itemName),
+    ['chatgptFree35'],
+  )
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.notEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig sanitizes malformed legacy active API mode ids before materializing', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    activeApiModes: [null, 1, '', ' chatgptFree35 '],
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(
+    config.customApiModes.map((apiMode) => apiMode.itemName),
+    ['chatgptFree35'],
+  )
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.deepEqual(storage.activeApiModes, [])
+  assert.deepEqual(
+    storage.customApiModes.map((apiMode) => apiMode.itemName),
+    ['chatgptFree35'],
+  )
+  assert.deepEqual(storage.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig sanitizes malformed active ids without rematerializing a current baseline', async () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [null, 1, ''],
+    customApiModes: [existingMode],
+    knownApiModeDefaultIds: defaultApiModeIds,
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(config.customApiModes, [existingMode])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.deepEqual(storage.activeApiModes, [])
+  assert.deepEqual(storage.customApiModes, [existingMode])
+  assert.deepEqual(storage.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig keeps unresolved built-in defaults in the effective materialized list', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    activeApiModes: defaultApiModeIds,
+    azureDeploymentName: '',
+    ollamaModelName: '',
+  })
+
+  const config = await getUserConfig()
+  const effectiveApiModes = getApiModesFromConfig(config, false)
+
+  assert.equal(
+    effectiveApiModes.some((apiMode) => apiMode.itemName === 'azureOpenAi'),
+    true,
+  )
+  assert.equal(
+    effectiveApiModes.some((apiMode) => apiMode.itemName === 'ollamaModel'),
+    true,
+  )
+})
+
+test('getUserConfig materializes live defaults before a legacy custom-only row', async () => {
+  const customMode = createCustomApiMode({ customName: 'legacy-custom-only' })
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    customApiModes: [customMode],
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.equal(config.customApiModes.at(-1).customName, 'legacy-custom-only')
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig treats a valid baseline as materialized when active modes are missing', async () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    customApiModes: [existingMode],
+    knownApiModeDefaultIds: defaultApiModeIds,
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(config.customApiModes, [existingMode])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.deepEqual(globalThis.__TEST_BROWSER_SHIM__.getStorage().activeApiModes, [])
+})
+
+test('getUserConfig does not restore removed defaults when only a valid baseline remains', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    customApiModes: [],
+    knownApiModeDefaultIds: defaultApiModeIds,
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.activeApiModes, [])
+  assert.deepEqual(config.customApiModes, [])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig replaces a malformed baseline without backfilling the snapshot', async () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [existingMode],
+    knownApiModeDefaultIds: [null],
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.customApiModes, [existingMode])
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig appends defaults added after the stored baseline', async () => {
+  const newDefaultId = defaultApiModeIds.at(-1)
+  const previousDefaultIds = defaultApiModeIds.slice(0, -1)
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [existingMode],
+    knownApiModeDefaultIds: previousDefaultIds,
+  })
+
+  const firstConfig = await getUserConfig()
+  const secondConfig = await getUserConfig()
+
+  assert.equal(firstConfig.customApiModes.at(-1).itemName, newDefaultId)
+  assert.deepEqual(firstConfig.knownApiModeDefaultIds, defaultApiModeIds)
+  assert.deepEqual(secondConfig.customApiModes, firstConfig.customApiModes)
+})
+
+test('getUserConfig retries future-default reconciliation deterministically after write failure', async (t) => {
+  const newDefaultId = defaultApiModeIds.at(-1)
+  const storedConfig = {
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [modelNameToApiMode('chatgptFree35')],
+    knownApiModeDefaultIds: defaultApiModeIds.slice(0, -1),
+  }
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage(storedConfig)
+  t.mock.method(Browser.storage.local, 'set', async () => {
+    throw new Error('write failed')
+  })
+
+  const firstConfig = await getUserConfig()
+  const secondConfig = await getUserConfig()
+
+  assert.equal(firstConfig.customApiModes.at(-1).itemName, newDefaultId)
+  assert.deepEqual(secondConfig.customApiModes, firstConfig.customApiModes)
+  assert.deepEqual(globalThis.__TEST_BROWSER_SHIM__.getStorage(), storedConfig)
+})
+
+test('getUserConfig does not reactivate an equivalent inactive row for a new default', async () => {
+  const newDefaultId = defaultApiModeIds.at(-1)
+  const inactiveMode = { ...modelNameToApiMode(newDefaultId), active: false }
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [inactiveMode],
+    knownApiModeDefaultIds: defaultApiModeIds.slice(0, -1),
+  })
+
+  const config = await getUserConfig()
+
+  assert.equal(config.customApiModes.length, 1)
+  assert.equal(config.customApiModes[0].active, false)
+  assert.deepEqual(config.knownApiModeDefaultIds, defaultApiModeIds)
+})
+
+test('getUserConfig does not restore a removed default whose id is already known', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [],
+    knownApiModeDefaultIds: defaultApiModeIds,
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(config.customApiModes, [])
+})
+
+test('getUserConfig canonicalizes legacy ids while preserving the cumulative baseline', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    activeApiModes: [],
+    customApiModes: [],
+    knownApiModeDefaultIds: [...defaultApiModeIds, 'chatgptFree4o'],
+  })
+
+  const config = await getUserConfig()
+
+  assert.equal(config.knownApiModeDefaultIds.includes('chatgptFree4o'), false)
+  assert.equal(config.knownApiModeDefaultIds.includes('chatgptFree4oMini'), true)
+  assert.deepEqual(config.customApiModes, [])
 })
 
 test('getUserConfig creates separate providers when same URL has different API keys', async () => {
@@ -1050,7 +1754,7 @@ test('getUserConfig reverse-syncs providerSecrets to legacy fields for backward 
 
 test('getUserConfig converges missing provider migration keys when schema version is current', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
-    configSchemaVersion: 1,
+    configSchemaVersion: 2,
   })
 
   await getUserConfig()
@@ -1069,7 +1773,7 @@ test('getUserConfig converges missing provider migration keys when schema versio
 
 test('getUserConfig persists generated custom provider ids when schema version is current', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
-    configSchemaVersion: 1,
+    configSchemaVersion: 2,
     providerSecrets: {},
     customApiModes: [],
     customOpenAIProviders: [
@@ -1085,6 +1789,264 @@ test('getUserConfig persists generated custom provider ids when schema version i
 
   assert.equal(config.customOpenAIProviders[0].id, 'custom-provider-1')
   assert.equal(storage.customOpenAIProviders[0].id, 'custom-provider-1')
+})
+
+test('getUserConfig migrates custom providers that collide with newly reserved IDs', async () => {
+  for (const { id } of newlyReservedBuiltinProviders) {
+    globalThis.__TEST_BROWSER_SHIM__.clearStorage()
+    const customUrl = `https://${id}.example.com/v1/chat/completions`
+    globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+      configSchemaVersion: 1,
+      providerSecrets: { [id]: `${id}-custom-secret` },
+      customOpenAIProviders: [
+        {
+          id,
+          name: `${id} proxy`,
+          chatCompletionsUrl: customUrl,
+        },
+      ],
+      customApiModes: [
+        createCustomApiMode({
+          customName: `${id} proxy`,
+          providerId: id,
+        }),
+      ],
+    })
+
+    const config = await getUserConfig()
+    const migratedProvider = config.customOpenAIProviders[0]
+    const migratedMode = config.customApiModes.find(
+      (apiMode) => apiMode.customName === `${id} proxy`,
+    )
+
+    assert.equal(migratedProvider.id, `${id}-2`)
+    assert.deepEqual(migratedProvider.legacyProviderIds, [id])
+    assert.equal(migratedMode.providerId, `${id}-2`)
+    assert.deepEqual(migratedMode.legacyProviderIds, [id])
+    assert.equal(config.providerSecrets[`${id}-2`], `${id}-custom-secret`)
+    assert.equal(Object.hasOwn(config.providerSecrets, id), false)
+    assert.ok(config.completedBuiltinProviderIdMigrations.includes(id))
+
+    const resolved = resolveOpenAICompatibleRequest(config, {
+      apiMode: createCustomApiMode({
+        customName: `${id} proxy`,
+        customUrl,
+        providerId: id,
+      }),
+    })
+    assert.equal(resolved?.providerId, `${id}-2`)
+    assert.equal(resolved?.apiKey, `${id}-custom-secret`)
+
+    const snapshot = JSON.stringify(globalThis.__TEST_BROWSER_SHIM__.getStorage())
+    await getUserConfig()
+    assert.equal(JSON.stringify(globalThis.__TEST_BROWSER_SHIM__.getStorage()), snapshot)
+
+    globalThis.__TEST_BROWSER_SHIM__.clearStorage()
+    const rawId = id.toUpperCase()
+    globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+      configSchemaVersion: 1,
+      providerSecrets: {
+        [rawId]: `${id}-raw-secret`,
+        [id]: `${id}-normalized-secret`,
+      },
+      customOpenAIProviders: [
+        {
+          id: rawId,
+          name: `${id} raw proxy`,
+          chatCompletionsUrl: customUrl,
+        },
+      ],
+    })
+
+    const rawIdConfig = await getUserConfig()
+
+    assert.equal(rawIdConfig.providerSecrets[`${id}-2`], `${id}-raw-secret`)
+    assert.equal(rawIdConfig.providerSecrets[id], `${id}-normalized-secret`)
+    assert.equal(Object.hasOwn(rawIdConfig.providerSecrets, rawId), false)
+  }
+})
+
+test('getUserConfig keeps builtin secrets out of colliding custom providers', async () => {
+  for (const { id, legacyKey } of newlyReservedBuiltinProviders) {
+    globalThis.__TEST_BROWSER_SHIM__.clearStorage()
+    globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+      configSchemaVersion: 1,
+      [legacyKey]: `${id}-builtin-secret`,
+      providerSecrets: { [id]: `${id}-builtin-secret` },
+      customOpenAIProviders: [
+        {
+          id,
+          name: `${id} proxy`,
+          chatCompletionsUrl: `https://${id}.example.com/v1/chat/completions`,
+        },
+      ],
+    })
+
+    const config = await getUserConfig()
+
+    assert.equal(config.customOpenAIProviders[0].id, `${id}-2`)
+    assert.equal(config.providerSecrets[id], `${id}-builtin-secret`)
+    assert.equal(Object.hasOwn(config.providerSecrets, `${id}-2`), false)
+    assert.equal(config[legacyKey], `${id}-builtin-secret`)
+  }
+})
+
+test('getUserConfig reruns a completed builtin ID migration for a new collision', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    providerSecrets: {
+      xai: 'custom-xai-secret',
+    },
+    customOpenAIProviders: [
+      {
+        id: 'xai',
+        name: 'Synced xAI Proxy',
+        chatCompletionsUrl: 'https://proxy.example.com/v1/chat/completions',
+      },
+    ],
+  })
+
+  const config = await getUserConfig()
+
+  assert.equal(config.customOpenAIProviders[0].id, 'xai-2')
+  assert.equal(config.providerSecrets['xai-2'], 'custom-xai-secret')
+  assert.equal(Object.hasOwn(config.providerSecrets, 'xai'), false)
+})
+
+test('getUserConfig does not move a known builtin secret for a later custom collision', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    xaiApiKey: 'builtin-xai-secret',
+    providerSecrets: {
+      xai: 'builtin-xai-secret',
+    },
+    customOpenAIProviders: [
+      {
+        id: 'xai',
+        name: 'Synced xAI Proxy',
+        chatCompletionsUrl: 'https://proxy.example.com/v1/chat/completions',
+      },
+    ],
+  })
+
+  const config = await getUserConfig()
+
+  assert.equal(config.customOpenAIProviders[0].id, 'xai-2')
+  assert.equal(config.providerSecrets.xai, 'builtin-xai-secret')
+  assert.equal(Object.hasOwn(config.providerSecrets, 'xai-2'), false)
+})
+
+test('getUserConfig reconnects modes only for a unique enabled legacy provider match', async () => {
+  const cases = [
+    {
+      providers: [{ id: 'xai-2', legacyProviderIds: ['xai'] }],
+      expectedProviderId: 'xai-2',
+      expectedModeKey: '',
+      expectedProviderKey: 'custom-xai-secret',
+    },
+    {
+      providers: [
+        { id: 'xai-2', legacyProviderIds: ['xai'] },
+        { id: 'xai-3', legacyProviderIds: ['xai'] },
+      ],
+      expectedProviderId: 'xai',
+      expectedModeKey: 'custom-xai-secret',
+      expectedProviderKey: undefined,
+    },
+    {
+      providers: [{ id: 'xai-2', legacyProviderIds: ['xai'], enabled: false }],
+      expectedProviderId: 'xai',
+      expectedModeKey: 'custom-xai-secret',
+      expectedProviderKey: undefined,
+    },
+  ]
+
+  for (const testCase of cases) {
+    globalThis.__TEST_BROWSER_SHIM__.clearStorage()
+    globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+      configSchemaVersion: 2,
+      completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+      xaiApiKey: 'builtin-xai-secret',
+      providerSecrets: {
+        xai: 'builtin-xai-secret',
+      },
+      customOpenAIProviders: testCase.providers.map((provider) => ({
+        ...provider,
+        name: provider.id,
+        chatCompletionsUrl: `https://${provider.id}.example.com/v1/chat/completions`,
+      })),
+      customApiModes: [
+        createCustomApiMode({
+          customName: 'Existing xAI Proxy mode',
+          providerId: 'xai',
+          apiKey: 'custom-xai-secret',
+        }),
+      ],
+    })
+
+    const config = await getUserConfig()
+    const migratedMode = config.customApiModes.find(
+      (apiMode) => apiMode.customName === 'Existing xAI Proxy mode',
+    )
+
+    assert.equal(migratedMode.providerId, testCase.expectedProviderId)
+    assert.equal(migratedMode.apiKey, testCase.expectedModeKey)
+    assert.equal(config.providerSecrets.xai, 'builtin-xai-secret')
+    assert.equal(config.providerSecrets['xai-2'], testCase.expectedProviderKey)
+    assert.equal(Object.hasOwn(config.providerSecrets, 'xai-3'), false)
+  }
+})
+
+test('getUserConfig uses URLs to disambiguate unchanged and renamed provider IDs', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 1,
+    providerSecrets: {
+      proxy: 'first-key',
+    },
+    customOpenAIProviders: [
+      {
+        id: 'proxy',
+        name: 'First proxy',
+        baseUrl: 'https://first.example.com/v1',
+        chatCompletionsPath: 'v1/chat/completions',
+        completionsPath: 'v1/completions',
+      },
+      {
+        id: 'proxy',
+        name: 'Second proxy',
+        baseUrl: 'https://second.example.com/v1',
+        chatCompletionsPath: 'v1/chat/completions',
+        completionsPath: 'v1/completions',
+      },
+    ],
+    customApiModes: [
+      createCustomApiMode({
+        customName: 'Second proxy mode',
+        customUrl: 'https://second.example.com/v1/chat/completions',
+        apiKey: 'second-key',
+        providerId: 'proxy',
+      }),
+    ],
+  })
+
+  const config = await getUserConfig()
+
+  assert.deepEqual(
+    config.customOpenAIProviders.map((provider) => provider.id),
+    ['proxy', 'proxy-2', 'second-proxy-mode'],
+  )
+  const secondProxyMode = config.customApiModes.find(
+    (apiMode) => apiMode.customName === 'Second proxy mode',
+  )
+  assert.equal(secondProxyMode.providerId, 'second-proxy-mode')
+  assert.deepEqual(secondProxyMode.legacyProviderIds, ['proxy', 'proxy-2'])
+  assert.equal(config.customOpenAIProviders[2].baseUrl, 'https://second.example.com/v1')
+  assert.deepEqual(config.customOpenAIProviders[2].legacyProviderIds, ['proxy', 'proxy-2'])
+  assert.equal(config.providerSecrets['second-proxy-mode'], 'second-key')
+  assert.equal(config.customOpenAIProviders[0].chatCompletionsPath, '/v1/chat/completions')
+  assert.equal(config.customOpenAIProviders[1].completionsPath, '/v1/completions')
 })
 
 test('getUserConfig normalizes providerSecrets when legacy data is not a plain object', async () => {

@@ -1,0 +1,141 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import {
+  canApplyTemperatureOverride,
+  getTemperatureParams,
+} from '../../../../src/services/apis/temperature-params.mjs'
+
+test('temperature params require an explicit finite override', () => {
+  assert.deepEqual(getTemperatureParams({}, 'gpt-4.1'), {})
+  assert.deepEqual(
+    getTemperatureParams({ temperatureOverrideEnabled: false, temperature: 0.7 }, 'gpt-4.1'),
+    {},
+  )
+  assert.deepEqual(
+    getTemperatureParams({ temperatureOverrideEnabled: true, temperature: Number.NaN }, 'gpt-4.1'),
+    {},
+  )
+  assert.deepEqual(
+    getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0 }, 'gpt-4.1'),
+    { temperature: 0 },
+  )
+  assert.deepEqual(
+    getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, 'gpt-4.1'),
+    { temperature: 0.7 },
+  )
+})
+
+test('temperature overrides omit known Anthropic models across provider ID formats', () => {
+  for (const model of [
+    'claude-opus-4-7',
+    'claude-opus-4-8',
+    'anthropic/claude-opus-4.8',
+    'anthropic/claude-opus-4-8',
+    'anthropic/claude-opus-4.8:free',
+    'claude-opus-4-8-20260801',
+    'claude-sonnet-5',
+    'claude-sonnet-5-5',
+    'anthropic/claude-sonnet-5.5',
+    'claude-opus-5',
+    'claude-opus-5-5',
+    'anthropic/claude-opus-5.5',
+    'claude-fable-5',
+    'claude-fable-5-1',
+    'anthropic/claude-fable-5.1',
+  ]) {
+    assert.equal(canApplyTemperatureOverride(model), false, model)
+    assert.deepEqual(
+      getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, model),
+      {},
+      model,
+    )
+  }
+  assert.equal(canApplyTemperatureOverride('claude-opus-4-6'), true)
+})
+
+test('temperature overrides omit Gemini models with deprecated sampling parameters', () => {
+  for (const model of [
+    'gemini-3.5-flash-lite',
+    'google/gemini-3.5-flash-lite',
+    'google/gemini-3-5-flash-lite',
+    'google/gemini-3.5-flash-lite:free',
+    'gemini-3-5-flash-lite-preview',
+    'gemini-3.6-flash',
+    'google/gemini-3.6-flash',
+    'google/gemini-3-6-flash',
+    'gemini-3.7-flash',
+    'gemini-4-flash',
+    'gemini-4:free',
+  ]) {
+    assert.equal(canApplyTemperatureOverride(model), false, model)
+    assert.deepEqual(
+      getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, model),
+      {},
+      model,
+    )
+  }
+})
+
+test('Gemini version checks do not classify arbitrary numeric model names', () => {
+  for (const model of ['gemini-4o', 'gemini-35b', 'gemini-3-6flash']) {
+    assert.equal(canApplyTemperatureOverride(model), true, model)
+    assert.deepEqual(
+      getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, model),
+      { temperature: 0.7 },
+      model,
+    )
+  }
+})
+
+test('temperature overrides remain available for earlier Gemini models', () => {
+  for (const model of [
+    'gemini-2.5-flash',
+    'gemini-3-flash-preview',
+    'gemini-3.1-pro-preview',
+    'gemini-3.5-flash',
+    'google/gemini-3.5-flash',
+    'google/gemini-3-5-flash',
+  ]) {
+    assert.equal(canApplyTemperatureOverride(model), true, model)
+    assert.deepEqual(
+      getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, model),
+      { temperature: 0.7 },
+      model,
+    )
+  }
+})
+
+test('temperature overrides omit GPT-6 models across provider ID formats', () => {
+  for (const model of [
+    'gpt-6-astra',
+    'openai/gpt-6-astra',
+    'GPT-6-ASTRA',
+    'gpt-6-astra-20260901',
+    'gpt-6-sol',
+    'openai/gpt-6-sol',
+    'gpt-6-luna',
+    'openai/gpt-6-luna',
+    'gpt-6.1-sol',
+    'openai/gpt-6.1-sol',
+    'GPT-6.1-SOL',
+    'gpt-6.1-sol-20260929',
+  ]) {
+    assert.equal(canApplyTemperatureOverride(model), false, model)
+    assert.deepEqual(
+      getTemperatureParams({ temperatureOverrideEnabled: true, temperature: 0.7 }, model),
+      {},
+      model,
+    )
+  }
+  for (const model of [
+    'gpt-6-astral',
+    'gpt-6-solar',
+    'gpt-6.1-solar',
+    'gpt-6.10-sol',
+    'my-gpt-6-astra',
+    'my-gpt-6.1-sol',
+    'gpt-4.1',
+  ]) {
+    assert.equal(canApplyTemperatureOverride(model), true, model)
+  }
+})

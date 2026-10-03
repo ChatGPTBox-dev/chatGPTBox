@@ -1,15 +1,14 @@
 import { useTranslation } from 'react-i18next'
 import PropTypes from 'prop-types'
 import Browser from 'webextension-polyfill'
-import {
-  apiModeToModelName,
-  getApiModesFromConfig,
-  isApiModeSelected,
-  modelNameToDesc,
-} from '../../utils/index.mjs'
+import { getApiModesFromConfig, isApiModeSelected, modelNameToDesc } from '../../utils/index.mjs'
 import { PencilIcon, TrashIcon } from '@primer/octicons-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AlwaysCustomGroups, ModelGroups } from '../../config/index.mjs'
+import {
+  buildApiModeListConfigUpdate,
+  getSelectionPatchWhenApiModeDisabled,
+} from '../api-mode-config-utils.mjs'
 import {
   getCustomOpenAIProviders,
   OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID,
@@ -18,6 +17,7 @@ import {
   applySelectedProviderToApiMode,
   applyDeletedProviderSecrets,
   applyPendingProviderChanges,
+  areProviderIdsEquivalent,
   buildEditedProvider,
   createProviderId,
   getApiModeDisplayLabel,
@@ -26,7 +26,6 @@ import {
   getProviderReferenceCheckApiModes,
   getReferencedCustomProviderIdsFromSessions,
   getSelectableProviders,
-  isProviderEndpointRewriteBlockedBySavedConversations,
   isProviderDeleteDisabled,
   isProviderReferencedByApiModes,
   loadSavedConversationState,
@@ -71,7 +70,6 @@ const defaultProviderDraft = {
 const defaultProviderDraftValidation = {
   name: false,
   apiUrl: false,
-  savedConversations: false,
 }
 
 export function ApiModes({ config, updateConfig }) {
@@ -80,7 +78,6 @@ export function ApiModes({ config, updateConfig }) {
   const [editingApiMode, setEditingApiMode] = useState(defaultApiMode)
   const [editingIndex, setEditingIndex] = useState(-1)
   const [apiModes, setApiModes] = useState([])
-  const [apiModeStringArray, setApiModeStringArray] = useState([])
   const [customProviders, setCustomProviders] = useState([])
   const [pendingNewProvider, setPendingNewProvider] = useState(null)
   const [pendingEditedProvidersById, setPendingEditedProvidersById] = useState({})
@@ -103,7 +100,6 @@ export function ApiModes({ config, updateConfig }) {
   useLayoutEffect(() => {
     const nextApiModes = getApiModesFromConfig(config)
     setApiModes(nextApiModes)
-    setApiModeStringArray(nextApiModes.map(apiModeToModelName))
     setCustomProviders(getCustomOpenAIProviders(config))
   }, [
     config.activeApiModes,
@@ -143,18 +139,6 @@ export function ApiModes({ config, updateConfig }) {
       Browser.storage.onChanged.removeListener(listener)
     }
   }, [])
-
-  const updateWhenApiModeDisabled = (apiMode) => {
-    if (isApiModeSelected(apiMode, config))
-      updateConfig({
-        modelName:
-          apiModeStringArray.includes(config.modelName) &&
-          config.modelName !== apiModeToModelName(apiMode)
-            ? config.modelName
-            : 'customModel',
-        apiMode: null,
-      })
-  }
 
   const shouldEditProvider = editingApiMode.groupName === 'customApiModelKeys'
   const effectiveProviders = useMemo(
@@ -203,27 +187,6 @@ export function ApiModes({ config, updateConfig }) {
     return getConfiguredCustomApiModesForSessionRecovery(recoveryApiModes, recoverySelectedApiMode)
   }, [apiModes, config.apiMode, editing, editingApiMode, editingIndex])
 
-  const configuredCustomApiModesForSaveGuard = useMemo(() => {
-    let nextApiModes = apiModes
-    if (editing && editingIndex !== -1) {
-      nextApiModes = apiModes.map((apiMode, index) =>
-        index === editingIndex ? editingApiMode : apiMode,
-      )
-    } else if (
-      editing &&
-      editingIndex === -1 &&
-      editingApiMode.groupName === 'customApiModelKeys'
-    ) {
-      nextApiModes = [...apiModes, editingApiMode]
-    }
-    const nextSelectedApiMode =
-      editing && editingIndex !== -1 && isApiModeSelected(apiModes[editingIndex], config)
-        ? editingApiMode
-        : config.apiMode
-
-    return getConfiguredCustomApiModesForSessionRecovery(nextApiModes, nextSelectedApiMode)
-  }, [apiModes, config, editing, editingApiMode, editingIndex])
-
   const sessionReferencedProviderIds = useMemo(
     () =>
       getReferencedCustomProviderIdsFromSessions(
@@ -255,13 +218,15 @@ export function ApiModes({ config, updateConfig }) {
   }
 
   const persistApiMode = async (nextApiMode) => {
-    const payload = {
-      activeApiModes: [],
-      customApiModes:
-        editingIndex === -1
-          ? [...apiModes, nextApiMode]
-          : apiModes.map((apiMode, index) => (index === editingIndex ? nextApiMode : apiMode)),
-    }
+    const nextApiModes =
+      editingIndex === -1
+        ? [...apiModes, nextApiMode]
+        : apiModes.map((apiMode, index) => (index === editingIndex ? nextApiMode : apiMode))
+    const selectionPatch =
+      editingIndex !== -1 && isApiModeSelected(apiModes[editingIndex], config)
+        ? { apiMode: nextApiMode }
+        : {}
+    const payload = buildApiModeListConfigUpdate(config, nextApiModes, { selectionPatch })
     if (
       shouldPersistPendingProviderChanges(hasPendingProviderChanges) ||
       shouldPersistDeletedProviderChanges(pendingDeletedProviderIds)
@@ -273,9 +238,6 @@ export function ApiModes({ config, updateConfig }) {
           pendingDeletedProviderSecretIds,
         )
       }
-    }
-    if (editingIndex !== -1 && isApiModeSelected(apiModes[editingIndex], config)) {
-      payload.apiMode = nextApiMode
     }
     await persistApiModeConfigUpdate(updateConfig, payload, clearPendingProviderChanges)
   }
@@ -314,37 +276,13 @@ export function ApiModes({ config, updateConfig }) {
       pendingNewProvider && pendingNewProvider.id === providerEditingId
         ? pendingNewProvider
         : selectedCustomProvider || {}
-    const persistedProvider = customProviders.find((provider) => provider.id === providerEditingId)
     const endpointDraft = validateProviderEndpointDraft(providerDraft.apiUrl)
     const parsedEndpoint = endpointDraft.parsedEndpoint
-    const providerEndpointChanged =
-      Boolean(providerEditingId) &&
-      Boolean(persistedProvider) &&
-      parsedEndpoint.valid &&
-      parsedEndpoint.chatCompletionsUrl !== resolveProviderChatEndpointUrl(persistedProvider)
-    const effectiveProviderSecrets =
-      pendingDeletedProviderSecretIds.length > 0
-        ? applyDeletedProviderSecrets(config.providerSecrets, pendingDeletedProviderSecretIds)
-        : config.providerSecrets
     const nextProviderDraftValidation = {
       name: !providerName,
       apiUrl: !endpointDraft.valid,
-      savedConversations:
-        providerEndpointChanged &&
-        isProviderEndpointRewriteBlockedBySavedConversations(
-          providerEditingId,
-          sessionsLoaded,
-          sessions,
-          effectiveProviders,
-          configuredCustomApiModesForSaveGuard,
-          effectiveProviderSecrets,
-        ),
     }
-    if (
-      nextProviderDraftValidation.name ||
-      nextProviderDraftValidation.apiUrl ||
-      nextProviderDraftValidation.savedConversations
-    ) {
+    if (nextProviderDraftValidation.name || nextProviderDraftValidation.apiUrl) {
       setProviderDraftValidation(nextProviderDraftValidation)
       if (nextProviderDraftValidation.name) {
         providerNameInputRef.current?.focus()
@@ -463,7 +401,7 @@ export function ApiModes({ config, updateConfig }) {
         return
       }
       const shouldClearProviderDerivedFields =
-        editingIndex !== -1 && selectedProviderId !== previousProviderId
+        editingIndex !== -1 && !areProviderIdsEquivalent(selectedProviderId, previousProviderId)
       const isEndpointProviderManaged = editingIndex === -1
       nextApiMode = applySelectedProviderToApiMode(
         nextApiMode,
@@ -602,11 +540,10 @@ export function ApiModes({ config, updateConfig }) {
             placeholder={t('Provider')}
             onChange={(e) => {
               setProviderDraft({ ...providerDraft, name: e.target.value })
-              if (providerDraftValidation.name || providerDraftValidation.savedConversations) {
+              if (providerDraftValidation.name) {
                 setProviderDraftValidation({
                   ...providerDraftValidation,
                   name: false,
-                  savedConversations: false,
                 })
               }
             }}
@@ -621,11 +558,10 @@ export function ApiModes({ config, updateConfig }) {
             title={t('API Url')}
             onChange={(e) => {
               setProviderDraft({ ...providerDraft, apiUrl: e.target.value })
-              if (providerDraftValidation.apiUrl || providerDraftValidation.savedConversations) {
+              if (providerDraftValidation.apiUrl) {
                 setProviderDraftValidation({
                   ...providerDraftValidation,
                   apiUrl: false,
-                  savedConversations: false,
                 })
               }
             }}
@@ -635,16 +571,13 @@ export function ApiModes({ config, updateConfig }) {
           {providerDraftValidation.apiUrl && (
             <div style={{ color: 'red' }}>{t('Please enter a full Chat Completions URL')}</div>
           )}
-          {providerDraftValidation.savedConversations && (
-            <div style={{ color: 'red' }}>
-              {t(
-                sessionsLoaded
-                  ? 'This provider endpoint is still needed by saved conversations'
-                  : 'Loading saved conversations…',
-              )}
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${providerEditingId ? 3 : 2}, minmax(0, 1fr))`,
+              gap: '12px',
+            }}
+          >
             <button type="button" onClick={closeProviderEditor}>
               {t('Cancel')}
             </button>
@@ -654,7 +587,7 @@ export function ApiModes({ config, updateConfig }) {
             {providerEditingId && (
               <span
                 title={providerDeleteDisabledReasonKey ? t(providerDeleteDisabledReasonKey) : ''}
-                style={{ display: 'inline-block' }}
+                style={{ display: 'grid' }}
               >
                 <button
                   type="button"
@@ -684,10 +617,14 @@ export function ApiModes({ config, updateConfig }) {
                 type="checkbox"
                 checked={apiMode.active}
                 onChange={(e) => {
-                  if (!e.target.checked) updateWhenApiModeDisabled(apiMode)
                   const customApiModes = [...apiModes]
                   customApiModes[index] = { ...apiMode, active: e.target.checked }
-                  updateConfig({ activeApiModes: [], customApiModes })
+                  const selectionPatch = e.target.checked
+                    ? {}
+                    : getSelectionPatchWhenApiModeDisabled(apiMode, apiModes, config)
+                  updateConfig(
+                    buildApiModeListConfigUpdate(config, customApiModes, { selectionPatch }),
+                  )
                 }}
               />
               {getApiModeDisplayLabel(apiMode, t, effectiveProviders)}
@@ -727,10 +664,17 @@ export function ApiModes({ config, updateConfig }) {
                   style={{ cursor: 'pointer' }}
                   onClick={(e) => {
                     e.preventDefault()
-                    updateWhenApiModeDisabled(apiMode)
                     const customApiModes = [...apiModes]
                     customApiModes.splice(index, 1)
-                    updateConfig({ activeApiModes: [], customApiModes })
+                    updateConfig(
+                      buildApiModeListConfigUpdate(config, customApiModes, {
+                        selectionPatch: getSelectionPatchWhenApiModeDisabled(
+                          apiMode,
+                          apiModes,
+                          config,
+                        ),
+                      }),
+                    )
                   }}
                 >
                   <TrashIcon />

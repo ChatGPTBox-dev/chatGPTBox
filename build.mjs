@@ -243,7 +243,6 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
               util: path.resolve(__dirname, 'node_modules/util'),
               buffer: path.resolve(__dirname, 'node_modules/buffer'),
               stream: 'stream-browserify',
-              crypto: 'crypto-browserify',
             }),
       },
     },
@@ -351,10 +350,6 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
         {
           test: /\.(jpg|png|svg)$/,
           type: 'asset/inline',
-        },
-        {
-          test: /\.(graphql|gql)$/,
-          loader: 'graphql-tag/loader',
         },
         isWithoutTiktoken
           ? {

@@ -1,5 +1,7 @@
 import { JSDOM } from 'jsdom'
-import fetch, { Headers } from 'node-fetch'
+import nodeFetch from 'node-fetch'
+
+const REQUEST_TIMEOUT_MS = 30_000
 
 const config = {
   google: {
@@ -42,6 +44,7 @@ const config = {
     sidebarContainerQuery: ['#content_right'],
     appendContainerQuery: ['#container'],
     resultsContainerQuery: ['#content_left', '#results'],
+    requireSameOrigin: true,
   },
   kagi: {
     inputQuery: ["input[name='q']", "textarea[name='q']"],
@@ -117,11 +120,11 @@ const commonHeaders = {
   'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7', // for baidu
 }
 
-const desktopHeaders = new Headers({
+const desktopHeaders = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36 Edg/108.0.1462.76',
   ...commonHeaders,
-})
+}
 
 const mobileHeaders = {
   'User-Agent':
@@ -140,16 +143,33 @@ const mobileQueryNames = ['inputQuery', 'resultsContainerQuery']
 
 let errors = ''
 
+function fetchSearchPage(siteName, url, options) {
+  // Baidu resets node-fetch requests, while Naver rejects global fetch requests.
+  const fetcher = siteName === 'baidu' ? globalThis.fetch : nodeFetch
+  return fetcher(url, options)
+}
+
 async function verify(errorTag, urls, headers, queryNames) {
   await Promise.all(
     Object.entries(urls).map(([siteName, urlArray]) =>
       Promise.all(
         urlArray.map((url) =>
-          fetch(url, {
+          fetchSearchPage(siteName, url, {
             method: 'GET',
             headers: headers,
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
           })
-            .then((response) => response.text())
+            .then((response) => {
+              const requestedOrigin = new URL(url).origin
+              const responseOrigin = new URL(response.url).origin
+              if (config[siteName].requireSameOrigin && responseOrigin !== requestedOrigin) {
+                throw new Error(`Unexpected redirect from ${requestedOrigin} to ${responseOrigin}`)
+              }
+              if (response.status !== 200) {
+                throw new Error(`HTTP ${response.status} ${response.statusText}`)
+              }
+              return response.text()
+            })
             .then((text) => {
               const dom = new JSDOM(text)
               for (const queryName of queryNames) {
@@ -173,7 +193,9 @@ async function verify(errorTag, urls, headers, queryNames) {
               }
             })
             .catch((error) => {
-              errors += errorTag + error + '\n'
+              const errorCode = error.code ?? error.cause?.code
+              const errorCodeSuffix = errorCode ? ` (${errorCode})` : ''
+              errors += `${errorTag}${siteName} ${url}: ${error}${errorCodeSuffix}\n`
             }),
         ),
       ),

@@ -1,16 +1,14 @@
 import { getUserConfig } from '../../config/index.mjs'
 import { pushRecord, setAbortController } from './shared.mjs'
-import { fetchSSE } from '../../utils/fetch-sse.mjs'
+import { FETCH_RESPONSE_STREAM_FAILED, fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { getTemperatureParams } from './temperature-params.mjs'
 
-function shouldOmitTemperature(model) {
-  return model === 'claude-opus-4-7' || model === 'claude-opus-4-8' || model === 'claude-sonnet-5'
-}
-
-function shouldDisableDefaultThinking(model) {
-  return model === 'claude-sonnet-5'
+function getThinkingConfig(model) {
+  if (model === 'claude-sonnet-5') return { type: 'disabled' }
+  if (model === 'claude-sonnet-5-5') return { type: 'between_tools' }
 }
 
 /**
@@ -35,16 +33,17 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     messages: prompt,
     stream: true,
     max_tokens: config.maxResponseTokenLength,
+    ...getTemperatureParams(config, model),
   }
-  if (shouldDisableDefaultThinking(model)) {
-    body.thinking = { type: 'disabled' }
-  }
-  if (!shouldOmitTemperature(model)) {
-    body.temperature = config.temperature
-  }
+  const thinking = getThinkingConfig(model)
+  if (thinking) body.thinking = thinking
 
   let answer = ''
-  await fetchSSE(`${apiUrl}/v1/messages`, {
+  let stopReason = ''
+  let completionError
+  let wasAborted = false
+  let completedSuccessfully = false
+  const streamError = await fetchSSE(`${apiUrl}/v1/messages`, {
     method: 'POST',
     signal: controller.signal,
     headers: {
@@ -64,10 +63,42 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
         console.debug('json error', error)
         return
       }
+      if (data?.type === 'error') {
+        controller.abort()
+        const error = new Error(JSON.stringify(data))
+        if (completedSuccessfully) error.code = FETCH_RESPONSE_STREAM_FAILED
+        throw error
+      }
+      if (completedSuccessfully) return
+      if (data?.type === 'message_delta') {
+        stopReason = data?.delta?.stop_reason || stopReason
+        return
+      }
       if (data?.type === 'message_stop') {
+        if (stopReason === 'max_tokens') {
+          completionError = new Error(
+            'Claude reached the response token limit. Increase Max Response Token Length and try again.',
+          )
+        }
+        if (stopReason === 'model_context_window_exceeded') {
+          completionError = new Error(
+            'Claude reached the model context window limit. Clear the conversation and try again.',
+          )
+        }
+        if (stopReason === 'refusal') {
+          completionError = new Error('Claude declined to respond to this request.')
+        }
+        if (!completionError && !['end_turn', 'stop_sequence'].includes(stopReason)) {
+          completionError = new Error('Claude response stream ended before completion.')
+        }
+        if (completionError) {
+          controller.abort()
+          throw completionError
+        }
         pushRecord(session, question, answer)
         console.debug('conversation history', { content: session.conversationRecords })
         port.postMessage({ answer: null, done: true, session: session })
+        completedSuccessfully = true
         return
       }
 
@@ -78,10 +109,13 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
       }
     },
     async onStart() {},
-    async onEnd() {
-      port.postMessage({ done: true })
-      port.onMessage.removeListener(messageListener)
-      port.onDisconnect.removeListener(disconnectListener)
+    async onEnd(aborted) {
+      wasAborted = aborted
+      try {
+        port.onMessage.removeListener(messageListener)
+      } finally {
+        port.onDisconnect.removeListener(disconnectListener)
+      }
     },
     async onError(resp) {
       port.onMessage.removeListener(messageListener)
@@ -90,5 +124,16 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
       const error = await resp.json().catch(() => ({}))
       throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
     },
-  })
+  }).catch((error) => error)
+  if (wasAborted) return
+  if (completionError) throw completionError
+  if (
+    streamError &&
+    (!completedSuccessfully || streamError.code !== FETCH_RESPONSE_STREAM_FAILED)
+  ) {
+    throw streamError
+  }
+  if (!completedSuccessfully) {
+    throw new Error('Claude response stream ended before completion.')
+  }
 }

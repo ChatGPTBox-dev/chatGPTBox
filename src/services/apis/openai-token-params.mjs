@@ -1,4 +1,5 @@
-const OPENAI_MAX_COMPLETION_TOKENS_MODEL_PATTERN = /^(?:gpt-5(?:[.-]|$)|chat-latest$)/
+const OPENAI_MAX_COMPLETION_TOKENS_MODEL_PATTERN =
+  /^(?:gpt-5(?:[.-]|$)|gpt-6(?:\.1-sol|-(?:astra|sol|luna))(?:-|$)|chat-latest$)/
 
 function shouldUseMaxCompletionTokens(provider, model) {
   const normalizedProvider = String(provider || '').toLowerCase()

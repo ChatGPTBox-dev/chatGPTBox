@@ -40,6 +40,16 @@ import {
   getApiModeDisplayLabel,
   getConversationAiName,
 } from '../../popup/sections/api-modes-provider-utils.mjs'
+import { getDisplayErrorText } from '../../utils/error-text.mjs'
+import {
+  createConversationPortMessage,
+  createRetrySession,
+  finalizeInterruptedSession,
+  getCompletedAnswerUpdate,
+  getInterruptedCompletionState,
+  isSupersededGenerationMessage,
+  isSupersededRequestMessage,
+} from './session.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 const UNMATCHED_API_MODE_VALUE = '__current-session-api-mode__'
@@ -66,6 +76,15 @@ function ConversationCard(props) {
   const [session, setSession] = useState(props.session)
   const windowSize = useClampWindowSize([750, 1500], [250, 1100])
   const bodyRef = useRef(null)
+  const replacedPortRef = useRef(null)
+  const partialAnswerRef = useRef('')
+  const retryRecordRef = useRef(null)
+  const retryGenerationIdRef = useRef(0)
+  const requestGenerationIdRef = useRef(0)
+  const disposedRef = useRef(false)
+  const portRef = useRef(port)
+  const foregroundMessageListeners = useRef([])
+  const foregroundPortsRef = useRef(new Set())
   const [completeDraggable, setCompleteDraggable] = useState(false)
   const useForegroundFetch = isUsingBingWebModel(session)
   const [apiModes, setApiModes] = useState([])
@@ -93,6 +112,35 @@ function ConversationCard(props) {
     ? '-1'
     : UNMATCHED_API_MODE_VALUE
 
+  const disposeOwnedTransports = () => {
+    if (disposedRef.current) return
+    disposedRef.current = true
+    requestGenerationIdRef.current += 1
+    retryGenerationIdRef.current += 1
+
+    const foregroundPorts = Array.from(foregroundPortsRef.current)
+    foregroundPortsRef.current.clear()
+    for (const foregroundPort of foregroundPorts) foregroundPort.disconnect()
+    foregroundMessageListeners.current = []
+
+    try {
+      portRef.current?.disconnect()
+    } catch (e) {
+      // The runtime Port may already be disconnected.
+    }
+  }
+
+  useLayoutEffect(() => {
+    portRef.current = port
+  }, [port])
+
+  useLayoutEffect(() => {
+    disposedRef.current = false
+    return () => {
+      disposeOwnedTransports()
+    }
+  }, [])
+
   useLayoutEffect(() => {
     if (session.conversationRecords.length === 0) {
       if (props.question && triggered)
@@ -118,7 +166,7 @@ function ConversationCard(props) {
 
   useEffect(() => {
     if (props.onUpdate) props.onUpdate(port, session, conversationItemData)
-  }, [session, conversationItemData])
+  }, [port, session, conversationItemData])
 
   useEffect(() => {
     const { offsetHeight, scrollHeight, scrollTop } = bodyRef.current
@@ -137,6 +185,8 @@ function ConversationCard(props) {
     // when the page is responsive, session may accumulate redundant data and needs to be cleared after remounting and before making a new request
     if (props.question && triggered) {
       const newSession = initSession({ ...session, question: props.question })
+      partialAnswerRef.current = ''
+      retryRecordRef.current = null
       setSession(newSession)
       await postMessage({ session: newSession })
     }
@@ -172,18 +222,35 @@ function ConversationCard(props) {
   }
 
   const portMessageListener = (msg) => {
+    if (disposedRef.current) return
+    if (isSupersededRequestMessage(msg, requestGenerationIdRef.current)) return
+    if (isSupersededGenerationMessage(msg, retryGenerationIdRef.current)) return
+
     if (msg.answer) {
+      partialAnswerRef.current = msg.answer
       updateAnswer(msg.answer, false, 'answer')
     }
     if (msg.session) {
-      if (msg.done) msg.session = { ...msg.session, isRetry: false }
-      setSession(msg.session)
+      setSession(msg.done ? { ...msg.session, isRetry: false } : msg.session)
     }
     if (msg.done) {
-      updateAnswer('', true, 'answer', true)
+      const partialAnswer = partialAnswerRef.current
+      const retryRecord = retryRecordRef.current
+      const completionState = getInterruptedCompletionState(msg, partialAnswer, retryRecord)
+      if (completionState.shouldFinalize) {
+        setSession((currentSession) =>
+          finalizeInterruptedSession(currentSession, partialAnswer, retryRecord),
+        )
+      }
+      partialAnswerRef.current = ''
+      retryRecordRef.current = null
+      const answerUpdate = getCompletedAnswerUpdate(completionState.restoredRetryAnswer)
+      updateAnswer(answerUpdate.value, answerUpdate.appended, 'answer', true)
       setIsReady(true)
     }
     if (msg.error) {
+      const retryRecord = retryRecordRef.current
+      setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       switch (msg.error) {
         case 'UNAUTHORIZED':
           updateAnswer(
@@ -219,56 +286,116 @@ function ConversationCard(props) {
             } catch (e) {
               /* empty */
             }
+          const displayError = getDisplayErrorText(formattedError, t)
 
-          let lastItem
-          if (conversationItemData.length > 0)
-            lastItem = conversationItemData[conversationItemData.length - 1]
-          if (lastItem && (lastItem.content.includes('gpt-loading') || lastItem.type === 'error'))
-            updateAnswer(t(formattedError), false, 'error')
-          else
-            setConversationItemData([
-              ...conversationItemData,
-              new ConversationItemData('error', t(formattedError)),
-            ])
+          setConversationItemData((currentItems) => {
+            const lastItem = currentItems[currentItems.length - 1]
+            if (
+              lastItem &&
+              (lastItem.content.includes('gpt-loading') || lastItem.type === 'error')
+            ) {
+              const updatedItems = [...currentItems]
+              updatedItems[updatedItems.length - 1] = new ConversationItemData(
+                'error',
+                displayError,
+              )
+              return updatedItems
+            }
+            return [...currentItems, new ConversationItemData('error', displayError)]
+          })
           break
         }
       }
+      partialAnswerRef.current = ''
+      retryRecordRef.current = null
       setIsReady(true)
     }
   }
 
-  const foregroundMessageListeners = useRef([])
-
   /**
    * @param {Session|undefined} session
    * @param {boolean|undefined} stop
+   * @param {number|undefined} stopGenerationId
    */
-  const postMessage = async ({ session, stop }) => {
+  const postMessage = async ({ session, stop, stopGenerationId }) => {
+    if (disposedRef.current) return
+    const requestGenerationId = session ? ++requestGenerationIdRef.current : undefined
     if (useForegroundFetch) {
-      foregroundMessageListeners.current.forEach((listener) => listener({ session, stop }))
+      if (stop && stopGenerationId === undefined) {
+        const stoppedRequestGenerationId = requestGenerationIdRef.current
+        const foregroundPorts = Array.from(foregroundPortsRef.current)
+        foregroundPortsRef.current.clear()
+        for (const foregroundPort of foregroundPorts) foregroundPort.disconnect()
+        foregroundMessageListeners.current = []
+        portMessageListener({ done: true, requestGenerationId: stoppedRequestGenerationId })
+        requestGenerationIdRef.current += 1
+        return
+      }
+      for (const listener of [...foregroundMessageListeners.current]) {
+        listener({ session, stop, stopGenerationId, requestGenerationId })
+      }
       if (session) {
+        let disconnected = false
+        const messageListeners = new Set()
+        const disconnectListeners = new Set()
+        const removeForegroundMessageListener = (listener) => {
+          const index = foregroundMessageListeners.current.indexOf(listener)
+          if (index !== -1) foregroundMessageListeners.current.splice(index, 1)
+        }
         const fakePort = {
           postMessage: (msg) => {
-            portMessageListener(msg)
+            if (disconnected || disposedRef.current) return
+            portMessageListener({ ...msg, requestGenerationId })
           },
           onMessage: {
             addListener: (listener) => {
+              if (disconnected) return
+              messageListeners.add(listener)
               foregroundMessageListeners.current.push(listener)
             },
             removeListener: (listener) => {
-              foregroundMessageListeners.current.splice(
-                foregroundMessageListeners.current.indexOf(listener),
-                1,
-              )
+              messageListeners.delete(listener)
+              removeForegroundMessageListener(listener)
             },
           },
           onDisconnect: {
-            addListener: () => {},
-            removeListener: () => {},
+            addListener: (listener) => {
+              if (disconnected) {
+                listener()
+                return
+              }
+              disconnectListeners.add(listener)
+            },
+            removeListener: (listener) => {
+              disconnectListeners.delete(listener)
+            },
+          },
+          disconnect: () => {
+            if (disconnected) return
+            disconnected = true
+            for (const listener of messageListeners) removeForegroundMessageListener(listener)
+            messageListeners.clear()
+            const listeners = Array.from(disconnectListeners)
+            disconnectListeners.clear()
+            for (const listener of listeners) {
+              try {
+                listener()
+              } catch (error) {
+                console.warn('[ConversationCard] Foreground disconnect listener failed:', error)
+              }
+            }
           },
         }
+        foregroundPortsRef.current.add(fakePort)
         try {
           const bingToken = (await getUserConfig()).bingAccessToken
+          if (
+            disposedRef.current ||
+            disconnected ||
+            requestGenerationId !== requestGenerationIdRef.current
+          ) {
+            return
+          }
           if (isUsingModelName('bingFreeSydney', session))
             await generateAnswersWithBingWebApi(
               fakePort,
@@ -279,32 +406,52 @@ function ConversationCard(props) {
             )
           else await generateAnswersWithBingWebApi(fakePort, session.question, session, bingToken)
         } catch (err) {
-          handlePortError(session, fakePort, err)
+          if (!disposedRef.current && !disconnected) handlePortError(session, fakePort, err, t)
+        } finally {
+          fakePort.disconnect()
+          foregroundPortsRef.current.delete(fakePort)
         }
       }
     } else {
-      port.postMessage({ session, stop })
+      port.postMessage(
+        createConversationPortMessage({
+          session,
+          stop,
+          stopGenerationId,
+          requestGenerationId,
+        }),
+      )
     }
   }
 
   useEffect(() => {
     const portListener = () => {
-      setPort(Browser.runtime.connect())
+      if (replacedPortRef.current === port) {
+        replacedPortRef.current = null
+        return
+      }
+      if (disposedRef.current) return
+      const nextPort = Browser.runtime.connect()
+      portRef.current = nextPort
+      setPort(nextPort)
       setIsReady(true)
     }
 
     const closeChatsMessageListener = (message) => {
+      if (disposedRef.current) return
       if (message.type === 'CLOSE_CHATS') {
-        port.disconnect()
+        if (props.onClose) disposeOwnedTransports()
+        else port.disconnect()
         Browser.runtime.onMessage.removeListener(closeChatsMessageListener)
         window.removeEventListener('keydown', closeChatsEscListener)
         if (props.onClose) props.onClose()
       }
     }
     const closeChatsEscListener = async (e) => {
-      if (e.key === 'Escape' && (await getUserConfig()).allowEscToCloseAll) {
-        closeChatsMessageListener({ type: 'CLOSE_CHATS' })
-      }
+      if (e.key !== 'Escape') return
+      const { allowEscToCloseAll } = await getUserConfig()
+      if (disposedRef.current || !allowEscToCloseAll) return
+      closeChatsMessageListener({ type: 'CLOSE_CHATS' })
     }
 
     if (props.closeable) {
@@ -329,33 +476,44 @@ function ConversationCard(props) {
         port.onMessage.removeListener(portMessageListener)
       }
     }
-  }, [conversationItemData])
+  }, [port, conversationItemData])
 
   const getRetryFn = (session) => async () => {
     updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
     setIsReady(false)
 
-    if (session.conversationRecords.length > 0) {
-      const lastRecord = session.conversationRecords[session.conversationRecords.length - 1]
+    const conversationRecords = session.conversationRecords.map((record) => ({ ...record }))
+    if (retryRecordRef.current === null && conversationRecords.length > 0) {
+      const lastRecord = conversationRecords[conversationRecords.length - 1]
       if (
         conversationItemData[conversationItemData.length - 1].done &&
         conversationItemData.length > 1 &&
         lastRecord.question === conversationItemData[conversationItemData.length - 2].content
       ) {
-        session.conversationRecords.pop()
+        retryRecordRef.current = conversationRecords.pop()
       }
     }
-    const newSession = { ...session, isRetry: true }
+    const newSession = createRetrySession(session, conversationRecords, retryRecordRef.current)
     setSession(newSession)
     try {
-      await postMessage({ stop: true })
+      partialAnswerRef.current = ''
+      if (!isReady) {
+        ++requestGenerationIdRef.current
+        const stopGenerationId = ++retryGenerationIdRef.current
+        await postMessage({ stop: true, stopGenerationId })
+      }
       await postMessage({ session: newSession })
     } catch (e) {
+      const retryRecord = retryRecordRef.current
+      setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
+      partialAnswerRef.current = ''
+      retryRecordRef.current = null
       updateAnswer(e, false, 'error')
+      setIsReady(true)
     }
   }
 
-  const retryFn = useMemo(() => getRetryFn(session), [session])
+  const retryFn = useMemo(() => getRetryFn(session), [session, isReady, conversationItemData, port])
 
   return (
     <div className="gpt-inner">
@@ -378,7 +536,8 @@ function ConversationCard(props) {
               className="gpt-util-icon"
               title={t('Close the Window')}
               onClick={() => {
-                port.disconnect()
+                if (props.onClose) disposeOwnedTransports()
+                else port.disconnect()
                 if (props.onClose) props.onClose()
               }}
             >
@@ -492,7 +651,26 @@ function ConversationCard(props) {
             size={16}
             text={t('Clear Conversation')}
             onConfirm={async () => {
-              await postMessage({ stop: true })
+              ++requestGenerationIdRef.current
+              const stopGenerationId = ++retryGenerationIdRef.current
+              try {
+                await postMessage({ stop: true, stopGenerationId })
+              } catch (error) {
+                console.warn(
+                  '[ConversationCard] Failed to stop generation before clearing conversation:',
+                  error,
+                )
+              }
+              if (disposedRef.current) return
+              if (!useForegroundFetch) {
+                replacedPortRef.current = port
+                port.disconnect()
+                const nextPort = Browser.runtime.connect()
+                portRef.current = nextPort
+                setPort(nextPort)
+              }
+              partialAnswerRef.current = ''
+              retryRecordRef.current = null
               Browser.runtime.sendMessage({
                 type: 'DELETE_CONVERSATION',
                 data: {
@@ -507,6 +685,7 @@ function ConversationCard(props) {
               })
               newSession.sessionId = session.sessionId
               setSession(newSession)
+              setIsReady(true)
             }}
           />
           {!props.pageMode && (
@@ -572,7 +751,7 @@ function ConversationCard(props) {
         className="markdown-body"
         style={
           props.notClampSize
-            ? { flexGrow: 1 }
+            ? { flexGrow: 1, minHeight: 0 }
             : { maxHeight: windowSize[1] * 0.55 + 'px', resize: 'vertical' }
         }
       >
@@ -621,6 +800,8 @@ function ConversationCard(props) {
               'answer',
               `<p class="gpt-loading">${t('Waiting for response...')}</p>`,
             )
+            partialAnswerRef.current = ''
+            retryRecordRef.current = null
             setConversationItemData([...conversationItemData, newQuestion, newAnswer])
             setIsReady(false)
 
@@ -629,8 +810,10 @@ function ConversationCard(props) {
             try {
               await postMessage({ session: newSession })
             } catch (e) {
+              if (disposedRef.current) return
               updateAnswer(e, false, 'error')
             }
+            if (disposedRef.current || !bodyRef.current) return
             bodyRef.current.scrollTo({
               top: bodyRef.current.scrollHeight,
               behavior: 'instant',

@@ -1,5 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
+import { getModelValue } from '../../utils/model-name-convert.mjs'
+import { isUsingAzureOpenAiApiModel } from '../../config/index.mjs'
+import { canApplyTemperatureOverride } from '../../services/apis/temperature-params.mjs'
 import PropTypes from 'prop-types'
 import { Tab, TabList, TabPanel, Tabs } from 'react-tabs'
 import Browser from 'webextension-polyfill'
@@ -11,6 +14,14 @@ ApiParams.propTypes = {
 
 function ApiParams({ config, updateConfig }) {
   const { t } = useTranslation()
+  const temperatureOverrideEnabled = config.temperatureOverrideEnabled === true
+  // Azure deployment names are opaque aliases, not canonical model identifiers.
+  const selectedModel = isUsingAzureOpenAiApiModel(config)
+    ? null
+    : config.modelName === 'customModel' && !config.apiMode
+    ? config.customModelName
+    : getModelValue(config)
+  const temperatureOverrideAvailable = canApplyTemperatureOverride(selectedModel)
 
   return (
     <>
@@ -43,19 +54,41 @@ function ApiParams({ config, updateConfig }) {
         />
       </label>
       <label>
-        {t('Temperature') + `: ${config.temperature}`}
         <input
-          type="range"
-          min="0"
-          max="2"
-          step="0.1"
-          value={config.temperature}
+          type="checkbox"
+          checked={temperatureOverrideEnabled}
           onChange={(e) => {
-            const value = parseFloatWithClamp(e.target.value, 1, 0, 2)
-            updateConfig({ temperature: value })
+            updateConfig({ temperatureOverrideEnabled: e.target.checked })
           }}
         />
+        {t('Override provider temperature')}
       </label>
+      {!temperatureOverrideEnabled ? (
+        <small>
+          {t('The temperature parameter is not sent. The provider or model default is used.')}
+        </small>
+      ) : !temperatureOverrideAvailable ? (
+        <small>
+          {t(
+            'The current model does not accept a custom temperature. The parameter will not be sent.',
+          )}
+        </small>
+      ) : (
+        <label>
+          {t('Temperature') + `: ${config.temperature}`}
+          <input
+            type="range"
+            min="0"
+            max="2"
+            step="0.1"
+            value={config.temperature}
+            onChange={(e) => {
+              const value = parseFloatWithClamp(e.target.value, 1, 0, 2)
+              updateConfig({ temperature: value })
+            }}
+          />
+        </label>
+      )}
     </>
   )
 }

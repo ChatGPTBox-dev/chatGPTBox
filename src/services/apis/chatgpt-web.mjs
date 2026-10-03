@@ -212,16 +212,34 @@ export async function registerWebsocket(accessToken) {
  * @param {string} accessToken
  */
 export async function generateAnswersWithChatgptWebApi(port, question, session, accessToken) {
-  const { controller, cleanController } = setAbortController(
+  let wsCallback
+  let cleanController = () => {}
+  const removeWebsocketCallback = () => {
+    if (!wsCallback) return
+    wsCallbacks = wsCallbacks.filter((callback) => callback !== wsCallback)
+    wsCallback = null
+  }
+  const stopWebsocketRequest = (conversationId, wsRequestId) => {
+    if (!wsRequestId) return
+    stopWebsocketConversation(accessToken, conversationId, wsRequestId).catch((error) => {
+      console.warn('[chatgpt-web] Failed to stop WebSocket conversation:', error)
+    })
+  }
+  const abortControllerState = setAbortController(
     port,
     () => {
-      if (session.wsRequestId)
-        stopWebsocketConversation(accessToken, session.conversationId, session.wsRequestId)
+      stopWebsocketRequest(session.conversationId, session.wsRequestId)
+      removeWebsocketCallback()
+      cleanController()
     },
     () => {
+      removeWebsocketCallback()
+      cleanController()
       if (session.autoClean) deleteConversation(accessToken, session.conversationId)
     },
   )
+  const { controller } = abortControllerState
+  cleanController = abortControllerState.cleanController
 
   const config = await getUserConfig()
   let arkoseError
@@ -320,8 +338,16 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   let generatedImageUrl = ''
 
   if (useWebsocket) {
+    if (controller.signal.aborted) {
+      cleanController()
+      return
+    }
     await registerWebsocket(accessToken)
-    const wsCallback = async (event) => {
+    if (controller.signal.aborted) {
+      cleanController()
+      return
+    }
+    wsCallback = async (event) => {
       let wsData
       try {
         wsData = JSON.parse(event.data)
@@ -343,7 +369,6 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
             console.debug('ws message', '[DONE]')
             if (wsData.conversation_id === session.conversationId) {
               finishMessage()
-              wsCallbacks = wsCallbacks.filter((cb) => cb !== wsCallback)
             }
           } else {
             console.debug('json error', error)
@@ -352,50 +377,73 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       }
     }
     wsCallbacks.push(wsCallback)
-    const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
-    session.conversationId = conversationId
-    session.wsRequestId = wsRequestId
-    port.postMessage({ session: session })
+    try {
+      const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
+      if (controller.signal.aborted) {
+        removeWebsocketCallback()
+        cleanController()
+        stopWebsocketRequest(conversationId, wsRequestId)
+        return
+      }
+      session.conversationId = conversationId
+      session.wsRequestId = wsRequestId
+      port.postMessage({ session: session })
+    } catch (error) {
+      removeWebsocketCallback()
+      cleanController()
+      if (controller.signal.aborted) return
+      throw error
+    }
   } else {
-    await fetchSSE(url, {
-      ...options,
-      onMessage(message) {
-        console.debug('sse message', message)
-        if (message.trim() === '[DONE]') {
-          finishMessage()
-          return
-        }
-        let data
-        try {
-          data = JSON.parse(message)
-        } catch (error) {
-          console.debug('json error', error)
-          return
-        }
-        handleMessage(data)
-      },
-      async onStart() {
-        // sendModerations(accessToken, question, session.conversationId, session.messageId)
-      },
-      async onEnd() {
-        port.postMessage({ done: true })
-        cleanController()
-      },
-      async onError(resp) {
-        cleanController()
-        if (resp instanceof Error) throw resp
-        if (resp.status === 403) {
-          throw new Error('CLOUDFLARE')
-        }
-        const error = await resp.json().catch(() => ({}))
-        throw new Error(
-          !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
-        )
-      },
-    })
+    try {
+      await fetchSSE(url, {
+        ...options,
+        onMessage(message) {
+          console.debug('sse message', message)
+          if (message.trim() === '[DONE]') {
+            finishMessage()
+            return
+          }
+          let data
+          try {
+            data = JSON.parse(message)
+          } catch (error) {
+            console.debug('json error', error)
+            return
+          }
+          handleMessage(data)
+        },
+        async onStart() {
+          // sendModerations(accessToken, question, session.conversationId, session.messageId)
+        },
+        async onEnd(aborted) {
+          try {
+            if (!aborted) {
+              port.postMessage({ done: true })
+            }
+          } finally {
+            cleanController()
+          }
+        },
+        async onError(resp) {
+          cleanController()
+          if (resp instanceof Error) throw resp
+          if (resp.status === 403) {
+            throw new Error('CLOUDFLARE')
+          }
+          const error = await resp.json().catch(() => ({}))
+          throw new Error(
+            !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
+          )
+        },
+      })
+    } finally {
+      cleanController()
+    }
   }
 
   function handleMessage(data) {
+    if (controller.signal.aborted) return
     if (data.error) {
       throw new Error(JSON.stringify(data.error))
     }
@@ -442,6 +490,9 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   }
 
   function finishMessage() {
+    removeWebsocketCallback()
+    cleanController()
+    if (controller.signal.aborted) return
     pushRecord(session, question, answer)
     console.debug('conversation history', { content: session.conversationRecords })
     port.postMessage({ answer: answer, done: true, session: session })

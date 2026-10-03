@@ -10,12 +10,12 @@ export function useWindowTheme() {
   )
   useEffect(() => {
     if (!window.matchMedia) return
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
     const listener = (e) => {
       setTheme(e.matches ? 'dark' : 'light')
     }
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', listener)
-    return () =>
-      window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', listener)
+    mediaQuery.addEventListener('change', listener)
+    return () => mediaQuery.removeEventListener('change', listener)
   }, [])
   return theme
 }

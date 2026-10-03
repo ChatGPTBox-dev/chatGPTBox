@@ -6,12 +6,20 @@ import {
   setAccessToken,
 } from '../config/index.mjs'
 import Browser from 'webextension-polyfill'
-import { t } from 'i18next'
+import { getFixedT, t } from 'i18next'
+import {
+  FETCH_REQUEST_FAILED,
+  FETCH_RESPONSE_STREAM_FAILED,
+  INVALID_API_ENDPOINT,
+} from '../utils/fetch-sse.mjs'
+import { isAbortError } from '../utils/abort-error.mjs'
+import { formatErrorMessage, formatErrorText } from '../utils/error-text.mjs'
 import {
   apiModeToModelName,
   modelNameToDesc,
   normalizeApiMode,
 } from '../utils/model-name-convert.mjs'
+import { acknowledgePortStop } from './apis/shared.mjs'
 
 export async function getChatGptAccessToken() {
   await clearOldAccessToken()
@@ -59,53 +67,134 @@ export async function getClaudeSessionKey() {
   return (await Browser.cookies.get({ url: 'https://claude.ai/', name: 'sessionKey' }))?.value
 }
 
-function isAbortError(err) {
+function isDisconnectedPortError(err) {
   if (!err || typeof err !== 'object') return false
-  const name = typeof err.name === 'string' ? err.name : ''
-  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
-  return name === 'AbortError' || message.includes('aborted') || message.includes('aborterror')
+  const message =
+    typeof err.message === 'string' ? err.message.trim().toLowerCase().replace(/\.$/, '') : ''
+  return (
+    message === 'attempting to use a disconnected port object' ||
+    message === 'attempt to postmessage on disconnected port' ||
+    message === 'extension context invalidated'
+  )
 }
 
-export function handlePortError(session, port, err) {
+function formatErrorDetail(key, value, translate = t) {
+  const label = translate(key) ?? key
+  const detail = `\n\n${formatErrorText(value)}`
+  return label.includes('%s') ? label.replace('%s', () => detail) : `${label}${detail}`
+}
+
+const transportErrorSummaryKeys = {
+  [FETCH_REQUEST_FAILED]: 'The browser could not complete the request to the API endpoint.',
+  [FETCH_RESPONSE_STREAM_FAILED]: 'The response stream from the API endpoint was interrupted.',
+  [INVALID_API_ENDPOINT]: 'The configured API endpoint URL is invalid.',
+}
+
+export function handlePortError(session, port, err, translate = t) {
+  const transportErrorSummaryKey = Object.prototype.hasOwnProperty.call(
+    transportErrorSummaryKeys,
+    err?.code,
+  )
+    ? transportErrorSummaryKeys[err.code]
+    : undefined
   if (isAbortError(err)) return
+  if (isDisconnectedPortError(err)) {
+    console.warn('[handlePortError] Ignoring disconnected port error:', err.message)
+    return
+  }
   console.error(err)
+  const postError = (error) => {
+    try {
+      port.postMessage({ error })
+    } catch (postErr) {
+      console.warn('[handlePortError] Failed to post error:', postErr)
+    }
+  }
   const message = typeof err?.message === 'string' ? err.message : ''
+  if (transportErrorSummaryKey) {
+    const details = [
+      translate(transportErrorSummaryKey),
+      translate('Check the API endpoint URL and service availability, then try again.'),
+    ]
+    if (err.requestOrigin)
+      details.push(formatErrorDetail('API endpoint: %s', err.requestOrigin, translate))
+    if (message) details.push(formatErrorDetail('Browser message: %s', message, translate))
+    postError(details.join('\n\n'))
+    return
+  }
+  const formattedMessage = formatErrorMessage(message)
   if (message) {
     if (
       ['message you submitted was too long', 'maximum context length'].some((m) =>
         message.includes(m),
       )
     )
-      port.postMessage({ error: t('Exceeded maximum context length') + '\n\n' + message })
+      postError(translate('Exceeded maximum context length') + '\n\n' + formattedMessage)
     else if (['CaptchaChallenge', 'CAPTCHA'].some((m) => message.includes(m)))
-      port.postMessage({ error: t('Bing CaptchaChallenge') + '\n\n' + message })
+      postError(translate('Bing CaptchaChallenge') + '\n\n' + formattedMessage)
     else if (['exceeded your current quota'].some((m) => message.includes(m)))
-      port.postMessage({ error: t('Exceeded quota') + '\n\n' + message })
+      postError(translate('Exceeded quota') + '\n\n' + formattedMessage)
     else if (['Rate limit reached'].some((m) => message.includes(m)))
-      port.postMessage({ error: t('Rate limit') + '\n\n' + message })
+      postError(translate('Rate limit') + '\n\n' + formattedMessage)
     else if (['authentication token has expired'].some((m) => message.includes(m)))
-      port.postMessage({ error: 'UNAUTHORIZED' })
+      postError('UNAUTHORIZED')
     else if (
       isUsingClaudeWebModel(session) &&
       ['Invalid authorization', 'Session key required'].some((m) => message.includes(m))
     )
-      port.postMessage({
-        error: t('Please login at https://claude.ai first, and then click the retry button'),
-      })
+      postError(
+        translate('Please login at https://claude.ai first, and then click the retry button'),
+      )
     else if (
       isUsingBingWebModel(session) &&
       ['/turing/conversation/create: failed to parse response body.'].some((m) =>
         message.includes(m),
       )
     )
-      port.postMessage({ error: t('Please login at https://bing.com first') })
-    else port.postMessage({ error: message })
+      postError(translate('Please login at https://bing.com first'))
+    else postError(formattedMessage)
   } else {
     const errMsg = JSON.stringify(err) ?? 'unknown error'
     if (isUsingBingWebModel(session) && errMsg.includes('isTrusted'))
-      port.postMessage({ error: t('Please login at https://bing.com first') })
-    else port.postMessage({ error: errMsg })
+      postError(translate('Please login at https://bing.com first'))
+    else postError(formatErrorMessage(errMsg))
   }
+}
+
+export function claimLatestPortSessionRequest(port) {
+  const requestId = (port._latestSessionRequestId ?? 0) + 1
+  port._latestSessionRequestId = requestId
+  port._sessionRequestGeneration = (port._sessionRequestGeneration ?? 0) + 1
+  port._stopAcknowledged = false
+  return () => port._latestSessionRequestId === requestId
+}
+
+export function invalidateLatestPortSessionRequest(port) {
+  port._latestSessionRequestId = (port._latestSessionRequestId ?? 0) + 1
+}
+
+function invalidateDisconnectedPortSessionRequests(port) {
+  invalidateLatestPortSessionRequest(port)
+  port._sessionRequestGeneration = (port._sessionRequestGeneration ?? 0) + 1
+}
+
+function createSessionRequestPort(port, proxyGenerationId, requestGenerationId) {
+  const sessionRequestGeneration = port._sessionRequestGeneration
+  return new Proxy(port, {
+    get(target, property, receiver) {
+      if (property === 'postMessage') {
+        return (message) => {
+          if (target._sessionRequestGeneration !== sessionRequestGeneration) return
+          target.postMessage({
+            ...message,
+            ...(proxyGenerationId === undefined ? {} : { proxyGenerationId }),
+            ...(requestGenerationId === undefined ? {} : { requestGenerationId }),
+          })
+        }
+      }
+      return Reflect.get(target, property, receiver)
+    },
+  })
 }
 
 export function registerPortListener(executor) {
@@ -113,27 +202,50 @@ export function registerPortListener(executor) {
     console.debug('connected')
     const onMessage = async (msg) => {
       console.debug('received msg', msg)
+      if (msg.stop) {
+        invalidateLatestPortSessionRequest(port)
+        acknowledgePortStop(port, msg)
+        return
+      }
       const session = msg.session
       if (!session) return
+      const isLatestSessionRequest = claimLatestPortSessionRequest(port)
+      const requestPort = createSessionRequestPort(
+        port,
+        msg.proxyGenerationId,
+        msg.requestGenerationId,
+      )
       const config = await getUserConfig()
+      if (!isLatestSessionRequest()) return
+      const language =
+        config.preferredLanguage === 'auto' ? config.userLanguage : config.preferredLanguage
+      const translate = getFixedT(language)
       if (!session.modelName) session.modelName = config.modelName
       if (!session.apiMode && session.modelName !== 'customModel') session.apiMode = config.apiMode
       if (session.apiMode) session.apiMode = normalizeApiMode(session.apiMode)
       if (!session.aiName)
         session.aiName = modelNameToDesc(
           session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName,
-          t,
+          translate,
           config.customModelName,
         )
-      port.postMessage({ session })
+      requestPort.postMessage({ session })
       try {
-        await executor(session, port, config)
+        await executor(
+          session,
+          requestPort,
+          config,
+          isLatestSessionRequest,
+          msg.requestGenerationId,
+          port,
+        )
       } catch (err) {
-        handlePortError(session, port, err)
+        if (isLatestSessionRequest()) handlePortError(session, requestPort, err, translate)
       }
     }
 
     const onDisconnect = () => {
+      invalidateDisconnectedPortSessionRequests(port)
       console.debug('port disconnected, remove listener')
       port.onMessage.removeListener(onMessage)
       port.onDisconnect.removeListener(onDisconnect)

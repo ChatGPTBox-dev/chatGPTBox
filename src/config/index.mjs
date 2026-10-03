@@ -2,12 +2,14 @@ import { defaults } from 'lodash-es'
 import Browser from 'webextension-polyfill'
 import { isMobile } from '../utils/is-mobile.mjs'
 import {
+  getApiModesFromConfig,
   isInApiModeGroup,
-  isUsingModelName,
   modelNameToDesc,
+  reconcileMaterializedApiModeDefaults,
 } from '../utils/model-name-convert.mjs'
 import { t } from 'i18next'
 import {
+  LEGACY_API_KEY_FIELD_BY_PROVIDER_ID,
   LEGACY_SECRET_KEY_TO_PROVIDER_ID,
   OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID as API_MODE_GROUP_TO_PROVIDER_ID,
 } from './openai-provider-mappings.mjs'
@@ -16,6 +18,9 @@ import {
   canonicalizeModelKey,
   canonicalizeModelKeyArray,
 } from './model-key-migrations.mjs'
+import { getNavigatorLanguage, resolvePreferredLanguageKey } from './language-data.mjs'
+
+export { getNavigatorLanguage }
 
 export const TriggerMode = {
   always: 'Always',
@@ -35,6 +40,9 @@ export const ModelMode = {
   precise: 'Precise',
   fast: 'Fast',
 }
+
+// Provider IDs added after custom providers became configurable need one-time secret migration.
+const NEWLY_RESERVED_BUILTIN_PROVIDER_IDS = new Set(['xai', 'nvidia-nim', 'mistral'])
 
 export const chatgptWebModelKeys = [
   'chatgptFree35',
@@ -67,6 +75,14 @@ export const chatgptApiModelKeys = [
   'chatgptApi5_4Mini',
   'chatgptApi5_4Nano',
   'chatgptApi5_5',
+  'chatgptApi5_6',
+  'chatgptApi5_6Sol',
+  'chatgptApi5_6Terra',
+  'chatgptApi5_6Luna',
+  'chatgptApi6Astra',
+  'chatgptApi6Sol',
+  'chatgptApi6Luna',
+  'chatgptApi6_1Sol',
   'chatgptApi4oMini',
   'chatgptApi4_1',
   'chatgptApi4_1_mini',
@@ -76,14 +92,19 @@ export const customApiModelKeys = ['customModel']
 export const ollamaApiModelKeys = ['ollamaModel']
 export const azureOpenAiApiModelKeys = ['azureOpenAi']
 export const claudeApiModelKeys = [
+  'claudeFable5Api',
+  'claudeFable51Api',
   'claudeOpus41Api',
   'claudeOpus45Api',
   'claudeOpus46Api',
   'claudeOpus47Api',
   'claudeOpus48Api',
+  'claudeOpus5Api',
+  'claudeOpus55Api',
   'claudeSonnet45Api',
   'claudeSonnet46Api',
   'claudeSonnet5Api',
+  'claudeSonnet55Api',
   'claudeHaiku45Api',
 ]
 export const chatglmApiModelKeys = [
@@ -97,21 +118,6 @@ export const chatglmApiModelKeys = [
   'chatglm4Long',
 ]
 export const githubThirdPartyApiModelKeys = ['waylaidwandererApi']
-export const poeWebModelKeys = [
-  'poeAiWebSage', //poe.com/Assistant
-  'poeAiWebGPT4',
-  'poeAiWebGPT4_32k',
-  'poeAiWebClaudePlus',
-  'poeAiWebClaude',
-  'poeAiWebClaude100k',
-  'poeAiWebCustom',
-  'poeAiWebChatGpt',
-  'poeAiWebChatGpt_16k',
-  'poeAiWebGooglePaLM',
-  'poeAiWeb_Llama_2_7b',
-  'poeAiWeb_Llama_2_13b',
-  'poeAiWeb_Llama_2_70b',
-]
 export const moonshotApiModelKeys = [
   'moonshot_k2_5',
   'moonshot_kimi_latest',
@@ -119,11 +125,25 @@ export const moonshotApiModelKeys = [
   'moonshot_v1_32k',
   'moonshot_v1_128k',
 ]
+export const mistralApiModelKeys = [
+  'mistralMediumLatest',
+  'mistralSmallLatest',
+  'mistralLargeLatest',
+]
 export const deepSeekApiModelKeys = [
   'deepseek_chat',
   'deepseek_reasoner',
   'deepseek_v4_flash',
   'deepseek_v4_pro',
+]
+export const nvidiaNimApiModelKeys = [
+  'nvidiaNim_nemotron_3_super',
+  'nvidiaNim_nemotron_3_ultra',
+  'nvidiaNim_deepseek_v4_flash',
+  'nvidiaNim_deepseek_v4_pro',
+  'nvidiaNim_glm_5_2',
+  'nvidiaNim_inkling',
+  'nvidiaNim_minimax_m3',
 ]
 export const openRouterApiModelKeys = [
   'openRouter_auto',
@@ -175,6 +195,19 @@ export const aimlApiModelKeys = [
   'aiml_deepseek_v4_pro',
   'aiml_deepseek_v4_flash',
 ]
+export const googleApiModelKeys = [
+  'googleGemini3_1Pro',
+  'googleGemini3_5Flash',
+  'googleGemini3_5FlashLite',
+  'googleGemini3_6Flash',
+  'googleGemini3_7Flash',
+  'googleGemini3_8Flash',
+  'googleGemini3Flash',
+  'googleGemini2_5Pro',
+  'googleGemini2_5Flash',
+  'googleGemini2_5FlashLite',
+]
+export const xaiApiModelKeys = ['xaiGrok4_6', 'xaiGrok4_5', 'xaiGrok4_3']
 
 export const AlwaysCustomGroups = [
   'ollamaApiModelKeys',
@@ -217,6 +250,10 @@ export const ModelGroups = {
     value: moonshotApiModelKeys,
     desc: 'Kimi.Moonshot (API)',
   },
+  mistralApiModelKeys: {
+    value: mistralApiModelKeys,
+    desc: 'Mistral AI (API)',
+  },
   chatglmApiModelKeys: {
     value: chatglmApiModelKeys,
     desc: 'ChatGLM (API)',
@@ -237,6 +274,10 @@ export const ModelGroups = {
     value: githubThirdPartyApiModelKeys,
     desc: 'Github Third Party Waylaidwanderer (API)',
   },
+  nvidiaNimApiModelKeys: {
+    value: nvidiaNimApiModelKeys,
+    desc: 'NVIDIA NIM (API)',
+  },
   deepSeekApiModelKeys: {
     value: deepSeekApiModelKeys,
     desc: 'DeepSeek (API)',
@@ -248,6 +289,14 @@ export const ModelGroups = {
   aimlModelKeys: {
     value: aimlApiModelKeys,
     desc: 'AI/ML (API)',
+  },
+  googleApiModelKeys: {
+    value: googleApiModelKeys,
+    desc: 'Google (API)',
+  },
+  xaiApiModelKeys: {
+    value: xaiApiModelKeys,
+    desc: 'xAI (API)',
   },
   customApiModelKeys: {
     value: customApiModelKeys,
@@ -285,12 +334,28 @@ export const Models = {
   chatgptApi5_4Mini: { value: 'gpt-5.4-mini', desc: 'OpenAI (GPT-5.4 mini)' },
   chatgptApi5_4Nano: { value: 'gpt-5.4-nano', desc: 'OpenAI (GPT-5.4 nano)' },
   chatgptApi5_5: { value: 'gpt-5.5', desc: 'OpenAI (GPT-5.5)' },
+  chatgptApi5_6: { value: 'gpt-5.6', desc: 'OpenAI (GPT-5.6)' },
+  chatgptApi5_6Sol: { value: 'gpt-5.6-sol', desc: 'OpenAI (GPT-5.6 Sol)' },
+  chatgptApi5_6Terra: { value: 'gpt-5.6-terra', desc: 'OpenAI (GPT-5.6 Terra)' },
+  chatgptApi5_6Luna: { value: 'gpt-5.6-luna', desc: 'OpenAI (GPT-5.6 Luna)' },
+  chatgptApi6Astra: { value: 'gpt-6-astra', desc: 'OpenAI (GPT-6 Astra)' },
+  chatgptApi6Sol: { value: 'gpt-6-sol', desc: 'OpenAI (GPT-6 Sol)' },
+  chatgptApi6Luna: { value: 'gpt-6-luna', desc: 'OpenAI (GPT-6 Luna)' },
+  chatgptApi6_1Sol: { value: 'gpt-6.1-sol', desc: 'OpenAI (GPT-6.1 Sol)' },
 
   chatgptApi4_1: { value: 'gpt-4.1', desc: 'OpenAI (GPT-4.1)' },
   chatgptApi4_1_mini: { value: 'gpt-4.1-mini', desc: 'OpenAI (GPT-4.1 mini)' },
   chatgptApi4_1_nano: { value: 'gpt-4.1-nano', desc: 'OpenAI (GPT-4.1 nano)' },
 
   claude2WebFree: { value: '', desc: 'Claude.ai (Web)' },
+  claudeFable5Api: {
+    value: 'claude-fable-5',
+    desc: 'Anthropic (Claude Fable 5)',
+  },
+  claudeFable51Api: {
+    value: 'claude-fable-5-1',
+    desc: 'Anthropic (Claude Fable 5.1)',
+  },
   claudeOpus41Api: {
     value: 'claude-opus-4-1-20250805',
     desc: 'Anthropic (Claude Opus 4.1)',
@@ -311,6 +376,14 @@ export const Models = {
     value: 'claude-opus-4-8',
     desc: 'Anthropic (Claude Opus 4.8)',
   },
+  claudeOpus5Api: {
+    value: 'claude-opus-5',
+    desc: 'Anthropic (Claude Opus 5)',
+  },
+  claudeOpus55Api: {
+    value: 'claude-opus-5-5',
+    desc: 'Anthropic (Claude Opus 5.5)',
+  },
   claudeSonnet45Api: {
     value: 'claude-sonnet-4-5-20250929',
     desc: 'Anthropic (Claude Sonnet 4.5)',
@@ -322,6 +395,10 @@ export const Models = {
   claudeSonnet5Api: {
     value: 'claude-sonnet-5',
     desc: 'Anthropic (Claude Sonnet 5)',
+  },
+  claudeSonnet55Api: {
+    value: 'claude-sonnet-5-5',
+    desc: 'Anthropic (Claude Sonnet 5.5)',
   },
   claudeHaiku45Api: {
     value: 'claude-haiku-4-5-20251001',
@@ -359,20 +436,6 @@ export const Models = {
   azureOpenAi: { value: '', desc: 'Azure OpenAI' },
   waylaidwandererApi: { value: '', desc: 'Waylaidwanderer API (Github)' },
 
-  poeAiWebSage: { value: 'Assistant', desc: 'Poe AI (Web, Assistant)' },
-  poeAiWebGPT4: { value: 'gpt-4', desc: 'Poe AI (Web, GPT-4)' },
-  poeAiWebGPT4_32k: { value: 'gpt-4-32k', desc: 'Poe AI (Web, GPT-4-32k)' },
-  poeAiWebClaudePlus: { value: 'claude-2-100k', desc: 'Poe AI (Web, Claude 2 100k)' },
-  poeAiWebClaude: { value: 'claude-instant', desc: 'Poe AI (Web, Claude instant)' },
-  poeAiWebClaude100k: { value: 'claude-instant-100k', desc: 'Poe AI (Web, Claude instant 100k)' },
-  poeAiWebGooglePaLM: { value: 'Google-PaLM', desc: 'Poe AI (Web, Google-PaLM)' },
-  poeAiWeb_Llama_2_7b: { value: 'Llama-2-7b', desc: 'Poe AI (Web, Llama-2-7b)' },
-  poeAiWeb_Llama_2_13b: { value: 'Llama-2-13b', desc: 'Poe AI (Web, Llama-2-13b)' },
-  poeAiWeb_Llama_2_70b: { value: 'Llama-2-70b', desc: 'Poe AI (Web, Llama-2-70b)' },
-  poeAiWebChatGpt: { value: 'chatgpt', desc: 'Poe AI (Web, ChatGPT)' },
-  poeAiWebChatGpt_16k: { value: 'chatgpt-16k', desc: 'Poe AI (Web, ChatGPT-16k)' },
-  poeAiWebCustom: { value: '', desc: 'Poe AI (Web, Custom)' },
-
   moonshot_k2_5: {
     value: 'kimi-k2.5',
     desc: 'Kimi.Moonshot (Kimi K2.5)',
@@ -395,6 +458,35 @@ export const Models = {
     desc: 'Kimi.Moonshot (128k)',
   },
 
+  nvidiaNim_nemotron_3_super: {
+    value: 'nvidia/nemotron-3-super-120b-a12b',
+    desc: 'NVIDIA NIM (Nemotron-3-Super)',
+  },
+  nvidiaNim_nemotron_3_ultra: {
+    value: 'nvidia/nemotron-3-ultra-550b-a55b',
+    desc: 'NVIDIA NIM (Nemotron-3-Ultra)',
+  },
+  nvidiaNim_deepseek_v4_flash: {
+    value: 'deepseek-ai/deepseek-v4-flash',
+    desc: 'NVIDIA NIM (DeepSeek V4 Flash)',
+  },
+  nvidiaNim_deepseek_v4_pro: {
+    value: 'deepseek-ai/deepseek-v4-pro',
+    desc: 'NVIDIA NIM (DeepSeek V4 Pro)',
+  },
+  nvidiaNim_glm_5_2: {
+    value: 'z-ai/glm-5.2',
+    desc: 'NVIDIA NIM (GLM-5.2)',
+  },
+  nvidiaNim_inkling: {
+    value: 'thinkingmachines/inkling',
+    desc: 'NVIDIA NIM (Inkling)',
+  },
+  nvidiaNim_minimax_m3: {
+    value: 'minimaxai/minimax-m3',
+    desc: 'NVIDIA NIM (MiniMax M3)',
+  },
+
   deepseek_chat: {
     value: 'deepseek-chat',
     desc: 'DeepSeek (Chat)',
@@ -411,6 +503,19 @@ export const Models = {
   deepseek_reasoner: {
     value: 'deepseek-reasoner',
     desc: 'DeepSeek (Reasoner)',
+  },
+
+  mistralMediumLatest: {
+    value: 'mistral-medium-latest',
+    desc: 'Mistral AI (Medium latest)',
+  },
+  mistralSmallLatest: {
+    value: 'mistral-small-latest',
+    desc: 'Mistral AI (Small latest)',
+  },
+  mistralLargeLatest: {
+    value: 'mistral-large-latest',
+    desc: 'Mistral AI (Large latest)',
   },
 
   openRouter_anthropic_claude_haiku4_5: {
@@ -597,6 +702,58 @@ export const Models = {
     value: 'deepseek/deepseek-v4-flash',
     desc: 'AIML (DeepSeek V4 Flash)',
   },
+  googleGemini3_1Pro: {
+    value: 'gemini-3.1-pro-preview',
+    desc: 'Google (Gemini 3.1 Pro Preview)',
+  },
+  googleGemini3_5Flash: {
+    value: 'gemini-3.5-flash',
+    desc: 'Google (Gemini 3.5 Flash)',
+  },
+  googleGemini3_5FlashLite: {
+    value: 'gemini-3.5-flash-lite',
+    desc: 'Google (Gemini 3.5 Flash-Lite)',
+  },
+  googleGemini3_6Flash: {
+    value: 'gemini-3.6-flash',
+    desc: 'Google (Gemini 3.6 Flash)',
+  },
+  googleGemini3_7Flash: {
+    value: 'gemini-3.7-flash',
+    desc: 'Google (Gemini 3.7 Flash)',
+  },
+  googleGemini3_8Flash: {
+    value: 'gemini-3.8-flash',
+    desc: 'Google (Gemini 3.8 Flash)',
+  },
+  googleGemini3Flash: {
+    value: 'gemini-3-flash-preview',
+    desc: 'Google (Gemini 3 Flash Preview)',
+  },
+  googleGemini2_5Pro: {
+    value: 'gemini-2.5-pro',
+    desc: 'Google (Gemini 2.5 Pro)',
+  },
+  googleGemini2_5Flash: {
+    value: 'gemini-2.5-flash',
+    desc: 'Google (Gemini 2.5 Flash)',
+  },
+  googleGemini2_5FlashLite: {
+    value: 'gemini-2.5-flash-lite',
+    desc: 'Google (Gemini 2.5 Flash-Lite)',
+  },
+  xaiGrok4_6: {
+    value: 'grok-4.6',
+    desc: 'xAI (Grok 4.6)',
+  },
+  xaiGrok4_5: {
+    value: 'grok-4.5',
+    desc: 'xAI (Grok 4.5)',
+  },
+  xaiGrok4_3: {
+    value: 'grok-4.3',
+    desc: 'xAI (Grok 4.3)',
+  },
 }
 
 for (const modelName in Models) {
@@ -613,6 +770,30 @@ for (const modelName in Models) {
 /**
  * @typedef {typeof defaultConfig} UserConfig
  */
+export const defaultApiModeIds = [
+  'claude2WebFree',
+  'moonshotWebFree',
+  'ollamaModel',
+  'customModel',
+  'azureOpenAi',
+  'chatgptApi6_1Sol',
+  'chatgptApi5_6Terra',
+  'chatgptApi6Luna',
+  'chatgptApi6Astra',
+  'xaiGrok4_6',
+  'xaiGrok4_5',
+  'claudeFable51Api',
+  'claudeOpus55Api',
+  'claudeSonnet55Api',
+  'claudeHaiku45Api',
+  'googleGemini3_1Pro',
+  'googleGemini3_8Flash',
+  'mistralMediumLatest',
+  'openRouter_auto',
+  'openRouter_free',
+  'nvidiaNim_nemotron_3_super',
+]
+
 export const defaultConfig = {
   // general
 
@@ -621,7 +802,7 @@ export const defaultConfig = {
   /** @type {keyof ThemeMode}*/
   themeMode: 'auto',
   /** @type {keyof Models}*/
-  modelName: getNavigatorLanguage() === 'zh' ? 'moonshotWebFree' : 'claude2WebFree',
+  modelName: getNavigatorLanguage() === 'zh-Hans' ? 'moonshotWebFree' : 'claude2WebFree',
   apiMode: null,
 
   preferredLanguage: getNavigatorLanguage(),
@@ -642,12 +823,12 @@ export const defaultConfig = {
   azureEndpoint: '',
   azureDeploymentName: '',
 
-  poeCustomBotName: '',
-
   anthropicApiKey: '',
   chatglmApiKey: '',
   moonshotApiKey: '',
+  mistralApiKey: '',
   deepSeekApiKey: '',
+  nvidiaNimApiKey: '',
 
   customApiKey: '',
 
@@ -665,11 +846,14 @@ export const defaultConfig = {
 
   openRouterApiKey: '',
   aimlApiKey: '',
+  googleApiKey: '',
+  xaiApiKey: '',
 
   // advanced
 
   maxResponseTokenLength: 2000,
   maxConversationContextLength: 9,
+  temperatureOverrideEnabled: false,
   temperature: 1,
   customChatGptWebApiUrl: 'https://chatgpt.com',
   customChatGptWebApiPath: '/backend-api/conversation',
@@ -687,21 +871,9 @@ export const defaultConfig = {
   // others
 
   alwaysCreateNewConversationWindow: false,
-  // The handling of activeApiModes and customApiModes is somewhat complex.
-  // It does not directly convert activeApiModes into customApiModes, which is for compatibility considerations.
-  // It allows the content of activeApiModes to change with version updates when the user has not customized ApiModes.
-  // If it were directly written into customApiModes, the value would become fixed, even if the user has not made any customizations.
-  activeApiModes: [
-    'chatgptFree35',
-    'claude2WebFree',
-    'moonshotWebFree',
-    'ollamaModel',
-    'customModel',
-    'azureOpenAi',
-    'openRouter_openai_gpt_5_5',
-    'openRouter_anthropic_claude_sonnet4_6',
-    'openRouter_google_gemini_3_5_flash',
-  ],
+  // Untouched profiles read this live default list. Customized profiles materialize the
+  // visible rows in customApiModes and use knownApiModeDefaultIds to append future defaults.
+  activeApiModes: [...defaultApiModeIds],
   customApiModes: [
     {
       groupName: '',
@@ -714,9 +886,11 @@ export const defaultConfig = {
       active: false,
     },
   ],
+  knownApiModeDefaultIds: [],
   customOpenAIProviders: [],
   providerSecrets: {},
-  configSchemaVersion: 1,
+  completedBuiltinProviderIdMigrations: [],
+  configSchemaVersion: 2,
   activeSelectionTools: ['translate', 'translateToEn', 'summary', 'polish', 'code', 'ask'],
   customSelectionTools: [
     {
@@ -794,12 +968,6 @@ export const defaultConfig = {
   ],
 }
 
-export function getNavigatorLanguage() {
-  const l = navigator.language.toLowerCase()
-  if (['zh-hk', 'zh-mo', 'zh-tw', 'zh-cht', 'zh-hant'].includes(l)) return 'zhHant'
-  return navigator.language.substring(0, 2)
-}
-
 export function isUsingChatgptWebModel(configOrSession) {
   return isInApiModeGroup(chatgptWebModelKeys, configOrSession)
 }
@@ -844,8 +1012,16 @@ export function isUsingMoonshotApiModel(configOrSession) {
   return isInApiModeGroup(moonshotApiModelKeys, configOrSession)
 }
 
+export function isUsingMistralApiModel(configOrSession) {
+  return isInApiModeGroup(mistralApiModelKeys, configOrSession)
+}
+
 export function isUsingDeepSeekApiModel(configOrSession) {
   return isInApiModeGroup(deepSeekApiModelKeys, configOrSession)
+}
+
+export function isUsingNvidiaNimApiModel(configOrSession) {
+  return isInApiModeGroup(nvidiaNimApiModelKeys, configOrSession)
 }
 
 export function isUsingOpenRouterApiModel(configOrSession) {
@@ -854,6 +1030,14 @@ export function isUsingOpenRouterApiModel(configOrSession) {
 
 export function isUsingAimlApiModel(configOrSession) {
   return isInApiModeGroup(aimlApiModelKeys, configOrSession)
+}
+
+export function isUsingGoogleApiModel(configOrSession) {
+  return isInApiModeGroup(googleApiModelKeys, configOrSession)
+}
+
+export function isUsingXaiApiModel(configOrSession) {
+  return isInApiModeGroup(xaiApiModelKeys, configOrSession)
 }
 
 export function isUsingChatGLMApiModel(configOrSession) {
@@ -876,20 +1060,13 @@ export function isUsingCustomModel(configOrSession) {
   return isInApiModeGroup(customApiModelKeys, configOrSession)
 }
 
-/**
- * @deprecated
- */
-export function isUsingCustomNameOnlyModel(configOrSession) {
-  return isUsingModelName('poeAiWebCustom', configOrSession)
-}
-
 export async function getPreferredLanguageKey() {
   const config = await getUserConfig()
   if (config.preferredLanguage === 'auto') return config.userLanguage
   return config.preferredLanguage
 }
 
-const CONFIG_SCHEMA_VERSION = 1
+const CONFIG_SCHEMA_VERSION = 2
 
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : ''
@@ -904,6 +1081,28 @@ function normalizeProviderId(value) {
 
 function normalizeEndpointUrlForCompare(value) {
   return normalizeText(value).replace(/\/+$/, '')
+}
+
+function ensureLeadingSlash(value, fallback = '') {
+  const normalized = normalizeText(value)
+  if (!normalized) return fallback
+  return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
+function getProviderChatCompletionsUrlForCompare(provider) {
+  const directUrl = normalizeEndpointUrlForCompare(provider?.chatCompletionsUrl)
+  if (directUrl) return directUrl
+
+  let baseUrl = normalizeEndpointUrlForCompare(provider?.baseUrl)
+  const path = ensureLeadingSlash(provider?.chatCompletionsPath)
+  if (!baseUrl || !path) return ''
+  const usesDefaultV1Paths =
+    path === '/v1/chat/completions' &&
+    ensureLeadingSlash(provider?.completionsPath) === '/v1/completions'
+  if (!normalizeText(provider?.completionsUrl) && usesDefaultV1Paths) {
+    baseUrl = baseUrl.replace(/\/v1$/i, '')
+  }
+  return normalizeEndpointUrlForCompare(`${baseUrl}/${path.replace(/^\/+/, '')}`)
 }
 
 function isPlainObject(value) {
@@ -938,6 +1137,31 @@ function ensureUniqueProviderId(providerIdSet, preferredId) {
   return id
 }
 
+function getLegacyProviderIds(value, currentProviderId = '') {
+  const normalizedCurrentProviderId = normalizeProviderId(currentProviderId)
+  return Array.from(
+    new Set(
+      (Array.isArray(value) ? value : [])
+        .map(normalizeProviderId)
+        .filter((providerId) => providerId && providerId !== normalizedCurrentProviderId),
+    ),
+  )
+}
+
+function addLegacyProviderId(target, providerId) {
+  const normalizedProviderId = normalizeProviderId(providerId)
+  if (!target || !normalizedProviderId) return false
+  const legacyProviderIds = getLegacyProviderIds(target.legacyProviderIds, target.providerId)
+  if (
+    normalizedProviderId === normalizeProviderId(target.providerId) ||
+    legacyProviderIds.includes(normalizedProviderId)
+  ) {
+    return false
+  }
+  target.legacyProviderIds = [...legacyProviderIds, normalizedProviderId]
+  return true
+}
+
 function normalizeCustomProviderForStorage(provider, index, providerIdSet) {
   if (!provider || typeof provider !== 'object') return null
   const originalRawId = normalizeText(provider.id)
@@ -947,22 +1171,39 @@ function normalizeCustomProviderForStorage(provider, index, providerIdSet) {
   const preferredId = originalId || `custom-provider-${index + 1}`
   const id = ensureUniqueProviderId(providerIdSet, preferredId)
   providerIdSet.add(id)
+  const legacyProviderIds = getLegacyProviderIds(
+    [...(Array.isArray(provider.legacyProviderIds) ? provider.legacyProviderIds : []), originalId],
+    id,
+  )
+  const chatCompletionsPath = ensureLeadingSlash(
+    provider.chatCompletionsPath,
+    '/v1/chat/completions',
+  )
+  const completionsPath = ensureLeadingSlash(provider.completionsPath, '/v1/completions')
+  const normalizedLegacyProviderIds = legacyProviderIds.length > 0 ? legacyProviderIds : undefined
+  const storageShapeChanged =
+    (normalizeText(provider.chatCompletionsPath) || '/v1/chat/completions') !==
+      chatCompletionsPath ||
+    (normalizeText(provider.completionsPath) || '/v1/completions') !== completionsPath ||
+    JSON.stringify(provider.legacyProviderIds) !== JSON.stringify(normalizedLegacyProviderIds)
   return {
     originalId,
     originalRawId,
     sourceProviderOriginalId: sourceProviderId,
     sourceProviderOriginalRawId,
+    storageShapeChanged,
     provider: {
       id,
       name: normalizeText(provider.name) || `Custom Provider ${index + 1}`,
       baseUrl: normalizeText(provider.baseUrl),
-      chatCompletionsPath: normalizeText(provider.chatCompletionsPath) || '/v1/chat/completions',
-      completionsPath: normalizeText(provider.completionsPath) || '/v1/completions',
+      chatCompletionsPath,
+      completionsPath,
       chatCompletionsUrl: normalizeText(provider.chatCompletionsUrl),
       completionsUrl: normalizeText(provider.completionsUrl),
       enabled: provider.enabled !== false,
       allowLegacyResponseField: provider.allowLegacyResponseField !== false,
       ...(sourceProviderId ? { sourceProviderId } : {}),
+      ...(normalizedLegacyProviderIds ? { legacyProviderIds: normalizedLegacyProviderIds } : {}),
     },
   }
 }
@@ -970,6 +1211,7 @@ function normalizeCustomProviderForStorage(provider, index, providerIdSet) {
 function migrateUserConfig(options) {
   const migrated = { ...options }
   let dirty = false
+  const storageKeysToRemove = []
 
   if (migrated.customChatGptWebApiUrl === 'https://chat.openai.com') {
     migrated.customChatGptWebApiUrl = 'https://chatgpt.com'
@@ -982,7 +1224,18 @@ function migrateUserConfig(options) {
     dirty = true
   }
 
-  const canonicalActiveApiModes = canonicalizeModelKeyArray(migrated.activeApiModes)
+  const activeApiModesForCanonicalization =
+    Array.isArray(migrated.activeApiModes) &&
+    migrated.activeApiModes.some(
+      (modelName) =>
+        typeof modelName !== 'string' || !modelName.trim() || modelName !== modelName.trim(),
+    )
+      ? migrated.activeApiModes
+          .filter((modelName) => typeof modelName === 'string')
+          .map((modelName) => modelName.trim())
+          .filter(Boolean)
+      : migrated.activeApiModes
+  const canonicalActiveApiModes = canonicalizeModelKeyArray(activeApiModesForCanonicalization)
   if (canonicalActiveApiModes !== migrated.activeApiModes) {
     migrated.activeApiModes = canonicalActiveApiModes
     dirty = true
@@ -993,6 +1246,7 @@ function migrateUserConfig(options) {
   if (!hasProviderSecretsRecord) {
     dirty = true
   }
+  const providerSecretSnapshot = { ...providerSecrets }
   for (const [legacyKey, providerId] of Object.entries(LEGACY_SECRET_KEY_TO_PROVIDER_ID)) {
     const legacyKeyValue = normalizeText(migrated[legacyKey])
     const hasProviderSecret = Object.hasOwn(providerSecrets, providerId)
@@ -1001,6 +1255,23 @@ function migrateUserConfig(options) {
       dirty = true
     }
   }
+  const completedBuiltinProviderIdMigrations = new Set(
+    Array.isArray(migrated.completedBuiltinProviderIdMigrations)
+      ? migrated.completedBuiltinProviderIdMigrations.map(normalizeProviderId).filter(Boolean)
+      : [],
+  )
+  const currentBuiltinProviderIdCollisions = new Set(
+    (Array.isArray(migrated.customOpenAIProviders) ? migrated.customOpenAIProviders : [])
+      .map((provider) => normalizeProviderId(provider?.id))
+      .filter((providerId) => NEWLY_RESERVED_BUILTIN_PROVIDER_IDS.has(providerId)),
+  )
+  const pendingBuiltinProviderIdMigrations = new Set(
+    [...NEWLY_RESERVED_BUILTIN_PROVIDER_IDS].filter(
+      (providerId) =>
+        !completedBuiltinProviderIdMigrations.has(providerId) ||
+        currentBuiltinProviderIdCollisions.has(providerId),
+    ),
+  )
 
   const builtinProviderIds = new Set(
     Object.values(API_MODE_GROUP_TO_PROVIDER_ID)
@@ -1030,7 +1301,10 @@ function migrateUserConfig(options) {
       .filter((id) => id),
   )
   const customOpenAIProviders = normalizedProviderResults.map(
-    ({ originalId, originalRawId, sourceProviderOriginalRawId, provider }) => {
+    ({ originalId, originalRawId, sourceProviderOriginalRawId, storageShapeChanged, provider }) => {
+      if (storageShapeChanged) {
+        dirty = true
+      }
       if (normalizeText(originalRawId) !== normalizeText(provider.id)) {
         dirty = true
       }
@@ -1050,7 +1324,52 @@ function migrateUserConfig(options) {
       return provider
     },
   )
+  for (const provider of customOpenAIProviders) {
+    for (const legacyProviderId of getLegacyProviderIds(provider.legacyProviderIds)) {
+      providerIdSet.add(legacyProviderId)
+    }
+  }
   if (!Array.isArray(migrated.customOpenAIProviders)) dirty = true
+  const hasCanonicalProviderIdCollision = (providerId) =>
+    normalizedProviderResults.filter(({ originalId }) => originalId === providerId).length > 1
+  const resolveRenamedProviderId = (providerId, providerIdRaw, customUrl) => {
+    const providerIdCandidates = normalizedProviderResults.filter(
+      ({ originalId }) => originalId === providerId,
+    )
+    if (providerIdCandidates.length > 1) {
+      const normalizedProviderIdRaw = normalizeText(providerIdRaw)
+      const rawIdMatches = providerIdCandidates.filter(
+        ({ originalRawId }) => normalizeText(originalRawId) === normalizedProviderIdRaw,
+      )
+      if (rawIdMatches.length === 1) {
+        return rawIdMatches[0].provider.id
+      }
+      const normalizedCustomUrl = normalizeEndpointUrlForCompare(customUrl)
+      if (normalizedCustomUrl) {
+        const matchingProviderIds = providerIdCandidates
+          .filter(
+            ({ provider }) =>
+              getProviderChatCompletionsUrlForCompare(provider) === normalizedCustomUrl,
+          )
+          .map(({ provider }) => provider.id)
+        if (matchingProviderIds.length === 1) {
+          return matchingProviderIds[0]
+        }
+      }
+      return undefined
+    }
+    const renamedProviderId = providerIdRenameLookup.get(providerId)
+    if (renamedProviderId) return renamedProviderId
+    if (!NEWLY_RESERVED_BUILTIN_PROVIDER_IDS.has(providerId)) return undefined
+
+    const legacyProviderIdMatches = customOpenAIProviders.filter((provider) =>
+      getLegacyProviderIds(provider.legacyProviderIds).includes(providerId),
+    )
+    if (legacyProviderIdMatches.length !== 1 || legacyProviderIdMatches[0].enabled === false) {
+      return undefined
+    }
+    return legacyProviderIdMatches[0].id
+  }
 
   for (const {
     sourceProviderOriginalId,
@@ -1079,39 +1398,146 @@ function migrateUserConfig(options) {
     }
   }
 
-  for (let index = providerIdRenames.length - 1; index >= 0; index -= 1) {
-    const {
-      oldId: oldProviderId,
-      oldRawId: oldRawProviderId,
-      newId: newProviderId,
-    } = providerIdRenames[index]
+  const rawProviderSecretIdsToDelete = new Set()
+  const builtinProviderSecretIdsToDelete = new Map()
+  for (const {
+    oldId: oldProviderId,
+    oldRawId: oldRawProviderId,
+    newId: newProviderId,
+  } of providerIdRenames) {
     if (oldProviderId === newProviderId) continue
     if (!legacyCustomProviderIds.has(oldProviderId)) continue
-    const hasRawIdSecret = Object.hasOwn(providerSecrets, oldRawProviderId)
-    const hasNormalizedIdSecret = Object.hasOwn(providerSecrets, oldProviderId)
+    const hasRawIdSecret = Object.hasOwn(providerSecretSnapshot, oldRawProviderId)
+    const hasNormalizedIdSecret = Object.hasOwn(providerSecretSnapshot, oldProviderId)
+    const hasDistinctRawId = oldRawProviderId !== oldProviderId
     const usesBuiltinSecretSlot = builtinProviderIds.has(oldProviderId)
-    if (usesBuiltinSecretSlot && !hasRawIdSecret) continue
-    if (!usesBuiltinSecretSlot && !hasRawIdSecret && !hasNormalizedIdSecret) continue
-    const rawIdSecret = hasRawIdSecret ? providerSecrets[oldRawProviderId] : undefined
-    const normalizedIdSecret = hasNormalizedIdSecret ? providerSecrets[oldProviderId] : undefined
-    const oldSecret = usesBuiltinSecretSlot
-      ? rawIdSecret
-      : hasRawIdSecret && rawIdSecret !== ''
-      ? rawIdSecret
-      : hasNormalizedIdSecret
-      ? normalizedIdSecret
-      : rawIdSecret
+    const isPendingBuiltinProviderIdMigration =
+      usesBuiltinSecretSlot && pendingBuiltinProviderIdMigrations.has(oldProviderId)
+    const hasMultipleProviderIdRenames =
+      normalizedProviderResults.filter(({ originalId }) => originalId === oldProviderId).length > 1
+    const hasUniqueCanonicalRawIdOwner =
+      normalizedProviderResults.filter(
+        ({ originalId, originalRawId }) =>
+          originalId === oldProviderId && originalRawId === oldProviderId,
+      ).length === 1
+    const rawIdSecret = hasRawIdSecret ? providerSecretSnapshot[oldRawProviderId] : undefined
+    const normalizedIdSecret = hasNormalizedIdSecret
+      ? providerSecretSnapshot[oldProviderId]
+      : undefined
+    const rawSecretValue = normalizeText(rawIdSecret)
+    const normalizedSecretValue = normalizeText(normalizedIdSecret)
+    const builtinLegacyKey = LEGACY_API_KEY_FIELD_BY_PROVIDER_ID[oldProviderId]
+    const builtinLegacySecret = builtinLegacyKey ? normalizeText(migrated[builtinLegacyKey]) : ''
+    const normalizedSecretBelongsToBuiltin =
+      isPendingBuiltinProviderIdMigration &&
+      builtinLegacySecret &&
+      builtinLegacySecret === normalizeText(normalizedIdSecret)
+    if (hasDistinctRawId && hasRawIdSecret && !unchangedProviderIds.has(oldProviderId)) {
+      rawProviderSecretIdsToDelete.add(oldRawProviderId)
+    }
     if (
-      !Object.hasOwn(providerSecrets, newProviderId) ||
-      providerSecrets[newProviderId] !== oldSecret
+      !usesBuiltinSecretSlot &&
+      hasMultipleProviderIdRenames &&
+      hasUniqueCanonicalRawIdOwner &&
+      !hasDistinctRawId &&
+      hasRawIdSecret
+    ) {
+      rawProviderSecretIdsToDelete.add(oldProviderId)
+    }
+    let hasOldSecret = false
+    let oldSecret
+    let usesNormalizedBuiltinSecretSlot = false
+    if (
+      hasDistinctRawId &&
+      hasRawIdSecret &&
+      (hasMultipleProviderIdRenames ||
+        !isPendingBuiltinProviderIdMigration ||
+        !hasNormalizedIdSecret ||
+        normalizedSecretBelongsToBuiltin ||
+        rawSecretValue)
+    ) {
+      hasOldSecret = true
+      oldSecret =
+        !usesBuiltinSecretSlot && rawIdSecret === '' && hasNormalizedIdSecret
+          ? normalizedIdSecret
+          : rawIdSecret
+    } else if (
+      isPendingBuiltinProviderIdMigration &&
+      hasNormalizedIdSecret &&
+      !normalizedSecretBelongsToBuiltin &&
+      (!hasMultipleProviderIdRenames || !hasUniqueCanonicalRawIdOwner || !hasDistinctRawId) &&
+      (normalizedSecretValue || !rawSecretValue)
+    ) {
+      hasOldSecret = true
+      oldSecret = normalizedIdSecret
+      usesNormalizedBuiltinSecretSlot = true
+    } else if (
+      !usesBuiltinSecretSlot &&
+      (!hasMultipleProviderIdRenames || !hasDistinctRawId) &&
+      (hasRawIdSecret || hasNormalizedIdSecret)
+    ) {
+      hasOldSecret = true
+      oldSecret =
+        hasRawIdSecret && rawIdSecret !== ''
+          ? rawIdSecret
+          : hasNormalizedIdSecret
+          ? normalizedIdSecret
+          : rawIdSecret
+    }
+    if (
+      hasOldSecret &&
+      (!Object.hasOwn(providerSecrets, newProviderId) ||
+        providerSecrets[newProviderId] !== oldSecret)
     ) {
       providerSecrets[newProviderId] = oldSecret
       dirty = true
     }
-    if (hasRawIdSecret && oldRawProviderId !== oldProviderId) {
-      delete providerSecrets[oldRawProviderId]
+    if (
+      usesNormalizedBuiltinSecretSlot ||
+      (isPendingBuiltinProviderIdMigration &&
+        hasNormalizedIdSecret &&
+        !normalizedSecretBelongsToBuiltin &&
+        !normalizedSecretValue &&
+        rawSecretValue)
+    ) {
+      builtinProviderSecretIdsToDelete.set(oldProviderId, normalizedIdSecret)
+    }
+  }
+  for (const providerId of rawProviderSecretIdsToDelete) {
+    if (Object.hasOwn(providerSecrets, providerId)) {
+      delete providerSecrets[providerId]
       dirty = true
     }
+  }
+  for (const [providerId, migratedCustomSecret] of builtinProviderSecretIdsToDelete) {
+    const legacyKey = LEGACY_API_KEY_FIELD_BY_PROVIDER_ID[providerId]
+    const builtinLegacySecret = legacyKey ? normalizeText(migrated[legacyKey]) : ''
+    if (builtinLegacySecret && builtinLegacySecret !== normalizeText(migratedCustomSecret)) {
+      if (providerSecrets[providerId] !== builtinLegacySecret) {
+        providerSecrets[providerId] = builtinLegacySecret
+        dirty = true
+      }
+      continue
+    }
+    if (Object.hasOwn(providerSecrets, providerId)) {
+      delete providerSecrets[providerId]
+      dirty = true
+    }
+    if (legacyKey && normalizeText(migrated[legacyKey])) {
+      migrated[legacyKey] = ''
+      dirty = true
+    }
+  }
+  for (const providerId of NEWLY_RESERVED_BUILTIN_PROVIDER_IDS) {
+    completedBuiltinProviderIdMigrations.add(providerId)
+  }
+  const completedBuiltinProviderIdMigrationList = [...completedBuiltinProviderIdMigrations]
+  if (
+    JSON.stringify(migrated.completedBuiltinProviderIdMigrations) !==
+    JSON.stringify(completedBuiltinProviderIdMigrationList)
+  ) {
+    migrated.completedBuiltinProviderIdMigrations = completedBuiltinProviderIdMigrationList
+    dirty = true
   }
 
   const activeCustomProviderIds = new Set(
@@ -1122,11 +1548,25 @@ function migrateUserConfig(options) {
     const rawProviderId = normalizeText(originalRawId)
     const normalizedProviderId = normalizeText(provider?.id)
     if (!rawProviderId || !normalizedProviderId || rawProviderId === normalizedProviderId) continue
+    if (builtinProviderIds.has(normalizeProviderId(rawProviderId))) continue
     if (!Object.hasOwn(providerSecrets, rawProviderId)) continue
-    const rawSecret = providerSecrets[rawProviderId]
+    const snapshotHasRawSecret = Object.hasOwn(providerSecretSnapshot, rawProviderId)
+    const snapshotRawSecret = snapshotHasRawSecret
+      ? providerSecretSnapshot[rawProviderId]
+      : undefined
+    const hasCanonicalProviderIdCollision =
+      normalizedProviderResults.filter(
+        ({ originalId }) => originalId === normalizeProviderId(rawProviderId),
+      ).length > 1
+    if (hasCanonicalProviderIdCollision && !snapshotHasRawSecret) continue
+    const shouldPreferDistinctRawSecret =
+      snapshotHasRawSecret && snapshotRawSecret !== '' && hasCanonicalProviderIdCollision
+    const rawSecret = shouldPreferDistinctRawSecret
+      ? snapshotRawSecret
+      : providerSecrets[rawProviderId]
     const shouldPreserveRawSecretSlot =
       builtinProviderIds.has(rawProviderId) || activeCustomProviderIds.has(rawProviderId)
-    if (!Object.hasOwn(providerSecrets, normalizedProviderId)) {
+    if (shouldPreferDistinctRawSecret || !Object.hasOwn(providerSecrets, normalizedProviderId)) {
       providerSecrets[normalizedProviderId] = rawSecret
       dirty = true
     }
@@ -1136,7 +1576,7 @@ function migrateUserConfig(options) {
     }
   }
 
-  const customApiModes = Array.isArray(migrated.customApiModes)
+  let customApiModes = Array.isArray(migrated.customApiModes)
     ? migrated.customApiModes.map((apiMode) => canonicalizeApiMode({ ...apiMode }))
     : []
   if (!Array.isArray(migrated.customApiModes)) dirty = true
@@ -1147,6 +1587,7 @@ function migrateUserConfig(options) {
     JSON.stringify(customApiModes) !== JSON.stringify(migrated.customApiModes)
   let customProvidersDirty = false
   const migratedCustomModeProviderIds = new Map()
+  const migratedCustomModeProviderIdsByCanonicalSignature = new Map()
   const pendingLegacyCustomUrlProviderSecretBackfillIds = new Set()
   const getLegacyCustomProviderSecret = () =>
     normalizeText(providerSecrets['legacy-custom-default'])
@@ -1180,13 +1621,20 @@ function migrateUserConfig(options) {
       }
     }
   }
-  const getCustomModeMigrationSignature = (apiMode) =>
+  const getCustomModeMigrationSignature = (apiMode, includeRawProviderId = true) =>
     JSON.stringify({
       groupName: normalizeText(apiMode?.groupName),
       itemName: normalizeText(apiMode?.itemName),
       isCustom: Boolean(apiMode?.isCustom),
       customName: normalizeText(apiMode?.customName),
       customUrl: normalizeEndpointUrlForCompare(normalizeText(apiMode?.customUrl)),
+      ...(includeRawProviderId
+        ? {
+            providerIdRaw: normalizeText(
+              typeof apiMode?.providerId === 'string' ? apiMode.providerId : '',
+            ),
+          }
+        : {}),
       providerId: normalizeProviderId(
         typeof apiMode?.providerId === 'string' ? apiMode.providerId : '',
       ),
@@ -1212,11 +1660,21 @@ function migrateUserConfig(options) {
       `custom-provider-${customProviderCounter}`
     const providerId = ensureUniqueProviderId(providerIdSet, preferredId)
     providerIdSet.add(providerId)
+    const legacyProviderIds = getLegacyProviderIds(
+      [
+        ...(Array.isArray(sourceProvider?.legacyProviderIds)
+          ? sourceProvider.legacyProviderIds
+          : []),
+        ...(targetProviderId === 'legacy-custom-default' ? [] : [targetProviderId]),
+      ],
+      providerId,
+    )
     const provider = sourceProvider
       ? {
           ...sourceProvider,
           id: providerId,
           name: providerName,
+          ...(legacyProviderIds.length > 0 ? { legacyProviderIds } : {}),
         }
       : {
           id: providerId,
@@ -1229,6 +1687,7 @@ function migrateUserConfig(options) {
           completionsUrl: '',
           enabled: true,
           allowLegacyResponseField: true,
+          ...(legacyProviderIds.length > 0 ? { legacyProviderIds } : {}),
         }
     customOpenAIProviders.push(provider)
     customProvidersDirty = true
@@ -1236,7 +1695,12 @@ function migrateUserConfig(options) {
     return providerId
   }
   const promoteCustomModeApiKeyToProvider = (apiMode, apiModeKey) => {
-    const targetProviderId = normalizeText(apiMode.providerId) || 'legacy-custom-default'
+    const targetProviderId = normalizeProviderId(apiMode.providerId) || 'legacy-custom-default'
+    const targetsUnresolvedReservedBuiltin =
+      NEWLY_RESERVED_BUILTIN_PROVIDER_IDS.has(targetProviderId) &&
+      !customOpenAIProviders.some((provider) => provider.id === targetProviderId)
+    if (targetsUnresolvedReservedBuiltin) return ''
+
     const existingProviderSecret = normalizeText(providerSecrets[targetProviderId])
     if (!hasOwnProviderSecret(targetProviderId)) {
       providerSecrets[targetProviderId] = apiModeKey
@@ -1279,6 +1743,7 @@ function migrateUserConfig(options) {
     }
 
     const originalCustomModeSignature = getCustomModeMigrationSignature(apiMode)
+    const originalCanonicalCustomModeSignature = getCustomModeMigrationSignature(apiMode, false)
     const existingProviderIdRaw = typeof apiMode.providerId === 'string' ? apiMode.providerId : ''
     const existingProviderId = normalizeProviderId(existingProviderIdRaw)
     if (existingProviderId && existingProviderIdRaw !== existingProviderId) {
@@ -1286,9 +1751,14 @@ function migrateUserConfig(options) {
       customApiModesDirty = true
     }
     let providerIdAssignedFromLegacyCustomUrl = false
-    const renamedProviderId = providerIdRenameLookup.get(existingProviderId)
+    const renamedProviderId = resolveRenamedProviderId(
+      existingProviderId,
+      existingProviderIdRaw,
+      apiMode.customUrl,
+    )
     if (renamedProviderId && normalizeText(apiMode.providerId) !== renamedProviderId) {
       apiMode.providerId = renamedProviderId
+      addLegacyProviderId(apiMode, existingProviderId)
       customApiModesDirty = true
     }
 
@@ -1337,15 +1807,19 @@ function migrateUserConfig(options) {
     const apiModeKey = normalizeText(apiMode.apiKey)
     if (apiModeKey) {
       const promotedProviderId = promoteCustomModeApiKeyToProvider(apiMode, apiModeKey)
-      if (normalizeText(apiMode.providerId) !== promotedProviderId) {
-        apiMode.providerId = promotedProviderId
-        customApiModesDirty = true
-      }
-      if (normalizeText(apiMode.apiKey)) {
-        // Mode-level custom keys are treated as legacy data; after migration,
-        // providerSecrets is the single source of truth.
-        apiMode.apiKey = ''
-        customApiModesDirty = true
+      if (promotedProviderId) {
+        if (normalizeText(apiMode.providerId) !== promotedProviderId) {
+          const previousProviderId = apiMode.providerId
+          apiMode.providerId = promotedProviderId
+          addLegacyProviderId(apiMode, previousProviderId)
+          customApiModesDirty = true
+        }
+        if (normalizeText(apiMode.apiKey)) {
+          // Mode-level custom keys are treated as legacy data; after migration,
+          // providerSecrets is the single source of truth.
+          apiMode.apiKey = ''
+          customApiModesDirty = true
+        }
       }
     } else if (providerIdAssignedFromLegacyCustomUrl) {
       queueLegacyCustomUrlProviderSecretBackfill(apiMode.providerId)
@@ -1355,6 +1829,24 @@ function migrateUserConfig(options) {
       originalCustomModeSignature,
       normalizeText(apiMode.providerId),
     )
+    const migratedProviderId = normalizeText(apiMode.providerId)
+    if (
+      !migratedCustomModeProviderIdsByCanonicalSignature.has(originalCanonicalCustomModeSignature)
+    ) {
+      migratedCustomModeProviderIdsByCanonicalSignature.set(
+        originalCanonicalCustomModeSignature,
+        migratedProviderId,
+      )
+    } else if (
+      migratedCustomModeProviderIdsByCanonicalSignature.get(
+        originalCanonicalCustomModeSignature,
+      ) !== migratedProviderId
+    ) {
+      migratedCustomModeProviderIdsByCanonicalSignature.set(
+        originalCanonicalCustomModeSignature,
+        '',
+      )
+    }
   }
   backfillPendingLegacyCustomUrlProviderSecrets()
 
@@ -1366,6 +1858,14 @@ function migrateUserConfig(options) {
     const originalSelectedCustomModeSignature = selectedIsCustom
       ? getCustomModeMigrationSignature(selectedApiMode)
       : ''
+    const originalSelectedCanonicalCustomModeSignature = selectedIsCustom
+      ? getCustomModeMigrationSignature(selectedApiMode, false)
+      : ''
+    const originalSelectedCanonicalProviderId = selectedIsCustom
+      ? normalizeProviderId(selectedApiMode.providerId)
+      : ''
+    const selectedCanonicalProviderIdHasCollision =
+      selectedIsCustom && hasCanonicalProviderIdCollision(originalSelectedCanonicalProviderId)
 
     if (selectedIsCustom) {
       const existingSelectedProviderIdRaw =
@@ -1378,22 +1878,37 @@ function migrateUserConfig(options) {
         selectedApiMode.providerId = existingSelectedProviderId
         selectedApiModeDirty = true
       }
-      const renamedSelectedProviderId = providerIdRenameLookup.get(existingSelectedProviderId)
+      const renamedSelectedProviderId = resolveRenamedProviderId(
+        existingSelectedProviderId,
+        existingSelectedProviderIdRaw,
+        selectedApiMode.customUrl,
+      )
       if (
         renamedSelectedProviderId &&
         normalizeText(selectedApiMode.providerId) !== renamedSelectedProviderId
       ) {
         selectedApiMode.providerId = renamedSelectedProviderId
+        addLegacyProviderId(selectedApiMode, existingSelectedProviderId)
         selectedApiModeDirty = true
       }
     }
 
     if (selectedIsCustom) {
-      const migratedProviderId = migratedCustomModeProviderIds.get(
+      const exactMigratedProviderId = migratedCustomModeProviderIds.get(
         originalSelectedCustomModeSignature,
       )
+      const migratedProviderId =
+        exactMigratedProviderId ||
+        (!selectedCanonicalProviderIdHasCollision &&
+        normalizeText(selectedApiMode.providerId) === originalSelectedCanonicalProviderId
+          ? migratedCustomModeProviderIdsByCanonicalSignature.get(
+              originalSelectedCanonicalCustomModeSignature,
+            )
+          : '')
       if (migratedProviderId && normalizeText(selectedApiMode.providerId) !== migratedProviderId) {
+        const previousSelectedProviderId = selectedApiMode.providerId
         selectedApiMode.providerId = migratedProviderId
+        addLegacyProviderId(selectedApiMode, previousSelectedProviderId)
         selectedApiModeDirty = true
       }
     }
@@ -1461,30 +1976,31 @@ function migrateUserConfig(options) {
       const migratedProviderId = selectedIsCustom
         ? migratedCustomModeProviderIds.get(originalSelectedCustomModeSignature)
         : ''
-      if (migratedProviderId) {
-        if (normalizeText(selectedApiMode.providerId) !== migratedProviderId) {
-          selectedApiMode.providerId = migratedProviderId
-          selectedApiModeDirty = true
+      if (migratedProviderId && normalizeText(selectedApiMode.providerId) !== migratedProviderId) {
+        const previousSelectedProviderId = selectedApiMode.providerId
+        selectedApiMode.providerId = migratedProviderId
+        addLegacyProviderId(selectedApiMode, previousSelectedProviderId)
+        selectedApiModeDirty = true
+      }
+      const targetProviderId = selectedIsCustom
+        ? promoteCustomModeApiKeyToProvider(selectedApiMode, selectedApiModeKey)
+        : API_MODE_GROUP_TO_PROVIDER_ID[normalizeText(selectedApiMode.groupName)] ||
+          normalizeText(selectedApiMode.providerId)
+      if (targetProviderId && normalizeText(selectedApiMode.providerId) !== targetProviderId) {
+        const previousSelectedProviderId = selectedApiMode.providerId
+        selectedApiMode.providerId = targetProviderId
+        if (selectedIsCustom) {
+          addLegacyProviderId(selectedApiMode, previousSelectedProviderId)
         }
+        selectedApiModeDirty = true
+      }
+      if (targetProviderId && !selectedIsCustom && !hasOwnProviderSecret(targetProviderId)) {
+        providerSecrets[targetProviderId] = selectedApiModeKey
+        dirty = true
+      }
+      if (targetProviderId) {
         selectedApiMode.apiKey = ''
         selectedApiModeDirty = true
-      } else {
-        const targetProviderId = selectedIsCustom
-          ? promoteCustomModeApiKeyToProvider(selectedApiMode, selectedApiModeKey)
-          : API_MODE_GROUP_TO_PROVIDER_ID[normalizeText(selectedApiMode.groupName)] ||
-            normalizeText(selectedApiMode.providerId)
-        if (targetProviderId && normalizeText(selectedApiMode.providerId) !== targetProviderId) {
-          selectedApiMode.providerId = targetProviderId
-          selectedApiModeDirty = true
-        }
-        if (targetProviderId && !selectedIsCustom && !hasOwnProviderSecret(targetProviderId)) {
-          providerSecrets[targetProviderId] = selectedApiModeKey
-          dirty = true
-        }
-        if (targetProviderId) {
-          selectedApiMode.apiKey = ''
-          selectedApiModeDirty = true
-        }
       }
     }
     backfillPendingLegacyCustomUrlProviderSecrets()
@@ -1498,6 +2014,101 @@ function migrateUserConfig(options) {
       migrated.apiMode = selectedApiMode
       dirty = true
     }
+  }
+
+  const currentDefaultIds = canonicalizeModelKeyArray([...defaultApiModeIds])
+  const migrationConfig = {
+    ...defaultConfig,
+    ...migrated,
+    customApiModes,
+    customOpenAIProviders,
+    providerSecrets,
+  }
+  const configuredCustomApiModes = getApiModesFromConfig(
+    {
+      ...migrationConfig,
+      activeApiModes: [],
+    },
+    false,
+  )
+  const hasStoredActiveApiModes = Array.isArray(migrated.activeApiModes)
+  const rawKnownApiModeDefaultIds = migrated.knownApiModeDefaultIds
+  const hasCurrentBaseline =
+    Number(migrated.configSchemaVersion) >= 2 &&
+    Array.isArray(rawKnownApiModeDefaultIds) &&
+    (currentDefaultIds.length === 0 || rawKnownApiModeDefaultIds.length > 0) &&
+    rawKnownApiModeDefaultIds.every(
+      (modelName) => typeof modelName === 'string' && Boolean(modelName.trim()),
+    )
+  const isLiveDefaultProfile =
+    !hasStoredActiveApiModes && !hasCurrentBaseline && configuredCustomApiModes.length === 0
+
+  if (isLiveDefaultProfile) {
+    if (Object.hasOwn(options, 'activeApiModes')) {
+      delete migrated.activeApiModes
+      storageKeysToRemove.push('activeApiModes')
+      dirty = true
+    }
+    if (Object.hasOwn(options, 'knownApiModeDefaultIds')) {
+      delete migrated.knownApiModeDefaultIds
+      storageKeysToRemove.push('knownApiModeDefaultIds')
+      dirty = true
+    }
+  } else {
+    const activeApiModesForMaterialization = hasStoredActiveApiModes
+      ? migrated.activeApiModes
+      : hasCurrentBaseline
+      ? []
+      : [...currentDefaultIds]
+
+    if (!hasStoredActiveApiModes && hasCurrentBaseline) {
+      migrated.activeApiModes = []
+      dirty = true
+    }
+
+    if (!hasCurrentBaseline || activeApiModesForMaterialization.length > 0) {
+      customApiModes = getApiModesFromConfig(
+        {
+          ...migrationConfig,
+          activeApiModes: activeApiModesForMaterialization,
+          customApiModes,
+        },
+        false,
+      )
+      migrated.activeApiModes = []
+      dirty = true
+    }
+
+    let knownApiModeDefaultIds = hasCurrentBaseline
+      ? canonicalizeModelKeyArray(
+          migrated.knownApiModeDefaultIds
+            .filter((modelName) => typeof modelName === 'string')
+            .map((modelName) => modelName.trim())
+            .filter(Boolean),
+        )
+      : currentDefaultIds
+
+    if (hasCurrentBaseline) {
+      const reconciled = reconcileMaterializedApiModeDefaults(
+        {
+          ...migrationConfig,
+          activeApiModes: [],
+          customApiModes,
+        },
+        currentDefaultIds,
+        knownApiModeDefaultIds,
+      )
+      customApiModes = reconciled.customApiModes
+      knownApiModeDefaultIds = reconciled.knownApiModeDefaultIds
+      if (reconciled.changed) dirty = true
+    }
+
+    if (
+      JSON.stringify(migrated.knownApiModeDefaultIds) !== JSON.stringify(knownApiModeDefaultIds)
+    ) {
+      dirty = true
+    }
+    migrated.knownApiModeDefaultIds = knownApiModeDefaultIds
   }
 
   if (customProvidersDirty) dirty = true
@@ -1526,7 +2137,7 @@ function migrateUserConfig(options) {
     }
   }
 
-  return { migrated, dirty }
+  return { migrated, dirty, storageKeysToRemove }
 }
 
 /**
@@ -1571,17 +2182,43 @@ export async function getUserConfig() {
     }
   }
 
-  const { migrated, dirty } = migrateUserConfig(options)
-  if (dirty) {
+  const { migrated, dirty, storageKeysToRemove } = migrateUserConfig(options)
+  const hasStoredPreferredLanguage = Object.hasOwn(options, 'preferredLanguage')
+  const hasStoredUserLanguage = Object.hasOwn(options, 'userLanguage')
+  const userLanguage = getNavigatorLanguage()
+  const preferredLanguage = resolvePreferredLanguageKey(migrated.preferredLanguage, userLanguage)
+  const languageConfigDirty =
+    (hasStoredPreferredLanguage && options.preferredLanguage !== preferredLanguage) ||
+    (hasStoredUserLanguage && options.userLanguage !== userLanguage)
+  migrated.preferredLanguage = preferredLanguage
+  migrated.userLanguage = userLanguage
+
+  if (dirty || languageConfigDirty) {
     const payload = {}
+    if (hasStoredPreferredLanguage && options.preferredLanguage !== migrated.preferredLanguage) {
+      payload.preferredLanguage = migrated.preferredLanguage
+    }
+    if (hasStoredUserLanguage && options.userLanguage !== migrated.userLanguage) {
+      payload.userLanguage = migrated.userLanguage
+    }
     if (JSON.stringify(options.customApiModes) !== JSON.stringify(migrated.customApiModes)) {
       payload.customApiModes = migrated.customApiModes
     }
     if (options.modelName !== migrated.modelName) {
       payload.modelName = migrated.modelName
     }
-    if (JSON.stringify(options.activeApiModes) !== JSON.stringify(migrated.activeApiModes)) {
+    if (
+      Object.hasOwn(migrated, 'activeApiModes') &&
+      JSON.stringify(options.activeApiModes) !== JSON.stringify(migrated.activeApiModes)
+    ) {
       payload.activeApiModes = migrated.activeApiModes
+    }
+    if (
+      Object.hasOwn(migrated, 'knownApiModeDefaultIds') &&
+      JSON.stringify(options.knownApiModeDefaultIds) !==
+        JSON.stringify(migrated.knownApiModeDefaultIds)
+    ) {
+      payload.knownApiModeDefaultIds = migrated.knownApiModeDefaultIds
     }
     if (
       JSON.stringify(options.customOpenAIProviders) !==
@@ -1594,6 +2231,12 @@ export async function getUserConfig() {
     }
     if (options.configSchemaVersion !== migrated.configSchemaVersion) {
       payload.configSchemaVersion = migrated.configSchemaVersion
+    }
+    if (
+      JSON.stringify(options.completedBuiltinProviderIdMigrations) !==
+      JSON.stringify(migrated.completedBuiltinProviderIdMigrations)
+    ) {
+      payload.completedBuiltinProviderIdMigrations = migrated.completedBuiltinProviderIdMigrations
     }
     if (migrated.customChatGptWebApiUrl !== undefined) {
       if (options.customChatGptWebApiUrl !== migrated.customChatGptWebApiUrl) {
@@ -1612,8 +2255,19 @@ export async function getUserConfig() {
         }
       }
     }
+    let payloadPersisted = true
     if (Object.keys(payload).length > 0) {
-      await Browser.storage.local.set(payload).catch(() => {})
+      payloadPersisted = await Browser.storage.local
+        .set(payload)
+        .then(() => true)
+        .catch(() => false)
+    }
+    if (payloadPersisted && storageKeysToRemove.length > 0) {
+      try {
+        await Browser.storage.local.remove(storageKeysToRemove)
+      } catch {
+        // Invalid live-default sentinels remain non-authoritative and are retried on the next read.
+      }
     }
   }
   return defaults(migrated, defaultConfig)

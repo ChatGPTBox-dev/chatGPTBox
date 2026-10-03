@@ -48,7 +48,7 @@ Production build creates multiple variants in `build/` directory:
 - Distribution artifacts:
   - Chromium: `build/chromium.zip`
   - Firefox: `build/firefox.zip`
-  - Safari: `Fission - ChatBox.app` and `safari.dmg` (see Safari Build section for details)
+  - Safari: `ChatGPTBox.app` and `safari.dmg` (see Safari Build section for details)
 
 ## Architecture Overview
 
@@ -193,8 +193,8 @@ src/
 ### Safari Build (macOS Only)
 
 - Run `npm run build:safari` (requires macOS with Xcode installed)
-- Creates `Fission - ChatBox.app` bundle and `safari.dmg` installer
-- Uses `safari/build.sh` script with platform-specific patches
+- Creates `ChatGPTBox.app` bundle and `safari.dmg` installer
+- Uses `safari/build.sh` script with platform-specific build settings
 
 ### Cross-Browser Compatibility
 
@@ -209,7 +209,8 @@ src/
 ## Localization
 
 - Source of truth: `src/_locales/en/main.json`; do not change existing keys (only add new ones)
-- Add new strings to `en/main.json` first, then propagate to other locales
+- Add new source strings to `en/main.json` first and translate user-facing text in other locales as appropriate
+- Do not duplicate unchanged model or provider labels across non-English locales; rely on the English fallback unless the displayed text requires localization
 - Register new locales in `src/_locales/resources.mjs`
 - Preserve placeholders and product names; keep punctuation/quotes intact
 - For Traditional Chinese (Taiwan), use `src/_locales/zh-hant/main.json` and avoid zh‑CN terms
@@ -218,7 +219,7 @@ src/
 
 The extension supports multiple AI providers:
 
-- **Web (cookie-based)**: ChatGPT (Web), Claude (Web), Kimi.Moonshot (Web), Bing (Web), Bard (Web), Poe (Web)
+- **Web (cookie-based)**: ChatGPT (Web), Claude (Web), Kimi.Moonshot (Web), Bing (Web), Bard (Web)
 - **APIs (key-based)**: OpenAI (API), Azure OpenAI (API), Anthropic (Claude API), OpenRouter (API), AI/ML (API), DeepSeek (API), Ollama (local), ChatGLM (API), Waylaidwanderer (API), Kimi.Moonshot (API)
 - **Custom/self-hosted**: Alternative endpoints and self-hosted backends
 

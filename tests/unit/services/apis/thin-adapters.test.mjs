@@ -43,11 +43,28 @@ const adapters = [
     expectedApiKey: 'ds-key',
   },
   {
+    name: 'nvidia-nim-api',
+    apiMode: {
+      groupName: 'nvidiaNimApiModelKeys',
+      itemName: 'nvidiaNim_nemotron_3_super',
+    },
+    providerId: 'nvidia-nim',
+    expectedBaseUrl: 'https://integrate.api.nvidia.com/v1',
+    expectedApiKey: 'nv-key',
+  },
+  {
     name: 'moonshot-api',
     apiMode: { groupName: 'moonshotApiModelKeys', itemName: 'moonshot_kimi_latest' },
     providerId: 'moonshot',
     expectedBaseUrl: 'https://api.moonshot.cn/v1',
     expectedApiKey: 'ms-key',
+  },
+  {
+    name: 'mistral-api',
+    apiMode: { groupName: 'mistralApiModelKeys', itemName: 'mistralMediumLatest' },
+    providerId: 'mistral',
+    expectedBaseUrl: 'https://api.mistral.ai/v1',
+    expectedApiKey: 'mistral-key',
   },
   {
     name: 'openrouter-api',
@@ -62,6 +79,13 @@ const adapters = [
     providerId: 'chatglm',
     expectedBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     expectedApiKey: 'glm-key',
+  },
+  {
+    name: 'xai-api',
+    apiMode: { groupName: 'xaiApiModelKeys', itemName: 'xaiGrok4_5' },
+    providerId: 'xai',
+    expectedBaseUrl: 'https://api.x.ai/v1',
+    expectedApiKey: 'xai-key',
   },
 ]
 

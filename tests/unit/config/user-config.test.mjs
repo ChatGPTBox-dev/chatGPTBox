@@ -263,3 +263,24 @@ test('clearOldAccessToken keeps token when exactly 30 days old', async (t) => {
   assert.equal(storage.accessToken, 'boundary-token')
   assert.equal(storage.tokenSavedOn, savedOn)
 })
+
+test('getUserConfig keeps a stored temperature but leaves overrides disabled by default', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({ temperature: 0.7 })
+
+  const config = await getUserConfig()
+
+  assert.equal(config.temperature, 0.7)
+  assert.equal(config.temperatureOverrideEnabled, false)
+})
+
+test('getUserConfig preserves an explicitly enabled temperature override', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    temperatureOverrideEnabled: true,
+    temperature: 0.7,
+  })
+
+  const config = await getUserConfig()
+
+  assert.equal(config.temperature, 0.7)
+  assert.equal(config.temperatureOverrideEnabled, true)
+})

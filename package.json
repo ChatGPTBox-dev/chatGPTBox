@@ -8,11 +8,12 @@
     "build:safari": "bash ./safari/build.sh",
     "dev": "node build.mjs --development",
     "analyze": "node build.mjs --analyze",
-    "lint": "eslint --ext .js,.mjs,.jsx .",
+    "lint": "eslint --ext .js,.mjs,.jsx . .github/workflows/scripts",
     "test": "node --import ./tests/setup/browser-shim.mjs --test",
     "test:coverage": "c8 --all --reporter=text --reporter=lcov --reporter=json-summary --include=\"src/**/*.{mjs,jsx,js}\" node --import ./tests/setup/browser-shim.mjs --test",
-    "lint:fix": "eslint --ext .js,.mjs,.jsx . --fix",
-    "pretty": "prettier --write ./**/*.{js,mjs,jsx,json,css,scss}",
+    "lint:fix": "eslint --ext .js,.mjs,.jsx . .github/workflows/scripts --fix",
+    "pretty": "prettier --write \"./**/*.{js,mjs,jsx,json,css,scss}\"",
+    "pretty:check": "prettier --check \"./**/*.{js,mjs,jsx,json,css,scss}\"",
     "stage": "run-script-os",
     "stage:default": "git add $(git diff --name-only --cached --diff-filter=d)",
     "stage:win32": "powershell git add $(git diff --name-only --cached --diff-filter=d)",
@@ -28,26 +29,27 @@
     "stage",
     "lint"
   ],
+  "overrides": {
+    "pre-commit": {
+      "cross-spawn": "7.0.6"
+    }
+  },
   "dependencies": {
     "@babel/runtime": "^7.24.7",
     "@mozilla/readability": "^0.6.0",
     "@nem035/gpt-3-encoder": "^1.1.7",
+    "@noble/hashes": "^2.2.0",
     "@picocss/pico": "^1.5.13",
     "@primer/octicons-react": "^18.3.0",
     "buffer": "^6.0.3",
     "countries-list": "^2.6.1",
-    "crypto-browserify": "^3.12.1",
-    "diff": "^5.2.2",
     "file-saver": "^2.0.5",
     "github-markdown-css": "^5.9.0",
     "gpt-3-encoder": "^1.1.4",
-    "graphql": "^16.9.0",
     "i18next": "^22.5.1",
     "js-sha3": "^0.9.3",
-    "jsonwebtoken": "9.0.2",
     "katex": "^0.16.11",
     "lodash-es": "^4.17.21",
-    "md5": "^2.3.0",
     "parse5": "^6.0.1",
     "preact": "^10.22.1",
     "process": "^0.11.10",
@@ -69,7 +71,7 @@
     "remark-math": "^5.1.1",
     "stream-browserify": "^3.0.0",
     "util": "^0.12.5",
-    "uuid": "^9.0.1",
+    "uuid": "^11.1.1",
     "webextension-polyfill": "^0.12.0"
   },
   "devDependencies": {
@@ -91,7 +93,6 @@
     "eslint": "^8.57.1",
     "eslint-plugin-react": "^7.37.5",
     "fs-extra": "^11.2.0",
-    "graphql-tag": "^2.12.6",
     "jsdom": "^28.1.0",
     "less-loader": "^11.1.4",
     "mini-css-extract-plugin": "^2.10.2",
@@ -109,5 +110,8 @@
     "thread-loader": "^4.0.4",
     "webpack": "^5.92.1",
     "webpack-bundle-analyzer": "^4.10.2"
+  },
+  "optionalDependencies": {
+    "appdmg": "0.6.6"
   }
 }

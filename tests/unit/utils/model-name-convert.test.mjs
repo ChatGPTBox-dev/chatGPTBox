@@ -15,6 +15,7 @@ import {
   modelNameToValue,
   getModelValue,
   normalizeApiMode,
+  reconcileMaterializedApiModeDefaults,
 } from '../../../src/utils/model-name-convert.mjs'
 import { ModelGroups } from '../../../src/config/index.mjs'
 
@@ -99,6 +100,195 @@ test('getApiModesFromConfig merges active and custom API modes correctly', () =>
   )
 })
 
+test('reconcileMaterializedApiModeDefaults appends unseen defaults in order', () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [existingMode],
+      azureDeploymentName: '',
+      ollamaModelName: 'llama4',
+    },
+    ['chatgptFree35', 'claude2WebFree', 'moonshotWebFree'],
+    ['chatgptFree35'],
+  )
+
+  assert.deepEqual(result.customApiModes.map(apiModeToModelName), [
+    'chatgptFree35',
+    'claude2WebFree',
+    'moonshotWebFree',
+  ])
+  assert.deepEqual(result.knownApiModeDefaultIds, [
+    'chatgptFree35',
+    'claude2WebFree',
+    'moonshotWebFree',
+  ])
+  assert.equal(result.changed, true)
+})
+
+test('reconcileMaterializedApiModeDefaults preserves an inactive equivalent row', () => {
+  const inactiveMode = { ...modelNameToApiMode('claude2WebFree'), active: false }
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [inactiveMode],
+      azureDeploymentName: '',
+      ollamaModelName: 'llama4',
+    },
+    ['claude2WebFree'],
+    [],
+  )
+
+  assert.equal(result.customApiModes.length, 1)
+  assert.equal(result.customApiModes[0].active, false)
+  assert.deepEqual(result.knownApiModeDefaultIds, ['claude2WebFree'])
+})
+
+test('reconcileMaterializedApiModeDefaults preserves exact duplicates without adding another row', () => {
+  const duplicateMode = modelNameToApiMode('chatgptFree35')
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [duplicateMode, { ...duplicateMode }],
+      azureDeploymentName: '',
+      ollamaModelName: 'llama4',
+    },
+    ['chatgptFree35'],
+    [],
+  )
+
+  assert.equal(result.customApiModes.length, 2)
+  assert.deepEqual(result.knownApiModeDefaultIds, ['chatgptFree35'])
+})
+
+test('reconcileMaterializedApiModeDefaults keeps provider variants distinct from a default row', () => {
+  const providerVariant = {
+    ...modelNameToApiMode('chatgptFree35'),
+    providerId: 'custom-provider',
+  }
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [providerVariant],
+      azureDeploymentName: '',
+      ollamaModelName: 'llama4',
+    },
+    ['chatgptFree35'],
+    [],
+  )
+
+  assert.equal(result.customApiModes.length, 2)
+  assert.equal(result.customApiModes[0].providerId, 'custom-provider')
+  assert.equal(result.customApiModes[1].providerId, '')
+})
+
+test('reconcileMaterializedApiModeDefaults is idempotent for known defaults', () => {
+  const existingMode = modelNameToApiMode('chatgptFree35')
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [existingMode],
+      azureDeploymentName: '',
+      ollamaModelName: 'llama4',
+    },
+    ['chatgptFree35'],
+    ['chatgptFree35'],
+  )
+
+  assert.deepEqual(result.customApiModes, [existingMode])
+  assert.deepEqual(result.knownApiModeDefaultIds, ['chatgptFree35'])
+  assert.equal(result.changed, false)
+})
+
+test('reconcileMaterializedApiModeDefaults resolves configured Azure and Ollama defaults', () => {
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [],
+      azureDeploymentName: 'deployment-a',
+      ollamaModelName: 'llama4',
+    },
+    ['azureOpenAi', 'ollamaModel'],
+    [],
+  )
+
+  assert.deepEqual(result.customApiModes.map(apiModeToModelName), [
+    'azureOpenAiApiModelKeys-deployment-a',
+    'ollamaApiModelKeys-llama4',
+  ])
+})
+
+test('reconcileMaterializedApiModeDefaults reuses legacy Azure and Ollama rows', () => {
+  const legacyAzureMode = {
+    ...modelNameToApiMode('azureOpenAi-deployment-a'),
+    itemName: '',
+    active: false,
+  }
+  const legacyOllamaMode = {
+    ...modelNameToApiMode('ollamaModel-llama4'),
+    itemName: '',
+    active: false,
+  }
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [legacyAzureMode, legacyOllamaMode],
+      azureDeploymentName: 'deployment-a',
+      ollamaModelName: 'llama4',
+    },
+    ['azureOpenAi', 'ollamaModel'],
+    [],
+  )
+
+  assert.deepEqual(result.customApiModes, [legacyAzureMode, legacyOllamaMode])
+  assert.deepEqual(result.knownApiModeDefaultIds, ['azureOpenAi', 'ollamaModel'])
+})
+
+test('reconcileMaterializedApiModeDefaults reuses UI-shaped Azure and Ollama rows', () => {
+  const uiAzureMode = {
+    ...modelNameToApiMode('azureOpenAi'),
+    customName: 'deployment-a',
+    active: false,
+  }
+  const uiOllamaMode = {
+    ...modelNameToApiMode('ollamaModel'),
+    customName: 'llama4',
+    active: false,
+  }
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [uiAzureMode, uiOllamaMode],
+      azureDeploymentName: 'deployment-a',
+      ollamaModelName: 'llama4',
+    },
+    ['azureOpenAi', 'ollamaModel'],
+    [],
+  )
+
+  assert.deepEqual(result.customApiModes, [uiAzureMode, uiOllamaMode])
+  assert.deepEqual(result.knownApiModeDefaultIds, ['azureOpenAi', 'ollamaModel'])
+})
+
+test('reconcileMaterializedApiModeDefaults reuses named rows with legacy item names', () => {
+  const legacyAzureMode = {
+    ...modelNameToApiMode('azureOpenAi'),
+    itemName: 'azureOpenAiApiModelKeys',
+    customName: 'deployment-a',
+    active: false,
+  }
+  const legacyOllamaMode = {
+    ...modelNameToApiMode('ollamaModel'),
+    itemName: 'ollamaApiModelKeys',
+    customName: 'llama4',
+    active: false,
+  }
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [legacyAzureMode, legacyOllamaMode],
+      azureDeploymentName: 'deployment-a',
+      ollamaModelName: 'llama4',
+    },
+    ['azureOpenAi', 'ollamaModel'],
+    [],
+  )
+
+  assert.deepEqual(result.customApiModes, [legacyAzureMode, legacyOllamaMode])
+  assert.deepEqual(result.knownApiModeDefaultIds, ['azureOpenAi', 'ollamaModel'])
+})
+
 test('getApiModesFromConfig keeps AlwaysCustomGroups modes when itemName is empty', () => {
   const config = {
     activeApiModes: ['customModel'],
@@ -127,6 +317,39 @@ test('getApiModesFromConfig keeps AlwaysCustomGroups modes when itemName is empt
     true,
   )
   assert.equal(apiModeToModelName(onlyActive[0]), 'ollamaApiModelKeys-llama3.2')
+})
+
+test('getApiModesFromConfig drops malformed non-custom custom API mode rows', () => {
+  const allModes = getApiModesFromConfig(
+    {
+      activeApiModes: [],
+      customApiModes: [
+        {
+          ...modelNameToApiMode('customModel'),
+          active: true,
+        },
+        {
+          groupName: 'azureOpenAiApiModelKeys',
+          itemName: 'wrong-azure-preset',
+          isCustom: false,
+          customName: '',
+          active: true,
+        },
+        {
+          groupName: 'ollamaApiModelKeys',
+          itemName: 'wrong-ollama-preset',
+          isCustom: false,
+          customName: '',
+          active: true,
+        },
+      ],
+      azureDeploymentName: '',
+      ollamaModelName: '',
+    },
+    false,
+  )
+
+  assert.deepEqual(allModes, [])
 })
 
 test('getApiModesFromConfig drops nameless Azure row instead of hiding the legacy active mode', () => {
@@ -199,6 +422,53 @@ test('getApiModesFromConfig drops nameless Ollama row instead of hiding the lega
     onlyActive.some((mode) => mode.itemName === 'ollamaModel'),
     true,
   )
+})
+
+test('getApiModesFromConfig keeps nameless built-in Azure and Ollama preset rows', () => {
+  const config = {
+    activeApiModes: [],
+    customApiModes: [
+      {
+        ...modelNameToApiMode('azureOpenAi'),
+        customName: '',
+      },
+      {
+        ...modelNameToApiMode('ollamaModel'),
+        customName: '',
+      },
+    ],
+    azureDeploymentName: '',
+    ollamaModelName: '',
+  }
+
+  const allModes = getApiModesFromConfig(config, false)
+
+  assert.equal(
+    allModes.some((mode) => mode.itemName === 'azureOpenAi'),
+    true,
+  )
+  assert.equal(
+    allModes.some((mode) => mode.itemName === 'ollamaModel'),
+    true,
+  )
+})
+
+test('reconcileMaterializedApiModeDefaults tolerates a non-string custom name', () => {
+  const result = reconcileMaterializedApiModeDefaults(
+    {
+      customApiModes: [
+        {
+          ...modelNameToApiMode('chatgptFree35'),
+          customName: 1,
+        },
+      ],
+    },
+    ['claude2WebFree'],
+    [],
+  )
+
+  assert.equal(result.customApiModes.length, 2)
+  assert.deepEqual(result.knownApiModeDefaultIds, ['claude2WebFree'])
 })
 
 test('getApiModesFromConfig deduplicates migrated Ollama legacy row against kept AlwaysCustomGroups mode', () => {
@@ -508,7 +778,7 @@ test('modelNameToDesc returns desc for a known model name without t function', (
   assert.equal(desc, 'ChatGPT (Web)')
 })
 
-test('modelNameToDesc returns desc for GPT-5 stable presets', () => {
+test('modelNameToDesc returns desc for stable GPT API presets', () => {
   assert.equal(modelNameToDesc('chatgptApi5'), 'OpenAI (GPT-5)')
   assert.equal(modelNameToDesc('chatgptApi5_1'), 'OpenAI (GPT-5.1)')
   assert.equal(modelNameToDesc('chatgptApi5_2'), 'OpenAI (GPT-5.2)')
@@ -516,6 +786,13 @@ test('modelNameToDesc returns desc for GPT-5 stable presets', () => {
   assert.equal(modelNameToDesc('chatgptApi5_4Mini'), 'OpenAI (GPT-5.4 mini)')
   assert.equal(modelNameToDesc('chatgptApi5_4Nano'), 'OpenAI (GPT-5.4 nano)')
   assert.equal(modelNameToDesc('chatgptApi5_5'), 'OpenAI (GPT-5.5)')
+  assert.equal(modelNameToDesc('chatgptApi5_6'), 'OpenAI (GPT-5.6)')
+  assert.equal(modelNameToDesc('chatgptApi5_6Sol'), 'OpenAI (GPT-5.6 Sol)')
+  assert.equal(modelNameToDesc('chatgptApi5_6Terra'), 'OpenAI (GPT-5.6 Terra)')
+  assert.equal(modelNameToDesc('chatgptApi5_6Luna'), 'OpenAI (GPT-5.6 Luna)')
+  assert.equal(modelNameToDesc('chatgptApi6Sol'), 'OpenAI (GPT-6 Sol)')
+  assert.equal(modelNameToDesc('chatgptApi6Luna'), 'OpenAI (GPT-6 Luna)')
+  assert.equal(modelNameToDesc('chatgptApi6_1Sol'), 'OpenAI (GPT-6.1 Sol)')
 })
 
 test('modelNameToDesc appends extraCustomModelName for customModel', () => {
@@ -845,6 +1122,65 @@ test('isApiModeSelected keeps provider mismatch fail-closed for non-legacy sessi
   }
 
   assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), false)
+})
+
+test('isApiModeSelected accepts a canonically equivalent session provider ID', () => {
+  const apiMode = {
+    groupName: 'customApiModelKeys',
+    itemName: 'customModel',
+    isCustom: true,
+    customName: 'proxy-model',
+    providerId: 'proxy-v1',
+    active: true,
+  }
+  const session = {
+    apiMode: {
+      ...apiMode,
+      providerId: 'Proxy_V1',
+    },
+  }
+
+  assert.equal(isApiModeSelected(apiMode, session), false)
+  assert.equal(isApiModeSelected(apiMode, session, { sessionCompat: true }), true)
+})
+
+test('getUniquelySelectedApiModeIndex disambiguates provider ID collisions by customUrl', () => {
+  const apiModes = [
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'proxy-model',
+      customUrl: 'https://current.example.com/v1/chat/completions',
+      providerId: 'legacy-provider',
+      active: true,
+    },
+    {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'proxy-model',
+      customUrl: 'https://renamed.example.com/v1/chat/completions/',
+      providerId: 'renamed-provider',
+      legacyProviderIds: ['legacy-provider'],
+      active: true,
+    },
+  ]
+  const session = {
+    apiMode: {
+      groupName: 'customApiModelKeys',
+      itemName: 'customModel',
+      isCustom: true,
+      customName: 'proxy-model',
+      customUrl: 'https://renamed.example.com/v1/chat/completions',
+      providerId: 'legacy-provider',
+      active: true,
+    },
+  }
+
+  assert.equal(getUniquelySelectedApiModeIndex(apiModes, session, { sessionCompat: true }), 1)
+  session.apiMode.customUrl = 'https://current.example.com/v1/chat/completions/'
+  assert.equal(getUniquelySelectedApiModeIndex(apiModes, session, { sessionCompat: true }), 0)
 })
 
 test('isApiModeSelected keeps modern custom session provider mismatch fail-closed with customUrl and apiKey', () => {

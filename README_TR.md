@@ -2,7 +2,7 @@
     <img src="./src/logo.png">
 </p>
 
-<h1 align="center">ChatGPT Box</h1>
+<h1 align="center">ChatGPTBox</h1>
 
 <div align="center">
 
@@ -12,7 +12,8 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 [![license][license-image]][license-url]
 [![release][release-image]][release-url]
 [![size](https://img.shields.io/badge/minified%20size-390%20kB-blue)][release-url]
-[![verfiy][verify-image]][verify-url]
+[![verify][verify-image]][verify-url]
+[![coverage][coverage-image]][coverage-url]
 
 [English](README.md) &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&nbsp; [简体中文](README_ZH.md) &nbsp;&nbsp;|&nbsp;&nbsp; [日本語](README_JA.md) &nbsp;&nbsp;|&nbsp;&nbsp; Türkçe
 
@@ -23,9 +24,9 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 [![Firefox][Firefox-image]][Firefox-url]
 [![Safari][Safari-image]][Safari-url]
 [![Android][Android-image]][Android-url]
-[![Github][Github-image]][Github-url]
+[![GitHub][Github-image]][Github-url]
 
-[Rehber](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [Önizleme](#Preview) &nbsp;&nbsp;|&nbsp;&nbsp; [Gelişim ve Katkı Sağlama][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [Video](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [Credit](#Credit)
+[Rehber](https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Guide) &nbsp;&nbsp;|&nbsp;&nbsp; [Önizleme](#önizleme) &nbsp;&nbsp;|&nbsp;&nbsp; [Gelişim ve Katkı Sağlama][dev-url] &nbsp;&nbsp;|&nbsp;&nbsp; [Video](https://www.youtube.com/watch?v=E1smDxJvTRs) &nbsp;&nbsp;|&nbsp;&nbsp; [Credits](#katkıda-bulunanlar)
 
 [dev-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Development&Contributing
 
@@ -41,6 +42,10 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 
 [verify-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/verify-configs.yml
 
+[coverage-image]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ChatGPTBox-dev/chatGPTBox/master/badges/coverage.json
+
+[coverage-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/actions/workflows/pr-tests.yml
+
 [Chrome-image]: https://img.shields.io/badge/-Chrome-brightgreen?logo=google-chrome&logoColor=white
 
 [Chrome-url]: https://chrome.google.com/webstore/detail/chatgptbox/eobbhoofkanlmddnplfhnmkfbnlhpbbo
@@ -55,7 +60,7 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 
 [Safari-image]: https://img.shields.io/badge/-Safari-blue?logo=safari&logoColor=white
 
-[Safari-url]: https://apps.apple.com/app/fission-chatbox/id6446611121
+[Safari-url]: https://github.com/ChatGPTBox-dev/chatGPTBox/wiki/Install#install-to-safarimacos
 
 [Android-image]: https://img.shields.io/badge/-Android-brightgreen?logo=android&logoColor=white
 
@@ -71,7 +76,7 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 
 - Bu eklenti hiçbir verinizi **toplamaz**. Kod içinde network isteği çağrılarını bulmak için `fetch(` ve `XMLHttpRequest(` için global bir arama yaparak bunu doğrulayabilirsiniz. Kod miktarı fazla değil, bu yüzden yapılması kolaydır.
 
-- Bu araç ChatGPT'ye siz açıkça belirtmediğiniz sürece hiçbir veri iletmez. Varsayılan olarak, eklentinin manuel olarak aktif hale getirilmesi gerekmektedir. Özellikle, sadece "ChatGPT'ye Sor" butonuna basarsanız ChatGPT'ye istek atar veya yüzen seçim araçlarını tetiklerseniz — Bu yalnızca GPT API modlarını kullandığınızda uygulanır (konu #407)
+- Bu araç, AI destekli bir özellik tetiklenmediği sürece yapılandırılmış AI hizmetine istemleri veya sayfa içeriğini iletmez. Varsayılan olarak, eklentinin manuel olarak etkinleştirilmesi gerekir. (konu #407)
 
 - Proje olarak https://github.com/BerriAI/litellm / https://github.com/songquanpeng/one-api gibi şeyleri kullanarak LLM API'larını OpenAI formatına dönüştürebilir ve bunları ChatGPTBox'ın `Custom Model` modu ile birlikte kullanabilirsiniz
 
@@ -93,7 +98,7 @@ Tarayıcınıza derin ChatGPT entegrasyonu, tamamen ücretsiz.
 - 🌍 Dil tercih desteği.
 - 📝 Özel API adres desteği.
 - ⚙️ Tüm site adaptasyonları ve seçim araçları(sohbet balonu) özgürce açıp kapatılabilir, ihtiyacınız olmayan modülleri kapatın.
-- 💡 Seçim araçları ve site adaptasyonunun geliştirilmesi kolay ve geniştir, [Development&Contributing][dev-url] bölümüne bakınız.
+- 💡 Seçim araçları ve site adaptasyonunun geliştirilmesi kolay ve geniştir, [Development & Contributing][dev-url] bölümüne bakınız.
 - 😉 Yanıt kalitesini artırmak için sohbet edin.
 
 ## Önizleme

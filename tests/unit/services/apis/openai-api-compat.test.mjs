@@ -6,6 +6,8 @@ import {
   generateAnswersWithGptCompletionApi,
   generateAnswersWithOpenAICompatibleApi,
 } from '../../../../src/services/apis/openai-api.mjs'
+import { claimLatestPortSessionRequest } from '../../../../src/services/wrappers.mjs'
+import { FETCH_REQUEST_FAILED } from '../../../../src/utils/fetch-sse.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
 
@@ -28,6 +30,36 @@ const setStorage = (values) => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage(values)
 }
 
+const createStoppedSseResponse = (port, afterStop) => {
+  const encoder = new TextEncoder()
+  let readCount = 0
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    body: {
+      getReader() {
+        return {
+          async read() {
+            readCount += 1
+            if (readCount === 1) {
+              return {
+                done: false,
+                value: encoder.encode('data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'),
+              }
+            }
+            port.emitMessage({ stop: true })
+            afterStop?.()
+            throw Object.assign(new Error('The operation was aborted'), {
+              name: 'AbortError',
+            })
+          },
+        }
+      },
+    },
+  }
+}
+
 beforeEach(() => {
   globalThis.__TEST_BROWSER_SHIM__.clearStorage()
 })
@@ -37,6 +69,7 @@ test('generateAnswersWithOpenAiApiCompat sends expected request and aggregates S
   setStorage({
     maxConversationContextLength: 3,
     maxResponseTokenLength: 256,
+    temperatureOverrideEnabled: true,
     temperature: 0.25,
   })
 
@@ -96,6 +129,39 @@ test('generateAnswersWithOpenAiApiCompat sends expected request and aggregates S
   assert.deepEqual(session.conversationRecords.at(-1), { question: 'CurrentQ', answer: 'Hello' })
 })
 
+test('generateAnswersWithOpenAiApiCompat uses the provider temperature default', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(Object.hasOwn(body, 'temperature'), false)
+})
+
 test('generateAnswersWithOpenAiApiCompat emits fallback done message when stream ends without finish reason', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
@@ -136,6 +202,188 @@ test('generateAnswersWithOpenAiApiCompat emits fallback done message when stream
     question: 'CurrentQ',
     answer: 'Partial',
   })
+})
+
+test('generateAnswersWithOpenAiApiCompat preserves partial retry answer when aborted port is closed', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  t.mock.method(console, 'warn', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    temperature: 0.25,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [{ question: 'CurrentQ', answer: 'Old answer' }],
+    isRetry: true,
+  }
+  const port = createFakePort()
+  const originalPostMessage = port.postMessage.bind(port)
+  port.postMessage = (message) => {
+    if (message?.session && !message.done) {
+      throw new Error('Port closed')
+    }
+    originalPostMessage(message)
+  }
+
+  t.mock.method(globalThis, 'fetch', async () => {
+    const encoder = new TextEncoder()
+    let readCount = 0
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      body: {
+        getReader() {
+          return {
+            async read() {
+              readCount += 1
+              if (readCount === 1) {
+                return {
+                  done: false,
+                  value: encoder.encode('data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'),
+                }
+              }
+              throw Object.assign(new Error('The operation was aborted'), {
+                name: 'AbortError',
+              })
+            },
+          }
+        },
+      },
+    }
+  })
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.equal(
+    port.postedMessages.some((message) => message.done === false && message.answer === 'Partial'),
+    true,
+  )
+  assert.deepEqual(session.conversationRecords, [{ question: 'CurrentQ', answer: 'Partial' }])
+  assert.equal(session.isRetry, false)
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
+test('generateAnswersWithOpenAiApiCompat clears retry state when aborted before first chunk', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    temperature: 0.25,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [{ question: 'CurrentQ', answer: 'Old answer' }],
+    isRetry: true,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    body: {
+      getReader() {
+        return {
+          async read() {
+            port.emitMessage({ stop: true, stopGenerationId: 7 })
+            throw Object.assign(new Error('The operation was aborted'), {
+              name: 'AbortError',
+            })
+          },
+        }
+      },
+    },
+  }))
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.deepEqual(session.conversationRecords, [{ question: 'CurrentQ', answer: 'Old answer' }])
+  assert.equal(session.isRetry, false)
+  assert.deepEqual(port.postedMessages.at(-1), { session, stoppedGenerationId: 7 })
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
+test('generateAnswersWithOpenAiApiCompat ignores an aborted session after a newer request starts', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    temperature: 0.25,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  claimLatestPortSessionRequest(port)
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createStoppedSseResponse(port, () => claimLatestPortSessionRequest(port)),
+  )
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.deepEqual(session.conversationRecords, [])
+  assert.equal(
+    port.postedMessages.some((message) => message.session),
+    false,
+  )
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
+test('generateAnswersWithOpenAiApiCompat preserves an aborted session without a newer request', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    temperature: 0.25,
+  })
+
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  claimLatestPortSessionRequest(port)
+
+  t.mock.method(globalThis, 'fetch', async () => createStoppedSseResponse(port))
+
+  await generateAnswersWithOpenAiApiCompat(
+    'https://api.example.com/v1',
+    port,
+    'CurrentQ',
+    session,
+    'sk-test',
+  )
+
+  assert.deepEqual(session.conversationRecords, [{ question: 'CurrentQ', answer: 'Partial' }])
+  assert.deepEqual(port.postedMessages.at(-1), { session })
+  assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })
 
 test('generateAnswersWithOpenAiApiCompat records an empty answer when stream ends before first chunk', async (t) => {
@@ -503,6 +751,66 @@ test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-5.4 mini',
   assert.equal(Object.hasOwn(body, 'max_tokens'), false)
 })
 
+test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-6 and omits unsupported temperature', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customOpenAiApiUrl: 'https://api.openai.example.com',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 444,
+    temperatureOverrideEnabled: true,
+    temperature: 0.3,
+  })
+
+  const session = {
+    modelName: 'chatgptApi6Astra',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAiApi(port, 'CurrentQ', session, 'sk-test')
+
+  let body = JSON.parse(capturedInit.body)
+  assert.equal(capturedInput, 'https://api.openai.example.com/v1/chat/completions')
+  assert.equal(body.model, 'gpt-6-astra')
+  assert.equal(body.max_completion_tokens, 444)
+  assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+  assert.equal(Object.hasOwn(body, 'temperature'), false)
+  assert.equal(session.conversationRecords.at(-1).answer, 'OK')
+
+  for (const [modelName, model] of [
+    ['chatgptApi6Sol', 'gpt-6-sol'],
+    ['chatgptApi6Luna', 'gpt-6-luna'],
+    ['chatgptApi6_1Sol', 'gpt-6.1-sol'],
+  ]) {
+    const newSession = {
+      modelName,
+      conversationRecords: [],
+      isRetry: false,
+    }
+    const newPort = createFakePort()
+
+    await generateAnswersWithOpenAiApi(newPort, 'CurrentQ', newSession, 'sk-test')
+
+    body = JSON.parse(capturedInit.body)
+    assert.equal(body.model, model)
+    assert.equal(body.max_completion_tokens, 444)
+    assert.equal(Object.hasOwn(body, 'max_tokens'), false)
+    assert.equal(Object.hasOwn(body, 'temperature'), false)
+    assert.equal(newSession.conversationRecords.at(-1).answer, 'OK')
+  }
+})
+
 test('generateAnswersWithOpenAiApi uses max_completion_tokens for GPT-5.4 nano', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
@@ -604,13 +912,16 @@ test('generateAnswersWithOpenAICompatibleApi uses caller config snapshot for req
   setStorage({
     maxConversationContextLength: 1,
     maxResponseTokenLength: 111,
+    temperatureOverrideEnabled: true,
     temperature: 0.1,
   })
 
   const config = {
     maxConversationContextLength: 2,
     maxResponseTokenLength: 777,
+    temperatureOverrideEnabled: true,
     temperature: 0.7,
+
     customOpenAIProviders: [
       {
         id: 'snapshot-provider',
@@ -1863,15 +2174,23 @@ test('generateAnswersWithOpenAiApiCompat throws on network error', async (t) => 
     throw new TypeError('Failed to fetch')
   })
 
-  await assert.rejects(async () => {
-    await generateAnswersWithOpenAiApiCompat(
-      'https://api.example.com/v1',
-      port,
-      'CurrentQ',
-      session,
-      'sk-invalid',
-    )
-  }, /Failed to fetch/)
+  await assert.rejects(
+    async () => {
+      await generateAnswersWithOpenAiApiCompat(
+        'https://api.example.com/v1',
+        port,
+        'CurrentQ',
+        session,
+        'sk-invalid',
+      )
+    },
+    (error) => {
+      assert.equal(error.message, 'Failed to fetch')
+      assert.equal(error.code, FETCH_REQUEST_FAILED)
+      assert.equal(error.requestOrigin, 'https://api.example.com')
+      return true
+    },
+  )
 
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })
@@ -1962,6 +2281,7 @@ test('generateAnswersWithGptCompletionApi builds completion prompt and appends a
     customOpenAiApiUrl: 'https://api.example.com',
     maxConversationContextLength: 5,
     maxResponseTokenLength: 300,
+    temperatureOverrideEnabled: true,
     temperature: 0.5,
   })
 

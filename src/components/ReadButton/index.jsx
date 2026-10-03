@@ -3,6 +3,7 @@ import { MuteIcon, UnmuteIcon } from '@primer/octicons-react'
 import PropTypes from 'prop-types'
 import { useTranslation } from 'react-i18next'
 import { useConfig } from '../../hooks/use-config.mjs'
+import { findMatchingVoice, resolveSpeechLanguage } from './voice.mjs'
 
 ReadButton.propTypes = {
   contentFn: PropTypes.func.isRequired,
@@ -23,15 +24,17 @@ function ReadButton({ className, contentFn, size }) {
     const text = contentFn()
     const utterance = new SpeechSynthesisUtterance(text)
     const voices = synth.getVoices()
+    const preferredLanguage = resolveSpeechLanguage(config)
 
-    let voice
-    if (config.preferredLanguage.includes('en') && navigator.language.includes('en'))
-      voice = voices.find((v) => v.name.toLowerCase().includes('microsoft aria'))
-    else if (config.preferredLanguage.includes('zh') || navigator.language.includes('zh'))
-      voice = voices.find((v) => v.name.toLowerCase().includes('xiaoyi'))
-    else if (config.preferredLanguage.includes('ja') || navigator.language.includes('ja'))
-      voice = voices.find((v) => v.name.toLowerCase().includes('nanami'))
-    if (!voice) voice = voices.find((v) => v.lang.substring(0, 2) === config.preferredLanguage)
+    let preferredVoiceName = ''
+    if (preferredLanguage.includes('en') && navigator.language.includes('en'))
+      preferredVoiceName = 'microsoft aria'
+    else if (preferredLanguage.includes('zh') || navigator.language.includes('zh'))
+      preferredVoiceName = 'xiaoyi'
+    else if (preferredLanguage.includes('ja') || navigator.language.includes('ja'))
+      preferredVoiceName = 'nanami'
+
+    let voice = findMatchingVoice(voices, preferredLanguage, preferredVoiceName)
     if (!voice) voice = voices.find((v) => v.lang === navigator.language)
 
     Object.assign(utterance, {

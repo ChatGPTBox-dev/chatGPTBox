@@ -1350,6 +1350,40 @@
     display: contents;
   }
 
+  .input-resize-handle {
+    position: relative;
+    flex: 0 0 9px;
+    cursor: ns-resize;
+    touch-action: none;
+    user-select: none;
+    background-color: var(--theme-color);
+
+    &::after {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 36px;
+      height: 2px;
+      border-radius: 1px;
+      background-color: var(--theme-border-color);
+      content: '';
+      transform: translate(-50%, -50%);
+    }
+
+    &:hover::after {
+      background-color: var(--font-active-color);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--font-active-color);
+      outline-offset: -2px;
+    }
+  }
+
+  .input-resize-content {
+    flex: 0 0 auto;
+  }
+
   .interact-input {
     box-sizing: border-box;
     padding: 5px 15px;

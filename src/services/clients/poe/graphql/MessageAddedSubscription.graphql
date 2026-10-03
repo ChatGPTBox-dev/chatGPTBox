@@ -1,5 +1,0 @@
-subscription MessageAddedSubscription($chatId: BigInt!) {
-	messageAdded(chatId: $chatId) {
-		...MessageFragment
-	}
-}

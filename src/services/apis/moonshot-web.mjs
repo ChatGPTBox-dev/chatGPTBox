@@ -1,6 +1,6 @@
 import { pushRecord, setAbortController } from './shared.mjs'
 import { setUserConfig } from '../../config/index.mjs'
-import { fetchSSE } from '../../utils/fetch-sse'
+import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 
@@ -134,7 +134,7 @@ export class MoonshotWeb {
    * @async
    * @returns {Promise<void>} Void
    */
-  async init() {
+  async init(signal) {
     const response = this.request('/api/user', {
       headers: {
         accept: '*/*',
@@ -142,6 +142,7 @@ export class MoonshotWeb {
         Origin: 'https://www.kimi.com',
       },
       method: 'GET',
+      signal,
     })
     if ((await response).status === 200) {
       this.ready = true
@@ -153,6 +154,7 @@ export class MoonshotWeb {
           Origin: 'https://www.kimi.com',
         },
         method: 'GET',
+        signal,
       })
         .then((r) => r.json())
         .catch(errorHandle('get kimi.moonshoot.cn access_token'))
@@ -426,7 +428,11 @@ export class Conversation {
         }
       },
       async onStart() {},
-      async onEnd() {
+      async onEnd(aborted = false) {
+        if (aborted) {
+          reject(new DOMException('Aborted', 'AbortError'))
+          return
+        }
         resolve({
           completion: fullResponse,
         })
@@ -579,9 +585,20 @@ export class Message {
  * @param {UserConfig} config
  */
 export async function generateAnswersWithMoonshotWebApi(port, question, session, config) {
-  const bot = new MoonshotWeb({ config })
-  await bot.init()
   const { controller, cleanController } = setAbortController(port)
+  let bot
+  try {
+    bot = new MoonshotWeb({ config })
+    await bot.init(controller.signal)
+  } catch (error) {
+    cleanController()
+    if (controller.signal.aborted) return
+    throw error
+  }
+  if (controller.signal.aborted) {
+    cleanController()
+    return
+  }
   const model = getModelValue(session)
 
   let answer = ''
