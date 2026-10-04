@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { formatVideoOffset } from '../../video-summary/time.mjs'
 
 function renderTimestampLabel(startMs, endMs = null) {
@@ -8,16 +9,30 @@ function renderTimestampLabel(startMs, endMs = null) {
   return `${startLabel} - ${formatVideoOffset(endMs) || 'Unknown'}`
 }
 
-function SourceChoiceButtons({ sourceChoice, onChooseSource }) {
+function SourceChoiceButtons({ sourceChoice, subtitleTrack, onChooseSource }) {
+  const { t } = useTranslation()
+  const subtitleLabel =
+    subtitleTrack?.sourceKind === 'author'
+      ? t('Use author subtitles')
+      : subtitleTrack?.sourceKind === 'bilibili-ai'
+      ? t('Use Bilibili AI subtitles')
+      : subtitleTrack?.label
+      ? t('Use Bilibili subtitles: {{label}}', { label: subtitleTrack.label })
+      : t('Bilibili subtitles unavailable')
+
   return (
     <div className="bilibili-video-summary-view__choices">
       <button
         type="button"
         data-source-choice="native-subtitle"
+        disabled={!subtitleTrack}
         className={sourceChoice === 'native-subtitle' ? 'is-selected' : ''}
         onClick={() => onChooseSource('native-subtitle')}
       >
-        Use native subtitles
+        {subtitleLabel}
+        {subtitleTrack ? (
+          <span className="bilibili-video-summary-view__recommended">{t('Recommended')}</span>
+        ) : null}
       </button>
       <button
         type="button"
@@ -25,7 +40,7 @@ function SourceChoiceButtons({ sourceChoice, onChooseSource }) {
         className={sourceChoice === 'asr' ? 'is-selected' : ''}
         onClick={() => onChooseSource('asr')}
       >
-        Run ASR
+        {t('Run ASR')}
       </button>
     </div>
   )
@@ -33,6 +48,12 @@ function SourceChoiceButtons({ sourceChoice, onChooseSource }) {
 
 SourceChoiceButtons.propTypes = {
   sourceChoice: PropTypes.string,
+  subtitleTrack: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    label: PropTypes.string,
+    sourceKind: PropTypes.oneOf(['author', 'bilibili-ai', 'unknown']).isRequired,
+    cues: PropTypes.array.isRequired,
+  }),
   onChooseSource: PropTypes.func.isRequired,
 }
 
@@ -125,6 +146,8 @@ TimestampButton.propTypes = {
 export default function BilibiliVideoSummaryView({
   videoTitle,
   sourceChoice,
+  subtitleTrack,
+  subtitleDiscoveryStatus,
   asrConfirmationVisible = false,
   taskState,
   onChooseSource,
@@ -136,6 +159,7 @@ export default function BilibiliVideoSummaryView({
   onSeekTo,
   onRetrySummary,
 }) {
+  const { t } = useTranslation()
   const [showAsrConfirmation, setShowAsrConfirmation] = useState(asrConfirmationVisible)
   const [summaryOpen, setSummaryOpen] = useState(true)
 
@@ -171,11 +195,22 @@ export default function BilibiliVideoSummaryView({
 
       <SourceChoiceButtons
         sourceChoice={sourceChoice}
+        subtitleTrack={subtitleTrack}
         onChooseSource={(choice) => {
           setShowAsrConfirmation(choice === 'asr')
           onChooseSource(choice)
         }}
       />
+
+      {!subtitleTrack && subtitleDiscoveryStatus === 'login-required' ? (
+        <p className="bilibili-video-summary-view__subtitle-notice">
+          {t('Sign in to Bilibili to check for AI subtitles')}
+        </p>
+      ) : !subtitleTrack ? (
+        <p className="bilibili-video-summary-view__subtitle-notice">
+          {t('No Bilibili subtitles available')}
+        </p>
+      ) : null}
 
       {showAsrConfirmation ? (
         <AsrConfirmation
@@ -304,6 +339,19 @@ export default function BilibiliVideoSummaryView({
 BilibiliVideoSummaryView.propTypes = {
   videoTitle: PropTypes.string,
   sourceChoice: PropTypes.string,
+  subtitleTrack: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    label: PropTypes.string,
+    sourceKind: PropTypes.oneOf(['author', 'bilibili-ai', 'unknown']).isRequired,
+    cues: PropTypes.array.isRequired,
+  }),
+  subtitleDiscoveryStatus: PropTypes.oneOf([
+    'not-needed',
+    'available',
+    'not-found',
+    'login-required',
+    'unavailable',
+  ]),
   asrConfirmationVisible: PropTypes.bool,
   taskState: PropTypes.shape({
     phase: PropTypes.string,

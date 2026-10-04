@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { register } from 'node:module'
 import { cwd } from 'node:process'
 import { after, afterEach, before, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { JSDOM } from 'jsdom'
+import i18n from 'i18next'
 import { h, render } from 'preact'
 import { act } from 'preact/test-utils'
+import { initReactI18next } from 'react-i18next'
 
 register(
   './tests/setup/content-script-selection-toolbar-loader-hooks.mjs',
@@ -48,6 +51,21 @@ before(() => {
 })
 
 before(async () => {
+  const englishMessages = JSON.parse(
+    await readFile(new URL('../../../src/_locales/en/main.json', import.meta.url), 'utf8'),
+  )
+  await i18n.use(initReactI18next).init({
+    lng: 'en',
+    resources: {
+      en: {
+        translation: englishMessages,
+      },
+    },
+    fallbackLng: 'en',
+    interpolation: {
+      escapeValue: false,
+    },
+  })
   const importedModule = await import('../../../src/components/BilibiliVideoSummaryView/index.jsx')
   BilibiliVideoSummaryView = importedModule.default
 })
@@ -71,6 +89,13 @@ test('view requires explicit ASR confirmation and does not auto-run archive or a
   mountView({
     videoTitle: 'Test Video',
     sourceChoice: null,
+    subtitleTrack: {
+      id: 'bilibili-ai-conclusion',
+      label: 'Bilibili AI subtitles',
+      sourceKind: 'bilibili-ai',
+      cues: [{ startMs: 0, endMs: 1000, text: 'AI 字幕' }],
+    },
+    subtitleDiscoveryStatus: 'available',
     taskState: { phase: 'idle', activeStage: null, result: null, checkpointAvailable: false },
     onChooseSource(choice) {
       calls.push(['choose', choice])
@@ -102,6 +127,9 @@ test('view requires explicit ASR confirmation and does not auto-run archive or a
   const asrButton = container.querySelector('button[data-source-choice="asr"]')
   assert.ok(nativeButton)
   assert.ok(asrButton)
+  assert.equal(nativeButton.disabled, false)
+  assert.equal(nativeButton.textContent.includes('Bilibili AI subtitles'), true)
+  assert.equal(nativeButton.textContent.includes('Recommended'), true)
 
   act(() => {
     asrButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -128,6 +156,36 @@ test('view requires explicit ASR confirmation and does not auto-run archive or a
     ['confirm-asr'],
     ['choose', 'native-subtitle'],
   ])
+})
+
+test('view explains login-required subtitle discovery and never auto-selects ASR', () => {
+  const calls = []
+  mountView({
+    videoTitle: 'No Subtitle Video',
+    sourceChoice: null,
+    subtitleTrack: null,
+    subtitleDiscoveryStatus: 'login-required',
+    taskState: { phase: 'idle', activeStage: null, result: null, checkpointAvailable: false },
+    onChooseSource: (choice) => calls.push(choice),
+    onConfirmAsr() {},
+    onCancelAsrConfirmation() {},
+    onArchive() {},
+    onAskAboutVideo() {},
+    onDownloadMarkdown() {},
+    onSeekTo() {},
+    onRetrySummary() {},
+  })
+
+  assert.equal(
+    container.textContent.includes('Sign in to Bilibili to check for AI subtitles'),
+    true,
+  )
+  assert.equal(
+    container.querySelector('button[data-source-choice="native-subtitle"]').disabled,
+    true,
+  )
+  assert.deepEqual(calls, [])
+  assert.equal(container.querySelector('[data-action="confirm-asr"]'), null)
 })
 
 test('view renders structured result states, timestamp seek actions, and explicit result buttons', () => {
