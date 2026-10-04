@@ -25,7 +25,7 @@ test('video-summary contracts stay structured-clone-safe', () => {
   })
   assert.deepEqual(VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS, {
     mediakit: ['submitDirectAsr', 'requestUploadTarget', 'queryTask'],
-    model: ['describeCapabilities', 'invokeTool', 'cancel'],
+    model: ['describeCapabilities', 'generateText', 'invokeTool', 'cancel'],
   })
   assert.doesNotThrow(() => structuredClone(owner))
 })

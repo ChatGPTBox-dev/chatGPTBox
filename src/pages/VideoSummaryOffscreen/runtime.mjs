@@ -94,6 +94,13 @@ export function startVideoSummaryOffscreenRuntime({
         args: modelSnapshot,
       })
     },
+    async generateText(args) {
+      return requestGateway({
+        gateway: 'model',
+        operation: 'generateText',
+        args,
+      })
+    },
     async invokeTool(args) {
       return requestGateway({
         gateway: 'model',

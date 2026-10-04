@@ -1,12 +1,15 @@
 import { chunkTranscriptForSummary } from './summary-chunker.mjs'
 import { buildStructuredSummaryResult } from './result-builder.mjs'
 import {
-  CHUNK_SUMMARY_TOOL,
-  VIDEO_SUMMARY_TOOL,
-  normalizeChunkSummaryArguments,
-  normalizeVideoSummaryArguments,
-} from './summary-tools.mjs'
+  buildChunkSummaryMessages,
+  buildFinalSummaryMessages,
+  parseChunkSummaryMarkdown,
+  parseFinalSummaryMarkdown,
+} from './summary-markdown.mjs'
 import { normalizeVideoSummaryMaxOutputTokens } from './settings.mjs'
+
+const CHUNK_MAX_OUTPUT_TOKENS = 1200
+const FINAL_MAX_OUTPUT_TOKENS = 4000
 
 function emitEvent(emit, event) {
   if (typeof emit === 'function') emit(structuredClone(event))
@@ -28,14 +31,23 @@ function normalizeFailedRange(chunk, reason) {
   }
 }
 
-function resolveTaskMaxOutputTokens(command, capabilities) {
+function clampOutputTokens(capabilities, requested) {
+  const advertised = Number.isFinite(capabilities?.maxOutputTokens)
+    ? capabilities.maxOutputTokens
+    : requested
+  return Math.max(1, Math.min(requested, advertised))
+}
+
+function resolveTaskMaxOutputTokens(command, capabilities, requested) {
   const hasTaskOutputTokenSetting = Object.prototype.hasOwnProperty.call(
     command?.settingsSnapshot || {},
     'summaryMaxOutputTokens',
   )
-  return hasTaskOutputTokenSetting
+  const userLimit = hasTaskOutputTokenSetting
     ? normalizeVideoSummaryMaxOutputTokens(command.settingsSnapshot.summaryMaxOutputTokens)
-    : capabilities.maxOutputTokens
+    : requested
+  const taskLimit = Math.max(1, Math.min(requested, userLimit))
+  return clampOutputTokens(capabilities, taskLimit)
 }
 
 function createTranscriptOnlyResult(transcription, reason) {
@@ -117,66 +129,36 @@ function emitTaskFailure({ emit, taskId, owner, checkpointAvailable, error }) {
   })
 }
 
-function buildChunkMessages(chunk, transcription, preferredLanguage) {
-  const segmentById = new Map(
-    (Array.isArray(transcription?.segments) ? transcription.segments : []).map((segment) => [
-      segment.id,
-      segment,
-    ]),
-  )
-  const ids = [
-    ...chunk.contextBeforeSegmentIds,
-    ...chunk.primarySegmentIds,
-    ...chunk.contextAfterSegmentIds,
-  ]
-
-  return [
-    {
-      role: 'system',
-      content: `Summarize the transcript chunk in ${
-        preferredLanguage || 'the original language'
-      }. Call the function tool "${
-        CHUNK_SUMMARY_TOOL.name
-      }" exactly once with structured arguments. Use context segments only for understanding; every segmentId must come from primarySegmentIds.`,
-    },
-    {
-      role: 'user',
-      content: JSON.stringify({
-        primarySegmentIds: chunk.primarySegmentIds,
-        contextBeforeSegmentIds: chunk.contextBeforeSegmentIds,
-        contextAfterSegmentIds: chunk.contextAfterSegmentIds,
-        segments: ids.map((id) => segmentById.get(id)).filter(Boolean),
-      }),
-    },
-  ]
-}
-
-function buildSynthesisMessages(localChunkResults, preferredLanguage) {
-  return [
-    {
-      role: 'system',
-      content: `Synthesize the local summaries in ${
-        preferredLanguage || 'the original language'
-      }. Call the function tool "${
-        VIDEO_SUMMARY_TOOL.name
-      }" exactly once with structured arguments.`,
-    },
-    {
-      role: 'user',
-      content: JSON.stringify({
-        successfulChunkResults: localChunkResults,
-      }),
-    },
-  ]
-}
-
 function stripAssistantMessages(messages) {
   return (Array.isArray(messages) ? messages : []).filter(
     (message) => message?.role !== 'assistant',
   )
 }
 
-async function invokeToolOnce({
+function normalizeCapabilityCode(capabilities) {
+  return capabilities?.code || capabilities?.reason || 'MODEL_GATEWAY_UNSUPPORTED'
+}
+
+function isTemporaryOrUnavailableCapability(capabilities) {
+  if (capabilities?.supported) return false
+  if (capabilities?.temporary === true || capabilities?.temporarilyUnavailable === true) return true
+  const state = String(capabilities?.state || capabilities?.status || '').toLowerCase()
+  if (state === 'temporarilyunavailable' || state === 'temporary' || state === 'unavailable') {
+    return true
+  }
+  const code = normalizeCapabilityCode(capabilities)
+  return /TEMPORARILY_UNAVAILABLE|\bUNAVAILABLE\b/.test(code)
+}
+
+function createCapabilityError(capabilities, stage) {
+  const code = normalizeCapabilityCode(capabilities)
+  const error = new Error(code)
+  error.code = code
+  error.stage = stage
+  return error
+}
+
+async function generateTextOnce({
   modelGateway,
   taskId,
   requestId,
@@ -184,7 +166,6 @@ async function invokeToolOnce({
   messages,
   maxOutputTokens,
   signal,
-  tool,
 }) {
   assertNotAborted(signal)
   let activeRequestId = requestId
@@ -195,18 +176,143 @@ async function invokeToolOnce({
 
   try {
     activeRequestId = requestId
-    const response = await modelGateway.invokeTool({
+    const generateText =
+      typeof modelGateway.generateText === 'function'
+        ? modelGateway.generateText.bind(modelGateway)
+        : modelGateway.generate?.bind(modelGateway)
+    if (typeof generateText !== 'function') throw new Error('MODEL_GATEWAY_TEXT_CALLER_MISSING')
+
+    const response = await generateText({
       requestId,
       taskId,
       modelSnapshot,
       messages: stripAssistantMessages(messages),
       maxOutputTokens,
-      tool,
     })
     assertNotAborted(signal)
-    return response
+    return {
+      text: String(response?.text || ''),
+      finishReason: typeof response?.finishReason === 'string' ? response.finishReason : null,
+    }
   } finally {
     signal?.removeEventListener?.('abort', onAbort)
+  }
+}
+
+function chunkRangeKeyFromIds(startSegmentId, endSegmentId) {
+  return `${startSegmentId || ''}\u0000${endSegmentId || ''}`
+}
+
+function chunkRangeKey(chunk) {
+  return chunkRangeKeyFromIds(chunk?.primaryStartSegmentId, chunk?.primaryEndSegmentId)
+}
+
+function failedRangeKey(range) {
+  return chunkRangeKeyFromIds(range?.startSegmentId, range?.endSegmentId)
+}
+
+function sortChunkResults(localChunkResults, chunks) {
+  const orderByRange = new Map(chunks.map((chunk, index) => [chunkRangeKey(chunk), index]))
+  return [...localChunkResults].sort((left, right) => {
+    const leftOrder = orderByRange.get(
+      chunkRangeKeyFromIds(left.primaryStartSegmentId, left.primaryEndSegmentId),
+    )
+    const rightOrder = orderByRange.get(
+      chunkRangeKeyFromIds(right.primaryStartSegmentId, right.primaryEndSegmentId),
+    )
+    return (leftOrder ?? Number.MAX_SAFE_INTEGER) - (rightOrder ?? Number.MAX_SAFE_INTEGER)
+  })
+}
+
+function buildFinalAllowedSegmentIds(localChunkResults) {
+  return new Set(
+    (Array.isArray(localChunkResults) ? localChunkResults : [])
+      .flatMap((chunkResult) =>
+        Array.isArray(chunkResult?.candidates) ? chunkResult.candidates : [],
+      )
+      .filter((candidate) => candidate?.anchored !== false && candidate?.segmentId)
+      .map((candidate) => candidate.segmentId),
+  )
+}
+
+async function summarizeChunk({
+  chunk,
+  chunkIndex,
+  transcription,
+  command,
+  capabilities,
+  modelGateway,
+  controller,
+}) {
+  const { text } = await generateTextOnce({
+    modelGateway,
+    taskId: command.taskId,
+    requestId: `chunk-${chunkIndex + 1}`,
+    modelSnapshot: command.modelSnapshot,
+    messages: buildChunkSummaryMessages({
+      chunk,
+      transcription,
+      preferredLanguage: command.settingsSnapshot?.preferredLanguage,
+    }),
+    maxOutputTokens: resolveTaskMaxOutputTokens(command, capabilities, CHUNK_MAX_OUTPUT_TOKENS),
+    signal: controller.signal,
+  })
+  const parsed = parseChunkSummaryMarkdown(text, {
+    allowedSegmentIds: new Set(chunk.primarySegmentIds),
+  })
+
+  return {
+    primaryStartSegmentId: chunk.primaryStartSegmentId,
+    primaryEndSegmentId: chunk.primaryEndSegmentId,
+    localSummary: String(parsed?.localSummary || '').trim(),
+    keyPoints: Array.isArray(parsed?.keyPoints) ? parsed.keyPoints : [],
+    candidates: Array.isArray(parsed?.candidates) ? parsed.candidates : [],
+    rawText: String(parsed?.rawText || ''),
+  }
+}
+
+async function synthesizeSummary({
+  localChunkResults,
+  command,
+  capabilities,
+  emit,
+  modelGateway,
+  controller,
+}) {
+  emitEvent(emit, {
+    type: 'TASK_STATUS',
+    taskId: command.taskId,
+    owner: command.owner,
+    stage: 'synthesizing-summary',
+    checkpointAvailable: true,
+  })
+
+  const { text, finishReason } = await generateTextOnce({
+    modelGateway,
+    taskId: command.taskId,
+    requestId: 'synthesis',
+    modelSnapshot: command.modelSnapshot,
+    messages: buildFinalSummaryMessages({
+      chunkResults: localChunkResults,
+      preferredLanguage: command.settingsSnapshot?.preferredLanguage,
+    }),
+    maxOutputTokens: resolveTaskMaxOutputTokens(command, capabilities, FINAL_MAX_OUTPUT_TOKENS),
+    signal: controller.signal,
+  })
+
+  return {
+    result: parseFinalSummaryMarkdown(text, {
+      allowedSegmentIds: buildFinalAllowedSegmentIds(localChunkResults),
+    }),
+    finishReason,
+  }
+}
+
+function appendResultWarning(result, warning) {
+  if (!warning || result.warnings.includes(warning)) return result
+  return {
+    ...result,
+    warnings: [...result.warnings, warning],
   }
 }
 
@@ -217,12 +323,17 @@ async function summarizeChunks({
   emit,
   modelGateway,
   controller,
+  retryFailedRanges = false,
 }) {
   const capabilities = await modelGateway.describeCapabilities(command.modelSnapshot)
   if (!capabilities?.supported) {
     checkpoint.successfulChunkResults = []
     checkpoint.failedRanges = []
     checkpoint.synthesisResult = null
+    if (isTemporaryOrUnavailableCapability(capabilities)) {
+      throw createCapabilityError(capabilities, 'summarizing-chunks')
+    }
+
     const result = createTranscriptOnlyResult(
       transcription,
       capabilities?.reason || 'MODEL_GATEWAY_UNSUPPORTED',
@@ -237,14 +348,35 @@ async function summarizeChunks({
     return result
   }
 
-  const maxOutputTokens = resolveTaskMaxOutputTokens(command, capabilities)
-
   const chunks = chunkTranscriptForSummary({
     transcription,
     inputTokenBudget: capabilities.inputTokenBudget,
   })
-  const localChunkResults = []
-  const failedRanges = []
+  const failedKeysToRetry = retryFailedRanges
+    ? new Set((checkpoint.failedRanges || []).map(failedRangeKey))
+    : new Set()
+  const chunkEntries = chunks.map((chunk, index) => ({ chunk, index }))
+  const selectedEntries =
+    failedKeysToRetry.size > 0
+      ? chunkEntries.filter(({ chunk }) => failedKeysToRetry.has(chunkRangeKey(chunk)))
+      : chunkEntries
+  const selectedKeys = new Set(selectedEntries.map(({ chunk }) => chunkRangeKey(chunk)))
+  const localChunkResults =
+    failedKeysToRetry.size > 0
+      ? (checkpoint.successfulChunkResults || []).filter(
+          (chunkResult) =>
+            !selectedKeys.has(
+              chunkRangeKeyFromIds(
+                chunkResult.primaryStartSegmentId,
+                chunkResult.primaryEndSegmentId,
+              ),
+            ),
+        )
+      : []
+  const failedRanges =
+    failedKeysToRetry.size > 0
+      ? (checkpoint.failedRanges || []).filter((range) => !selectedKeys.has(failedRangeKey(range)))
+      : []
 
   emitEvent(emit, {
     type: 'TASK_STATUS',
@@ -252,40 +384,28 @@ async function summarizeChunks({
     owner: command.owner,
     stage: 'summarizing-chunks',
     completedChunks: 0,
-    totalChunks: chunks.length,
+    totalChunks: selectedEntries.length,
     checkpointAvailable: true,
   })
 
-  for (const [index, chunk] of chunks.entries()) {
+  for (const [completedIndex, { chunk, index }] of selectedEntries.entries()) {
     assertNotAborted(controller.signal)
 
     try {
-      const { arguments: rawArgs } = await invokeToolOnce({
-        modelGateway,
-        taskId: command.taskId,
-        requestId: `chunk-${index + 1}`,
-        modelSnapshot: command.modelSnapshot,
-        messages: buildChunkMessages(
+      localChunkResults.push(
+        await summarizeChunk({
           chunk,
+          chunkIndex: index,
           transcription,
-          command.settingsSnapshot?.preferredLanguage,
-        ),
-        maxOutputTokens,
-        signal: controller.signal,
-        tool: CHUNK_SUMMARY_TOOL,
-      })
-      const parsed = normalizeChunkSummaryArguments(rawArgs, new Set(chunk.primarySegmentIds))
-
-      localChunkResults.push({
-        primaryStartSegmentId: chunk.primaryStartSegmentId,
-        primaryEndSegmentId: chunk.primaryEndSegmentId,
-        localSummary: String(parsed?.localSummary || '').trim(),
-        chapterStarts: Array.isArray(parsed?.chapterStarts) ? parsed.chapterStarts : [],
-        keyMoments: Array.isArray(parsed?.keyMoments) ? parsed.keyMoments : [],
-        keyPoints: Array.isArray(parsed?.keyPoints) ? parsed.keyPoints : [],
-      })
+          command,
+          capabilities,
+          modelGateway,
+          controller,
+        }),
+      )
     } catch (error) {
-      failedRanges.push(normalizeFailedRange(chunk, error?.message))
+      if (isAbortError(error)) throw error
+      failedRanges.push(normalizeFailedRange(chunk, error?.code || error?.message))
     }
 
     emitEvent(emit, {
@@ -293,51 +413,45 @@ async function summarizeChunks({
       taskId: command.taskId,
       owner: command.owner,
       stage: 'summarizing-chunks',
-      completedChunks: index + 1,
-      totalChunks: chunks.length,
+      completedChunks: completedIndex + 1,
+      totalChunks: selectedEntries.length,
       checkpointAvailable: true,
     })
   }
 
-  checkpoint.successfulChunkResults = localChunkResults
+  const sortedChunkResults = sortChunkResults(localChunkResults, chunks)
+  checkpoint.successfulChunkResults = sortedChunkResults
   checkpoint.failedRanges = failedRanges
 
-  emitEvent(emit, {
-    type: 'TASK_STATUS',
-    taskId: command.taskId,
-    owner: command.owner,
-    stage: 'synthesizing-summary',
-    checkpointAvailable: true,
-  })
-
   let synthesisResult = null
+  let synthesisFinishReason = null
   try {
-    const { arguments: rawArgs } = await invokeToolOnce({
+    const synthesis = await synthesizeSummary({
+      localChunkResults: sortedChunkResults,
+      command,
+      capabilities,
+      emit,
       modelGateway,
-      taskId: command.taskId,
-      requestId: 'synthesis',
-      modelSnapshot: command.modelSnapshot,
-      messages: buildSynthesisMessages(
-        localChunkResults,
-        command.settingsSnapshot?.preferredLanguage,
-      ),
-      maxOutputTokens,
-      signal: controller.signal,
-      tool: VIDEO_SUMMARY_TOOL,
+      controller,
     })
-    synthesisResult = normalizeVideoSummaryArguments(rawArgs)
+    synthesisResult = synthesis.result
+    synthesisFinishReason = synthesis.finishReason
   } catch (error) {
+    if (isAbortError(error)) throw error
     synthesisResult = null
   }
 
   checkpoint.synthesisResult = synthesisResult
 
-  const result = buildStructuredSummaryResult({
+  let result = buildStructuredSummaryResult({
     transcription,
-    localChunkResults,
+    localChunkResults: sortedChunkResults,
     synthesisResult,
     failedRanges,
   })
+  if (synthesisResult && synthesisFinishReason === 'length') {
+    result = appendResultWarning(result, 'MODEL_OUTPUT_INCOMPLETE')
+  }
 
   emitEvent(emit, {
     type: 'TASK_RESULT',
@@ -357,7 +471,7 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
   const commands = new Map()
   const logs = createRunnerLogger(logger)
 
-  async function runFromCheckpoint(taskId, command, emit, controller) {
+  async function runFromCheckpoint(taskId, command, emit, controller, options = {}) {
     const checkpoint = checkpoints.get(taskId)
     if (!checkpoint?.transcription) throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
     return summarizeChunks({
@@ -367,7 +481,57 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
       emit,
       modelGateway,
       controller,
+      retryFailedRanges: options.retryFailedRanges === true,
     })
+  }
+
+  async function runSynthesisFromCheckpoint(taskId, command, emit, controller) {
+    const checkpoint = checkpoints.get(taskId)
+    if (!checkpoint?.transcription) throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
+
+    const capabilities = await modelGateway.describeCapabilities(command.modelSnapshot)
+    if (!capabilities?.supported && isTemporaryOrUnavailableCapability(capabilities)) {
+      throw createCapabilityError(capabilities, 'synthesizing-summary')
+    }
+
+    let synthesisResult = null
+    let synthesisFinishReason = null
+    if (capabilities?.supported) {
+      try {
+        const synthesis = await synthesizeSummary({
+          localChunkResults: checkpoint.successfulChunkResults,
+          command,
+          capabilities,
+          emit,
+          modelGateway,
+          controller,
+        })
+        synthesisResult = synthesis.result
+        synthesisFinishReason = synthesis.finishReason
+      } catch (error) {
+        if (isAbortError(error)) throw error
+        synthesisResult = null
+      }
+    }
+
+    checkpoint.synthesisResult = synthesisResult
+    let result = buildStructuredSummaryResult({
+      transcription: checkpoint.transcription,
+      localChunkResults: checkpoint.successfulChunkResults,
+      synthesisResult,
+      failedRanges: checkpoint.failedRanges,
+    })
+    if (synthesisResult && synthesisFinishReason === 'length') {
+      result = appendResultWarning(result, 'MODEL_OUTPUT_INCOMPLETE')
+    }
+    emitEvent(emit, {
+      type: 'TASK_RESULT',
+      taskId,
+      owner: command.owner,
+      checkpointAvailable: true,
+      result,
+    })
+    return result
   }
 
   return {
@@ -445,7 +609,7 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
           atMs: clock?.now?.() ?? null,
         })
 
-        return runFromCheckpoint(taskId, command, emit, controller)
+        return await runFromCheckpoint(taskId, command, emit, controller)
       } catch (error) {
         if (!isAbortError(error)) {
           emitTaskFailure({
@@ -488,53 +652,14 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
 
       try {
         if (fromStage === 'synthesis') {
-          const checkpoint = checkpoints.get(taskId)
-          if (!checkpoint?.transcription) throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
-
-          const capabilities = await modelGateway.describeCapabilities(command.modelSnapshot)
-          let synthesisResult = null
-          if (capabilities?.supported) {
-            emitEvent(emit, {
-              type: 'TASK_STATUS',
-              taskId,
-              owner: command.owner,
-              stage: 'synthesizing-summary',
-              checkpointAvailable: true,
-            })
-            const { arguments: rawArgs } = await invokeToolOnce({
-              modelGateway,
-              taskId,
-              requestId: 'synthesis',
-              modelSnapshot: command.modelSnapshot,
-              messages: buildSynthesisMessages(
-                checkpoint.successfulChunkResults,
-                command.settingsSnapshot?.preferredLanguage,
-              ),
-              maxOutputTokens: resolveTaskMaxOutputTokens(command, capabilities),
-              signal: controller.signal,
-              tool: VIDEO_SUMMARY_TOOL,
-            })
-            synthesisResult = normalizeVideoSummaryArguments(rawArgs)
-          }
-
-          checkpoint.synthesisResult = synthesisResult
-          const result = buildStructuredSummaryResult({
-            transcription: checkpoint.transcription,
-            localChunkResults: checkpoint.successfulChunkResults,
-            synthesisResult,
-            failedRanges: checkpoint.failedRanges,
-          })
-          emitEvent(emit, {
-            type: 'TASK_RESULT',
-            taskId,
-            owner: command.owner,
-            checkpointAvailable: true,
-            result,
-          })
-          return result
+          return await runSynthesisFromCheckpoint(taskId, command, emit, controller)
         }
 
-        return runFromCheckpoint(taskId, command, emit, controller)
+        const checkpoint = checkpoints.get(taskId)
+        return await runFromCheckpoint(taskId, command, emit, controller, {
+          retryFailedRanges:
+            Array.isArray(checkpoint?.failedRanges) && checkpoint.failedRanges.length > 0,
+        })
       } catch (error) {
         if (!isAbortError(error)) {
           emitTaskFailure({

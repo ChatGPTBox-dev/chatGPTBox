@@ -310,7 +310,7 @@ export function createModelGateway({
         controllers.delete(key)
       }
     },
-    async generate({
+    async generateText({
       requestId,
       taskId,
       modelSnapshot,
@@ -336,7 +336,7 @@ export function createModelGateway({
         const model = resolveModelName(immutableSnapshot, config)
         logger?.info?.(
           buildLogContext({
-            event: 'video-summary-model-gateway.generate',
+            event: 'video-summary-model-gateway.generateText',
             requestId,
             taskId,
             modelSnapshot: immutableSnapshot,
@@ -367,7 +367,7 @@ export function createModelGateway({
 
         logger?.info?.(
           buildLogContext({
-            event: 'video-summary-model-gateway.complete',
+            event: 'video-summary-model-gateway.generateText.complete',
             requestId,
             taskId,
             modelSnapshot: immutableSnapshot,
@@ -379,7 +379,7 @@ export function createModelGateway({
       } catch (error) {
         logger?.warn?.({
           ...buildLogContext({
-            event: 'video-summary-model-gateway.failed',
+            event: 'video-summary-model-gateway.generateText.failed',
             requestId,
             taskId,
             modelSnapshot: immutableSnapshot,
@@ -393,6 +393,9 @@ export function createModelGateway({
         controllers.delete(key)
         port.disconnect()
       }
+    },
+    async generate(args) {
+      return this.generateText(args)
     },
     cancel({ requestId, taskId }) {
       controllers.get(`${taskId}:${requestId}`)?.abort()

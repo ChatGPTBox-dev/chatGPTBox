@@ -304,7 +304,7 @@ function createModelGateway({
   unsupportedSnapshots = new Set(),
   failRequestIds = new Set(),
   inputTokenBudget = 20,
-  maxOutputTokens = 200,
+  maxOutputTokens = 20_000,
   calls = [],
 } = {}) {
   const serializeSnapshot = (snapshot) =>
@@ -323,50 +323,47 @@ function createModelGateway({
         maxOutputTokens,
       }
     },
-    async invokeTool({ requestId, modelSnapshot, messages, tool }) {
+    async generateText({ requestId, modelSnapshot, messages, maxOutputTokens: requestedTokens }) {
       calls.push({
         requestId,
         modelSnapshot,
-        toolName: tool?.name ?? null,
+        maxOutputTokens: requestedTokens,
       })
 
       if (failRequestIds.has(requestId)) {
         throw new Error('TRANSIENT_SUMMARY_FAILURE')
       }
 
-      if (tool?.name === 'submit_chunk_summary') {
+      if (requestId.startsWith('chunk-')) {
         const payload = JSON.parse(messages[1].content)
-        const firstId = payload.primarySegmentIds[0]
-        const lastId = payload.primarySegmentIds.at(-1)
+        const primarySegmentIds = payload.chunk?.primarySegmentIds || []
+        const firstId = primarySegmentIds[0]
+        const lastId = primarySegmentIds.at(-1)
         return {
-          toolName: tool.name,
-          arguments: {
-            localSummary: `local summary ${firstId}-${lastId}`,
-            chapterStarts: [
-              {
-                segmentId: firstId,
-                title: `Chapter ${firstId}`,
-                summary: `Summary ${firstId}`,
-              },
-            ],
-            keyMoments: [{ segmentId: firstId, point: `Moment ${firstId}` }],
-            keyPoints: [`Point ${firstId}`],
-          },
-          argumentBytes: 0,
+          text: `## Chunk Summary\nlocal summary ${firstId}-${lastId}\n## Chunk Key Points\n- Point ${firstId}\n## Candidate Locations\n- [segment:${firstId}] Candidate ${firstId}`,
+          finishReason: 'stop',
         }
       }
 
       const synthesisPayload = JSON.parse(messages[1].content)
-      const successfulChunkResults = synthesisPayload.successfulChunkResults || []
+      const successfulChunkResults = synthesisPayload.chunkResults || []
+      const keyPoints = successfulChunkResults.flatMap((item) => item.keyPoints || [])
+      const locations = successfulChunkResults.flatMap((item) => item.candidates || [])
       return {
-        toolName: tool?.name ?? null,
-        arguments: {
-          overview: `overview ${successfulChunkResults.length}`,
-          keyPoints: successfulChunkResults.flatMap((item) => item.keyPoints || []),
-          chapterStarts: successfulChunkResults.flatMap((item) => item.chapterStarts || []),
-          keyMoments: successfulChunkResults.flatMap((item) => item.keyMoments || []),
-        },
-        argumentBytes: 0,
+        text: [
+          '## Overview',
+          `overview ${successfulChunkResults.length}`,
+          '## Key Points',
+          ...keyPoints.map((point) => `- ${point}`),
+          '## Chapters',
+          ...locations.map(
+            (item) =>
+              `- [segment:${item.segmentId}] Chapter ${item.segmentId} — Summary ${item.segmentId}`,
+          ),
+          '## Key Moments',
+          ...locations.map((item) => `- [segment:${item.segmentId}] Moment ${item.segmentId}`),
+        ].join('\n'),
+        finishReason: 'stop',
       }
     },
     cancel() {},
@@ -651,9 +648,11 @@ test('native subtitles complete without any MediaKit call', async () => {
     resultEvent.result.transcriptSegments.map((segment) => segment.text),
     ['hello', 'world'],
   )
-  const toolNames = new Set(modelCalls.map((call) => call.toolName))
-  assert.equal(toolNames.has('submit_chunk_summary'), true)
-  assert.equal(toolNames.has('submit_video_summary'), true)
+  assert.equal(modelCalls.length > 0, true)
+  assert.equal(
+    modelCalls.some((call) => 'tool' in call),
+    false,
+  )
 })
 
 for (const fixture of [
@@ -887,9 +886,7 @@ test('one failed chunk returns partial output without another ASR call', async (
 
   const resultEvent = await mounted.waitFor((event) => event.type === 'TASK_RESULT')
   assert.equal(
-    modelCalls.some(
-      (call) => call.requestId === 'chunk-2' && call.toolName === 'submit_chunk_summary',
-    ),
+    modelCalls.some((call) => call.requestId === 'chunk-2' && !('tool' in call)),
     true,
   )
   assert.equal(
@@ -1228,9 +1225,9 @@ test('native subtitle and ASR tasks traverse the real background-offscreen port 
       (message) =>
         message.type === 'GATEWAY_REQUEST' &&
         message.gateway === 'model' &&
-        message.operation === 'generate',
+        message.operation === 'generateText',
     ),
-    false,
+    true,
   )
 
   await mounted.startTask({
@@ -1253,9 +1250,11 @@ test('native subtitle and ASR tasks traverse the real background-offscreen port 
   )
   assert.equal(asrResult.result.status, 'complete')
   assert.equal(submitCalls.length, 1)
-  const toolNames = new Set(modelCalls.map((call) => call.toolName))
-  assert.equal(toolNames.has('submit_chunk_summary'), true)
-  assert.equal(toolNames.has('submit_video_summary'), true)
+  assert.equal(modelCalls.length > 0, true)
+  assert.equal(
+    modelCalls.some((call) => 'tool' in call),
+    false,
+  )
   assert.equal(
     modelCalls.some((call) => String(call.requestId).endsWith('-repair')),
     false,
