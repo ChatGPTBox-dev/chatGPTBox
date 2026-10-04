@@ -71,4 +71,3 @@ test('rejects an invalid WBI timestamp', () => {
     { message: 'BILIBILI_WBI_TIMESTAMP_INVALID' },
   )
 })
-

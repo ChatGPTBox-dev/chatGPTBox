@@ -329,7 +329,10 @@ test('skips a failing player subtitle body while retaining usable tracks', async
     },
   )
 
-  assert.deepEqual(tracks.map((track) => track.id), ['2'])
+  assert.deepEqual(
+    tracks.map((track) => track.id),
+    ['2'],
+  )
 })
 
 test('normalizes conclusion AI subtitle groups and removes invalid duplicate cues', () => {
@@ -386,7 +389,9 @@ test('source snapshot skips AI conclusion when a player subtitle is usable', asy
     loadPlayerInfo: async () => ({
       data: {
         subtitle: {
-          subtitles: [{ id: 1, lan: 'zh-CN', lan_doc: '中文', ai_type: 0, subtitle_url: '//sub/1' }],
+          subtitles: [
+            { id: 1, lan: 'zh-CN', lan_doc: '中文', ai_type: 0, subtitle_url: '//sub/1' },
+          ],
         },
       },
     }),
@@ -417,7 +422,10 @@ test('source snapshot falls back to normalized conclusion AI subtitles', async (
     loadPlayerInfo: async () => ({ data: { subtitle: { subtitles: [] } } }),
     loadSubtitleBody: async () => assert.fail('no player body should be loaded'),
     loadAiConclusion: async ({ bvid, cid, upMid }) => {
-      assert.deepEqual({ bvid, cid, upMid }, { bvid: 'BVTESTCASE01', cid: 111001, upMid: 297242063 })
+      assert.deepEqual(
+        { bvid, cid, upMid },
+        { bvid: 'BVTESTCASE01', cid: 111001, upMid: 297242063 },
+      )
       return {
         status: 'available',
         tracks: [

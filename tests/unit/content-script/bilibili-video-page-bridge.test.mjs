@@ -197,9 +197,12 @@ test('bridge signs and loads AI conclusion fallback when player subtitles are em
       })
     }
     if (href.includes('/x/player/playurl')) {
-      return new Response(JSON.stringify(createAudioOnlyPlayurl({ bvid: 'BV1subtitle', cid: 12345 })), {
-        status: 200,
-      })
+      return new Response(
+        JSON.stringify(createAudioOnlyPlayurl({ bvid: 'BV1subtitle', cid: 12345 })),
+        {
+          status: 200,
+        },
+      )
     }
     if (href.includes('/x/player/wbi/v2')) {
       return new Response(JSON.stringify({ code: 0, data: { subtitle: { subtitles: [] } } }), {
@@ -212,10 +215,8 @@ test('bridge signs and loads AI conclusion fallback when player subtitles are em
           code: 0,
           data: {
             wbi_img: {
-              img_url:
-                'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
-              sub_url:
-                'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png',
+              img_url: 'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
+              sub_url: 'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png',
             },
           },
         }),
@@ -268,15 +269,18 @@ test('bridge retries one time on conclusion -403 and keeps audio snapshot usable
   let navRequestCount = 0
   let conclusionRequestCount = 0
   let mediaKitRequestCount = 0
-  const fetchImpl = async (url, options = {}) => {
+  const fetchImpl = async (url) => {
     const href = typeof url === 'string' ? url : url?.toString?.() || ''
     if (href === pageUrl) {
       return new Response(createVideoPageHtml({ bvid: 'BV1retry', cid: 12345 }), { status: 200 })
     }
     if (href.includes('/x/player/playurl')) {
-      return new Response(JSON.stringify(createAudioOnlyPlayurl({ bvid: 'BV1retry', cid: 12345 })), {
-        status: 200,
-      })
+      return new Response(
+        JSON.stringify(createAudioOnlyPlayurl({ bvid: 'BV1retry', cid: 12345 })),
+        {
+          status: 200,
+        },
+      )
     }
     if (href.includes('/x/player/wbi/v2')) {
       return new Response(JSON.stringify({ code: 0, data: { subtitle: { subtitles: [] } } }), {
@@ -290,10 +294,8 @@ test('bridge retries one time on conclusion -403 and keeps audio snapshot usable
           code: 0,
           data: {
             wbi_img: {
-              img_url:
-                'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
-              sub_url:
-                'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png',
+              img_url: 'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
+              sub_url: 'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png',
             },
           },
         }),
@@ -335,9 +337,12 @@ test('bridge maps AI conclusion login-required without retrying or affecting aud
       return new Response(createVideoPageHtml({ bvid: 'BV1login', cid: 12345 }), { status: 200 })
     }
     if (href.includes('/x/player/playurl')) {
-      return new Response(JSON.stringify(createAudioOnlyPlayurl({ bvid: 'BV1login', cid: 12345 })), {
-        status: 200,
-      })
+      return new Response(
+        JSON.stringify(createAudioOnlyPlayurl({ bvid: 'BV1login', cid: 12345 })),
+        {
+          status: 200,
+        },
+      )
     }
     if (href.includes('/x/player/wbi/v2')) {
       return new Response(JSON.stringify({ code: 0, data: { subtitle: { subtitles: [] } } }), {
@@ -350,10 +355,8 @@ test('bridge maps AI conclusion login-required without retrying or affecting aud
           code: 0,
           data: {
             wbi_img: {
-              img_url:
-                'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
-              sub_url:
-                'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png',
+              img_url: 'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
+              sub_url: 'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png',
             },
           },
         }),
