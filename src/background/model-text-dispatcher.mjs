@@ -27,8 +27,6 @@ import { isUsingModelName } from '../utils/model-name-convert.mjs'
 const DEFAULT_MAX_OUTPUT_TOKENS = 20_000
 const MIN_MAX_OUTPUT_TOKENS = 1
 const MAX_MAX_OUTPUT_TOKENS = 40_000
-let consoleSuppressionDepth = 0
-let suppressedConsoleDescriptors = null
 
 function createListenerSet() {
   const listeners = new Set()
@@ -93,51 +91,34 @@ function createSafeGatewayError(
   return error
 }
 
-async function suppressConsoleDiagnostics(callback, { signal, modelName } = {}) {
-  if (signal?.aborted) throw createSafeGatewayError('MODEL_GATEWAY_ABORTED', { modelName })
-  const methodNames = ['debug', 'info', 'warn', 'error', 'log']
-  if (consoleSuppressionDepth === 0) {
-    suppressedConsoleDescriptors = Object.fromEntries(
-      methodNames.map((name) => [name, Object.getOwnPropertyDescriptor(console, name)]),
+function sanitizeDiagnosticValue(value) {
+  if (value === null || value === undefined) return value
+  if (Array.isArray(value)) return value.map(sanitizeDiagnosticValue)
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !['prompt', 'question', 'answer', 'token', 'config'].includes(key))
+        .map(([key, entryValue]) => [key, sanitizeDiagnosticValue(entryValue)]),
     )
   }
-  for (const name of methodNames) {
-    Object.defineProperty(console, name, {
-      value: () => {},
-      writable: true,
-      enumerable: suppressedConsoleDescriptors?.[name]?.enumerable ?? true,
-      configurable: true,
+  return value
+}
+
+function createSafeDiagnostics(route, diagnosticSink) {
+  const emit = (level, message, details) => {
+    if (typeof diagnosticSink !== 'function') return
+    diagnosticSink({
+      level,
+      route,
+      message: typeof message === 'string' ? message : 'adapter diagnostic',
+      details: sanitizeDiagnosticValue(details),
     })
   }
-  consoleSuppressionDepth += 1
-  let abortListener
-  const abortPromise = new Promise((_, reject) => {
-    abortListener = () => reject(createSafeGatewayError('MODEL_GATEWAY_ABORTED', { modelName }))
-    signal?.addEventListener?.('abort', abortListener, { once: true })
-  })
-  const workPromise = Promise.resolve().then(callback)
-  workPromise.catch(() => {})
-  try {
-    return await (signal ? Promise.race([workPromise, abortPromise]) : workPromise)
-  } finally {
-    signal?.removeEventListener?.('abort', abortListener)
-    consoleSuppressionDepth -= 1
-    if (consoleSuppressionDepth === 0 && suppressedConsoleDescriptors) {
-      for (const name of methodNames) {
-        const descriptor = suppressedConsoleDescriptors[name]
-        if (descriptor) Object.defineProperty(console, name, descriptor)
-      }
-      suppressedConsoleDescriptors = null
-    } else if (consoleSuppressionDepth > 0) {
-      for (const name of methodNames) {
-        Object.defineProperty(console, name, {
-          value: () => {},
-          writable: true,
-          enumerable: suppressedConsoleDescriptors?.[name]?.enumerable ?? true,
-          configurable: true,
-        })
-      }
-    }
+  return {
+    debug: (message, details) => emit('debug', message, details),
+    info: (message, details) => emit('info', message, details),
+    warn: (message, details) => emit('warn', message, details),
+    error: (message, details) => emit('error', message, details),
   }
 }
 
@@ -149,9 +130,20 @@ function isAbortError(error) {
 
 function isKnownLoginError(error) {
   const message = String(error?.message || error || '')
-  return ['UNAUTHORIZED', 'CLOUDFLARE', 'Invalid authorization', 'Session key required'].some(
-    (part) => message.includes(part),
+  const lowerMessage = message.toLowerCase()
+  return (
+    ['UNAUTHORIZED', 'CLOUDFLARE', 'Invalid authorization', 'Session key required'].some((part) =>
+      message.includes(part),
+    ) || lowerMessage.includes('login')
   )
+}
+
+function getTrustedHumanMessage(error) {
+  return typeof error?.trustedHumanMessage === 'string'
+    ? error.trustedHumanMessage
+    : typeof error?.message === 'string' && error.message
+    ? error.message
+    : null
 }
 
 function buildLogContext({ event, route, modelSnapshot, errorCode }) {
@@ -301,6 +293,23 @@ function requireProviderPage(modelName) {
   })
 }
 
+async function waitForAdapter(promise, { signal, modelName }) {
+  if (signal?.aborted) throw createSafeGatewayError('MODEL_GATEWAY_ABORTED', { modelName })
+  const workPromise = Promise.resolve(promise)
+  workPromise.catch(() => {})
+  if (!signal) return workPromise
+  let abortListener
+  const abortPromise = new Promise((_, reject) => {
+    abortListener = () => reject(createSafeGatewayError('MODEL_GATEWAY_ABORTED', { modelName }))
+    signal.addEventListener('abort', abortListener, { once: true })
+  })
+  try {
+    return await Promise.race([workPromise, abortPromise])
+  } finally {
+    signal.removeEventListener('abort', abortListener)
+  }
+}
+
 async function callRoutedAdapter({
   dependencies,
   route,
@@ -312,6 +321,9 @@ async function callRoutedAdapter({
   signal,
 }) {
   const modelName = session.modelName
+  const adapterOptions = {
+    diagnostics: createSafeDiagnostics(route, dependencies.diagnosticSink),
+  }
   if (signal?.aborted) throw createSafeGatewayError('MODEL_GATEWAY_ABORTED', { modelName })
   switch (route) {
     case 'chatgpt-web-page': {
@@ -334,15 +346,15 @@ async function callRoutedAdapter({
       const accessToken = await dependencies.getChatGptAccessToken()
       if (signal?.aborted) throw createSafeGatewayError('MODEL_GATEWAY_ABORTED', { modelName })
       if (!accessToken) requireLogin(modelName)
-      await suppressConsoleDiagnostics(
-        () =>
-          dependencies.generateAnswersWithChatgptWebApi(
-            port,
-            question,
-            session,
-            accessToken,
-            config,
-          ),
+      await waitForAdapter(
+        dependencies.generateAnswersWithChatgptWebApi(
+          port,
+          question,
+          session,
+          accessToken,
+          config,
+          adapterOptions,
+        ),
         { signal, modelName },
       )
       return
@@ -351,17 +363,29 @@ async function callRoutedAdapter({
       const sessionKey = await dependencies.getClaudeSessionKey()
       if (signal?.aborted) throw createSafeGatewayError('MODEL_GATEWAY_ABORTED', { modelName })
       if (!sessionKey) requireLogin(modelName)
-      await suppressConsoleDiagnostics(
-        () =>
-          dependencies.generateAnswersWithClaudeWebApi(port, question, session, sessionKey, config),
+      await waitForAdapter(
+        dependencies.generateAnswersWithClaudeWebApi(
+          port,
+          question,
+          session,
+          sessionKey,
+          config,
+          adapterOptions,
+        ),
         { signal, modelName },
       )
       return
     }
     case 'kimi-web':
       if (!config.kimiMoonShotRefreshToken) requireLogin(modelName)
-      await suppressConsoleDiagnostics(
-        () => dependencies.generateAnswersWithMoonshotWebApi(port, question, session, config),
+      await waitForAdapter(
+        dependencies.generateAnswersWithMoonshotWebApi(
+          port,
+          question,
+          session,
+          config,
+          adapterOptions,
+        ),
         { signal, modelName },
       )
       return
@@ -369,16 +393,16 @@ async function callRoutedAdapter({
       const accessToken = await dependencies.getBingAccessToken()
       if (signal?.aborted) throw createSafeGatewayError('MODEL_GATEWAY_ABORTED', { modelName })
       if (!accessToken) requireLogin(modelName)
-      await suppressConsoleDiagnostics(
-        () =>
-          dependencies.generateAnswersWithBingWebApi(
-            port,
-            question,
-            session,
-            accessToken,
-            isUsingModelName('bingFreeSydney', session),
-            config,
-          ),
+      await waitForAdapter(
+        dependencies.generateAnswersWithBingWebApi(
+          port,
+          question,
+          session,
+          accessToken,
+          isUsingModelName('bingFreeSydney', session),
+          config,
+          adapterOptions,
+        ),
         { signal, modelName },
       )
       return
@@ -387,24 +411,60 @@ async function callRoutedAdapter({
       const cookies = await dependencies.getBardCookies()
       if (signal?.aborted) throw createSafeGatewayError('MODEL_GATEWAY_ABORTED', { modelName })
       if (!cookies || cookies.endsWith('=undefined')) requireLogin(modelName)
-      await suppressConsoleDiagnostics(
-        () =>
-          dependencies.generateAnswersWithBardWebApi(port, question, session, cookies, () => true),
+      await waitForAdapter(
+        dependencies.generateAnswersWithBardWebApi(
+          port,
+          question,
+          session,
+          cookies,
+          () => true,
+          adapterOptions,
+        ),
         { signal, modelName },
       )
       return
     }
     case 'openai-compatible':
-      await dependencies.generateAnswersWithOpenAICompatibleApi(port, question, session, config)
+      await waitForAdapter(
+        dependencies.generateAnswersWithOpenAICompatibleApi(
+          port,
+          question,
+          session,
+          config,
+          adapterOptions,
+        ),
+        { signal, modelName },
+      )
       return
     case 'claude-api':
-      await dependencies.generateAnswersWithClaudeApi(port, question, session, config)
+      await waitForAdapter(
+        dependencies.generateAnswersWithClaudeApi(port, question, session, config, adapterOptions),
+        { signal, modelName },
+      )
       return
     case 'azure-openai':
-      await dependencies.generateAnswersWithAzureOpenaiApi(port, question, session, config)
+      await waitForAdapter(
+        dependencies.generateAnswersWithAzureOpenaiApi(
+          port,
+          question,
+          session,
+          config,
+          adapterOptions,
+        ),
+        { signal, modelName },
+      )
       return
     case 'github-third-party':
-      await dependencies.generateAnswersWithWaylaidwandererApi(port, question, session, config)
+      await waitForAdapter(
+        dependencies.generateAnswersWithWaylaidwandererApi(
+          port,
+          question,
+          session,
+          config,
+          adapterOptions,
+        ),
+        { signal, modelName },
+      )
       return
     default:
       throw createSafeGatewayError('MODEL_GATEWAY_UNSUPPORTED', { modelName })
@@ -427,6 +487,7 @@ function selectRoute(session, config) {
 }
 
 function normalizeThrownError(error, modelName) {
+  const trustedHumanMessage = getTrustedHumanMessage(error)
   if (
     error?.code &&
     [
@@ -437,6 +498,13 @@ function normalizeThrownError(error, modelName) {
       'MODEL_GATEWAY_PROVIDER_ERROR',
     ].includes(error.code)
   ) {
+    if (trustedHumanMessage && !error.trustedHumanMessage) {
+      Object.defineProperty(error, 'trustedHumanMessage', {
+        value: trustedHumanMessage,
+        enumerable: false,
+        configurable: true,
+      })
+    }
     return error
   }
   if (isAbortError(error)) {
@@ -446,9 +514,13 @@ function normalizeThrownError(error, modelName) {
     return createSafeGatewayError('MODEL_LOGIN_REQUIRED', {
       condition: 'login-required',
       modelName,
+      trustedHumanMessage,
     })
   }
-  return createSafeGatewayError('MODEL_GATEWAY_GENERATION_FAILED', { modelName })
+  return createSafeGatewayError('MODEL_GATEWAY_GENERATION_FAILED', {
+    modelName,
+    trustedHumanMessage,
+  })
 }
 
 export function createModelTextDispatcher(dependencies) {

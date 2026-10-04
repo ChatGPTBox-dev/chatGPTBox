@@ -718,107 +718,148 @@ test('provider error text is preserved only in trusted background state', async 
   assert.equal(JSON.stringify(entries).includes('secret prompt fragment'), false)
 })
 
-test('isolated direct-web adapter calls suppress raw console output and restore console afterwards', async () => {
-  const consoleMessages = []
+test('isolated routes receive safe diagnostic sinks without touching global console', async () => {
+  const globalConsoleMessages = []
   const originalDebug = console.debug
   console.debug = (...args) => {
-    consoleMessages.push(args.join(' '))
+    globalConsoleMessages.push(args.join(' '))
   }
+  const diagnosticEntries = []
+  const routeCalls = []
+  const makeAdapter =
+    (routeName) =>
+    async (port, ...args) => {
+      const options = args.at(-1)
+      routeCalls.push(routeName)
+      options.diagnostics.debug('safe adapter event', {
+        routeName,
+        prompt: 'secret prompt must not leak',
+        answer: 'secret answer must not leak',
+        token: 'secret-token',
+        config: { apiKey: 'secret-config' },
+      })
+      console.debug('unrelated global console remains visible', routeName)
+      port.postMessage({ answer: `${routeName} result`, done: true })
+    }
   const dispatcher = createModelTextDispatcher(
     createBaseDependencies({
-      getUserConfig: async () => ({ modelName: 'chatgptFree35', chatgptTabId: null }),
-      generateAnswersWithChatgptWebApi: async (port, question, session, accessToken, config) => {
-        console.debug('raw adapter prompt', question, accessToken, config.apiKey)
-        port.postMessage({ answer: 'direct web answer', done: true })
+      getUserConfig: async () => ({
+        modelName: 'chatgptFree35',
+        chatgptTabId: null,
+        kimiMoonShotRefreshToken: 'kimi-refresh',
+      }),
+      generateAnswersWithChatgptWebApi: makeAdapter('chatgpt-web-direct'),
+      generateAnswersWithClaudeWebApi: makeAdapter('claude-web'),
+      generateAnswersWithMoonshotWebApi: makeAdapter('kimi-web'),
+      generateAnswersWithBingWebApi: makeAdapter('bing-web'),
+      generateAnswersWithBardWebApi: makeAdapter('gemini-web'),
+      generateAnswersWithOpenAICompatibleApi: makeAdapter('openai-compatible'),
+      generateAnswersWithClaudeApi: makeAdapter('claude-api'),
+      generateAnswersWithAzureOpenaiApi: makeAdapter('azure-openai'),
+      generateAnswersWithWaylaidwandererApi: makeAdapter('github-third-party'),
+      diagnosticSink(entry) {
+        diagnosticEntries.push(entry)
       },
     }),
   )
 
-  await dispatcher.generateText({
-    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
-    messages: [{ role: 'user', content: 'secret console prompt' }],
-    maxOutputTokens: 1,
-    signal: new AbortController().signal,
-  })
-  console.debug('after dispatcher restored')
+  try {
+    for (const modelName of [
+      'chatgptFree35',
+      'claude2WebFree',
+      'moonshotWebFree',
+      'bingFree4',
+      'bardWebFree',
+      'chatgptApi4oMini',
+      'claudeSonnet45Api',
+      'azureOpenAi',
+      'waylaidwandererApi',
+    ]) {
+      await dispatcher.generateText({
+        modelSnapshot: { modelName, apiMode: null },
+        messages: [{ role: 'user', content: 'secret prompt must not leak' }],
+        maxOutputTokens: 99,
+        signal: new AbortController().signal,
+      })
+    }
+  } finally {
+    console.debug = originalDebug
+  }
 
+  assert.deepEqual(routeCalls, [
+    'chatgpt-web-direct',
+    'claude-web',
+    'kimi-web',
+    'bing-web',
+    'gemini-web',
+    'openai-compatible',
+    'claude-api',
+    'azure-openai',
+    'github-third-party',
+  ])
+  assert.equal(globalConsoleMessages.length, 9)
   assert.equal(
-    consoleMessages.some((message) => message.includes('raw adapter prompt')),
-    false,
-  )
-  assert.equal(
-    consoleMessages.some((message) => message.includes('secret console prompt')),
-    false,
-  )
-  assert.equal(
-    consoleMessages.some((message) => message.includes('chatgpt-token')),
-    false,
-  )
-  assert.equal(
-    consoleMessages.some((message) => message.includes('after dispatcher restored')),
+    globalConsoleMessages.every((message) => message.includes('unrelated global console')),
     true,
   )
-  console.debug = originalDebug
+  const serializedDiagnostics = JSON.stringify(diagnosticEntries)
+  assert.equal(serializedDiagnostics.includes('secret prompt must not leak'), false)
+  assert.equal(serializedDiagnostics.includes('secret answer must not leak'), false)
+  assert.equal(serializedDiagnostics.includes('secret-token'), false)
+  assert.equal(serializedDiagnostics.includes('secret-config'), false)
+  assert.equal(serializedDiagnostics.includes('safe adapter event'), true)
 })
 
-test('overlapping isolated direct-web suppression restores console once all calls finish', async () => {
-  const consoleMessages = []
-  const originalDebug = console.debug
-  console.debug = (...args) => {
-    consoleMessages.push(args.join(' '))
-  }
-  const releases = []
-  const dispatcher = createModelTextDispatcher(
+test('thrown login and generic adapter errors keep trusted text non-enumerable', async () => {
+  const loginText = 'Please login translated message with sensitive prompt'
+  const loginDispatcher = createModelTextDispatcher(
     createBaseDependencies({
-      getUserConfig: async () => ({ modelName: 'chatgptFree35', chatgptTabId: null }),
-      generateAnswersWithChatgptWebApi: async (port, question) => {
-        console.debug('raw overlapping prompt', question)
-        await new Promise((resolve) => releases.push(resolve))
-        port.postMessage({ answer: question, done: true })
+      getUserConfig: async () => ({ modelName: 'claude2WebFree' }),
+      getClaudeSessionKey: async () => {
+        throw new Error(loginText)
       },
     }),
   )
 
-  const first = dispatcher.generateText({
-    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
-    messages: [{ role: 'user', content: 'first overlapping secret' }],
-    maxOutputTokens: 1,
-    signal: new AbortController().signal,
-  })
-  const second = dispatcher.generateText({
-    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
-    messages: [{ role: 'user', content: 'second overlapping secret' }],
-    maxOutputTokens: 1,
-    signal: new AbortController().signal,
-  })
+  await assert.rejects(
+    loginDispatcher.generateText({
+      modelSnapshot: { modelName: 'claude2WebFree', apiMode: null },
+      messages: [{ role: 'user', content: 'sensitive prompt' }],
+      maxOutputTokens: 1,
+      signal: new AbortController().signal,
+    }),
+    (error) => {
+      assert.equal(error.message, 'MODEL_LOGIN_REQUIRED')
+      assert.equal(error.trustedHumanMessage, loginText)
+      assert.equal(Object.keys(error).includes('trustedHumanMessage'), false)
+      assert.equal(JSON.stringify(error).includes(loginText), false)
+      return true
+    },
+  )
 
-  while (releases.length < 2) await new Promise((resolve) => setTimeout(resolve, 0))
-  releases[0]()
-  await first
-  console.debug('between overlapping calls')
-  releases[1]()
-  await second
-  console.debug('after overlapping calls')
+  const genericText = 'Translated generic adapter failure with sensitive prompt'
+  const genericDispatcher = createModelTextDispatcher(
+    createBaseDependencies({
+      getUserConfig: async () => ({ modelName: 'azureOpenAi' }),
+      generateAnswersWithAzureOpenaiApi: async () => {
+        throw new Error(genericText)
+      },
+    }),
+  )
 
-  assert.equal(
-    consoleMessages.some((message) => message.includes('raw overlapping prompt')),
-    false,
+  await assert.rejects(
+    genericDispatcher.generateText({
+      modelSnapshot: { modelName: 'azureOpenAi', apiMode: null },
+      messages: [{ role: 'user', content: 'sensitive prompt' }],
+      maxOutputTokens: 1,
+      signal: new AbortController().signal,
+    }),
+    (error) => {
+      assert.equal(error.message, 'MODEL_GATEWAY_GENERATION_FAILED')
+      assert.equal(error.trustedHumanMessage, genericText)
+      assert.equal(Object.keys(error).includes('trustedHumanMessage'), false)
+      assert.equal(JSON.stringify(error).includes(genericText), false)
+      return true
+    },
   )
-  assert.equal(
-    consoleMessages.some((message) => message.includes('first overlapping secret')),
-    false,
-  )
-  assert.equal(
-    consoleMessages.some((message) => message.includes('second overlapping secret')),
-    false,
-  )
-  assert.equal(
-    consoleMessages.some((message) => message.includes('between overlapping calls')),
-    false,
-  )
-  assert.equal(
-    consoleMessages.some((message) => message.includes('after overlapping calls')),
-    true,
-  )
-  console.debug = originalDebug
 })
