@@ -8,9 +8,6 @@ import { generateAnswersWithBingWebApi } from '../services/apis/bing-web.mjs'
 import { generateAnswersWithOpenAICompatibleApi } from '../services/apis/openai-api'
 import { generateAnswersWithAzureOpenaiApi } from '../services/apis/azure-openai-api.mjs'
 import { generateAnswersWithClaudeApi } from '../services/apis/claude-api.mjs'
-import { generateAnswersWithOpenAICompatible } from '../services/apis/openai-compatible-core.mjs'
-import { invokeOpenAICompatibleTool } from '../services/apis/openai-compatible-tool-call.mjs'
-import { resolveOpenAICompatibleRequest } from '../services/apis/provider-registry.mjs'
 import { generateAnswersWithWaylaidwandererApi } from '../services/apis/waylaidwanderer-api.mjs'
 import {
   defaultConfig,
@@ -68,6 +65,8 @@ import {
 } from './proxy-generation-state.mjs'
 import { createMediaKitGateway } from './media-kit-gateway.mjs'
 import { createModelGateway } from './model-gateway.mjs'
+import { createModelTextDispatcher } from './model-text-dispatcher.mjs'
+import { createVideoSummaryChatgptProxy } from './video-summary-chatgpt-proxy.mjs'
 import { createVideoSummaryOffscreenRpc } from './video-summary-offscreen-rpc.mjs'
 import {
   VIDEO_SUMMARY_OFFSCREEN_PORT_NAME,
@@ -77,37 +76,80 @@ import { createVideoSummaryRouter } from './video-summary-router.mjs'
 
 const EXTENSION_URL_PREFIX = Browser.runtime.getURL('')
 const POPUP_PAGE_URL = Browser.runtime.getURL('popup.html')
+const videoSummaryLogger = {
+  info(entry) {
+    console.info('[background]', entry)
+  },
+  warn(entry) {
+    console.warn('[background]', entry)
+  },
+  error(entry) {
+    console.error('[background]', entry)
+  },
+}
 const mediaKitGateway = createMediaKitGateway({
   storageArea: Browser.storage.local,
   fetchImpl: fetch,
-  logger: {
-    info(entry) {
-      console.info('[background]', entry)
-    },
-    warn(entry) {
-      console.warn('[background]', entry)
-    },
-    error(entry) {
-      console.error('[background]', entry)
-    },
-  },
+  logger: videoSummaryLogger,
 })
+const videoSummaryChatgptProxy = createVideoSummaryChatgptProxy({
+  tabs: Browser.tabs,
+  async getConfiguredTabId() {
+    return (await getUserConfig()).chatgptTabId
+  },
+  logger: videoSummaryLogger,
+})
+const modelTextDispatcher = createModelTextDispatcher({
+  getUserConfig,
+  getChatGptAccessToken,
+  getClaudeSessionKey,
+  getBingAccessToken,
+  getBardCookies,
+  generateWithChatgptPageProxy: (args) => videoSummaryChatgptProxy.generate(args),
+  generateAnswersWithChatgptWebApi,
+  generateAnswersWithClaudeWebApi,
+  generateAnswersWithMoonshotWebApi,
+  generateAnswersWithBingWebApi,
+  generateAnswersWithBardWebApi,
+  generateAnswersWithOpenAICompatibleApi,
+  generateAnswersWithClaudeApi,
+  generateAnswersWithAzureOpenaiApi,
+  generateAnswersWithWaylaidwandererApi,
+  logger: videoSummaryLogger,
+})
+function describeModelTextSupport(_config, modelIdentity) {
+  const candidate = modelIdentity || {}
+  const supported =
+    isUsingChatgptWebModel(candidate) ||
+    isUsingClaudeWebModel(candidate) ||
+    isUsingMoonshotWebModel(candidate) ||
+    isUsingBingWebModel(candidate) ||
+    isUsingGeminiWebModel(candidate) ||
+    isUsingCustomModel(candidate) ||
+    isUsingChatgptApiModel(candidate) ||
+    isUsingGptCompletionApiModel(candidate) ||
+    isUsingMoonshotApiModel(candidate) ||
+    isUsingMistralApiModel(candidate) ||
+    isUsingChatGLMApiModel(candidate) ||
+    isUsingDeepSeekApiModel(candidate) ||
+    isUsingNvidiaNimApiModel(candidate) ||
+    isUsingOllamaApiModel(candidate) ||
+    isUsingOpenRouterApiModel(candidate) ||
+    isUsingAimlApiModel(candidate) ||
+    isUsingGoogleApiModel(candidate) ||
+    isUsingXaiApiModel(candidate) ||
+    isUsingClaudeApiModel(candidate) ||
+    isUsingAzureOpenAiApiModel(candidate) ||
+    isUsingGithubThirdPartyApiModel(candidate)
+  return supported
+    ? { state: 'supported' }
+    : { state: 'unsupported', reason: 'MODEL_GATEWAY_UNSUPPORTED' }
+}
 export const modelGateway = createModelGateway({
   getUserConfig,
-  resolveOpenAICompatibleRequest,
-  generateAnswersWithOpenAICompatible,
-  invokeOpenAICompatibleTool,
-  logger: {
-    info(entry) {
-      console.info('[background]', entry)
-    },
-    warn(entry) {
-      console.warn('[background]', entry)
-    },
-    error(entry) {
-      console.error('[background]', entry)
-    },
-  },
+  describeModelTextSupport,
+  generateTextWithModel: (args) => modelTextDispatcher.generateText(args),
+  logger: videoSummaryLogger,
 })
 const videoSummaryOffscreenState = {
   port: null,

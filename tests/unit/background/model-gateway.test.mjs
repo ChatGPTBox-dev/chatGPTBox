@@ -16,417 +16,207 @@ function createLogger(entries) {
   }
 }
 
-test('describeCapabilities supports API modes and rejects web-only models', async () => {
+function createGateway(overrides = {}) {
+  return createModelGateway({
+    getUserConfig: async () => ({}),
+    describeModelTextSupport: () => ({ state: 'supported' }),
+    generateTextWithModel: async () => ({ text: 'summary', finishReason: 'stop' }),
+    logger: createLogger([]),
+    ...overrides,
+  })
+}
+
+test('describeCapabilities reports Kimi Web as text-capable', async () => {
   const gateway = createModelGateway({
-    getUserConfig: async () => ({ maxResponseTokenLength: 3000 }),
-    resolveOpenAICompatibleRequest: (_config, modelSnapshot) =>
-      modelSnapshot?.modelName === 'chatgptFree35'
-        ? null
-        : { requestUrl: 'https://api.openai.com/v1/chat/completions' },
-    generateAnswersWithOpenAICompatible: async () => {},
-    logger: { info() {}, warn() {}, error() {} },
+    getUserConfig: async () => ({ kimiMoonShotRefreshToken: 'secret' }),
+    describeModelTextSupport: (config, modelIdentity) => {
+      assert.deepEqual(config, { kimiMoonShotRefreshToken: 'secret' })
+      assert.deepEqual(modelIdentity, { modelName: 'moonshotWebFree' })
+      return { state: 'supported' }
+    },
+    generateTextWithModel: async () => ({ text: 'unused', finishReason: null }),
+    logger: createLogger([]),
   })
 
-  assert.deepEqual(
-    await gateway.describeCapabilities({
-      apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' },
-    }),
-    {
-      supported: true,
-      reason: null,
-      inputTokenBudget: 4000,
-      maxOutputTokens: 20_000,
-    },
-  )
-
-  assert.deepEqual(await gateway.describeCapabilities({ modelName: 'chatgptFree35' }), {
-    supported: false,
-    reason: 'MODEL_GATEWAY_UNSUPPORTED',
+  assert.deepEqual(await gateway.describeCapabilities({ modelName: 'moonshotWebFree' }), {
+    supported: true,
+    state: 'supported',
+    reason: null,
+    condition: null,
     inputTokenBudget: 4000,
     maxOutputTokens: 20_000,
   })
 })
 
-test('describeCapabilities accepts a legacy customModel resolved by the configured API endpoint', async () => {
-  const config = {
-    customModelName: 'doubao-pro-32k',
-    customModelApiUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-    customModelApiKey: 'test-key',
-  }
-  const gateway = createModelGateway({
-    getUserConfig: async () => config,
-    resolveOpenAICompatibleRequest(resolvedConfig, modelSnapshot) {
-      assert.equal(resolvedConfig, config)
-      assert.deepEqual(modelSnapshot, { modelName: 'customModel', apiMode: null })
-      return { requestUrl: config.customModelApiUrl }
-    },
-    generateAnswersWithOpenAICompatible: async () => {},
-    logger: { info() {}, warn() {}, error() {} },
-  })
-
-  assert.deepEqual(
-    await gateway.describeCapabilities({ modelName: 'customModel', apiMode: null }),
+test('describeCapabilities preserves unsupported, temporary, and actionable conditions', async () => {
+  const descriptors = [
     {
-      supported: true,
-      reason: null,
+      support: { state: 'unsupported', reason: 'MODEL_GATEWAY_UNSUPPORTED' },
+      expected: {
+        supported: false,
+        state: 'unsupported',
+        reason: 'MODEL_GATEWAY_UNSUPPORTED',
+        condition: null,
+        inputTokenBudget: 4000,
+        maxOutputTokens: 20_000,
+      },
+    },
+    {
+      support: { state: 'temporary', reason: 'MODEL_TEMPORARY_FAILURE', condition: 'temporary' },
+      expected: {
+        supported: false,
+        state: 'temporary',
+        reason: 'MODEL_TEMPORARY_FAILURE',
+        condition: 'temporary',
+        inputTokenBudget: 4000,
+        maxOutputTokens: 20_000,
+      },
+    },
+  ]
+
+  for (const { support, expected } of descriptors) {
+    const gateway = createGateway({ describeModelTextSupport: () => support })
+    assert.deepEqual(await gateway.describeCapabilities({ modelName: 'test-model' }), expected)
+  }
+
+  for (const condition of ['login-required', 'provider-page-required']) {
+    const error = Object.assign(new Error('private provider detail'), {
+      code:
+        condition === 'login-required' ? 'MODEL_LOGIN_REQUIRED' : 'MODEL_PROVIDER_PAGE_REQUIRED',
+      condition,
+    })
+    const gateway = createGateway({
+      describeModelTextSupport() {
+        throw error
+      },
+    })
+    assert.deepEqual(await gateway.describeCapabilities({ modelName: 'test-model' }), {
+      supported: false,
+      state: 'temporary',
+      reason: error.code,
+      condition,
       inputTokenBudget: 4000,
       maxOutputTokens: 20_000,
-    },
-  )
+    })
+  }
 })
 
-test('invokeTool calls invokeOpenAICompatibleTool with resolved endpoint/model and returns parsed tool arguments', async () => {
+test('describeCapabilities converts unknown failures to a safe temporary descriptor', async () => {
+  const gateway = createGateway({
+    describeModelTextSupport() {
+      throw new Error('secret provider response')
+    },
+  })
+
+  assert.deepEqual(await gateway.describeCapabilities({ modelName: 'test-model' }), {
+    supported: false,
+    state: 'temporary',
+    reason: 'MODEL_TEMPORARY_FAILURE',
+    condition: 'temporary',
+    inputTokenBudget: 4000,
+    maxOutputTokens: 20_000,
+  })
+})
+
+test('generateText forwards immutable inputs, bounded output tokens, and an abort signal', async () => {
   const entries = []
   let capturedArgs
-  const gateway = createModelGateway({
-    getUserConfig: async () => ({
-      maxConversationContextLength: 8,
-      maxResponseTokenLength: 3000,
-      temperatureOverrideEnabled: false,
-      temperature: 1,
-    }),
-    resolveOpenAICompatibleRequest: () => ({
-      requestUrl: 'https://api.openai.com/v1/chat/completions',
-      apiKey: 'sk-test',
-      providerId: 'openai',
-      extraBody: { custom: true },
-      extraHeaders: { 'X-Test': '1' },
-    }),
-    invokeOpenAICompatibleTool: async (args) => {
+  const gateway = createGateway({
+    generateTextWithModel: async (args) => {
       capturedArgs = args
-      return {
-        toolName: args.tool?.name,
-        arguments: { summary: 'final answer', bullets: ['a', 'b'] },
-        argumentBytes: 37,
-      }
+      args.modelSnapshot.modelName = 'mutated'
+      args.messages[0].content = 'mutated'
+      return { text: 'private returned summary', finishReason: 'length', raw: 'private payload' }
     },
     logger: createLogger(entries),
   })
-
   const modelSnapshot = Object.freeze({
-    modelName: 'customModel',
-    apiMode: Object.freeze({
-      groupName: 'customApiModelKeys',
-      providerId: 'openai',
-      customName: 'gpt-4.1-mini',
-    }),
+    modelName: 'moonshotWebFree',
+    apiMode: Object.freeze({ groupName: 'web', providerId: 'kimi' }),
   })
   const messages = Object.freeze([
-    Object.freeze({ role: 'system', content: 'Summarize in concise bullets.' }),
-    Object.freeze({ role: 'user', content: 'transcript content' }),
+    Object.freeze({ role: 'user', content: 'private transcript content' }),
   ])
-  const tool = Object.freeze({
-    name: 'video_summary',
-    description: 'Return the requested video summary.',
-    parameters: Object.freeze({
-      type: 'object',
-      additionalProperties: false,
-      properties: Object.freeze({
-        summary: Object.freeze({ type: 'string' }),
-        bullets: Object.freeze({ type: 'array', items: Object.freeze({ type: 'string' }) }),
-      }),
-      required: Object.freeze(['summary', 'bullets']),
-    }),
-  })
 
-  const result = await gateway.invokeTool({
+  const result = await gateway.generateText({
     requestId: 'request-1',
     taskId: 'task-1',
     modelSnapshot,
     messages,
-    maxOutputTokens: 321,
-    tool,
+    maxOutputTokens: 50_000,
   })
 
-  assert.deepEqual(result, {
-    toolName: 'video_summary',
-    arguments: { summary: 'final answer', bullets: ['a', 'b'] },
-    argumentBytes: 37,
-  })
-  assert.equal(capturedArgs.model, 'gpt-4.1-mini')
-  assert.equal(capturedArgs.provider, 'openai')
-  assert.equal(capturedArgs.requestUrl, 'https://api.openai.com/v1/chat/completions')
-  assert.equal(capturedArgs.apiKey, 'sk-test')
-  assert.deepEqual(capturedArgs.messages, [
-    { role: 'system', content: 'Summarize in concise bullets.' },
-    { role: 'user', content: 'transcript content' },
-  ])
-  assert.deepEqual(capturedArgs.extraBody, { custom: true })
-  assert.deepEqual(capturedArgs.extraHeaders, { 'X-Test': '1' })
-  assert.equal(capturedArgs.maxOutputTokens, 321)
-  assert.equal(capturedArgs.config.maxResponseTokenLength, 321)
-  assert.equal(capturedArgs.config.maxConversationContextLength, 8)
+  assert.deepEqual(result, { text: 'private returned summary', finishReason: 'length' })
+  assert.notEqual(capturedArgs.modelSnapshot, modelSnapshot)
+  assert.notEqual(capturedArgs.messages, messages)
+  assert.equal(capturedArgs.maxOutputTokens, 20_000)
   assert.equal(typeof capturedArgs.signal?.aborted, 'boolean')
-  assert.deepEqual(capturedArgs.tool, tool)
   assert.deepEqual(modelSnapshot, {
-    modelName: 'customModel',
-    apiMode: {
-      groupName: 'customApiModelKeys',
-      providerId: 'openai',
-      customName: 'gpt-4.1-mini',
-    },
+    modelName: 'moonshotWebFree',
+    apiMode: { groupName: 'web', providerId: 'kimi' },
   })
-  assert.equal(JSON.stringify(entries).includes('transcript content'), false)
-  assert.equal(JSON.stringify(entries).includes('final answer'), false)
-  assert.equal(JSON.stringify(entries).includes('"messages"'), false)
-  assert.equal(JSON.stringify(entries).includes('"parameters"'), false)
-  assert.equal(JSON.stringify(entries).includes('"arguments"'), false)
-  assert.equal(JSON.stringify(entries).includes('bullets'), false)
+  assert.deepEqual(messages, [{ role: 'user', content: 'private transcript content' }])
+  const logs = JSON.stringify(entries)
+  assert.equal(logs.includes('private transcript content'), false)
+  assert.equal(logs.includes('private returned summary'), false)
+  assert.equal(logs.includes('private payload'), false)
+  assert.equal(logs.includes('"messages"'), false)
+  assert.equal(logs.includes('length'), true)
 })
 
-test('invokeTool logs a safe errorCode for known and unknown failures without leaking payloads', async () => {
+test('generateText logs safe metadata when generation fails', async () => {
   const entries = []
-  const baseGateway = {
-    getUserConfig: async () => ({
-      maxConversationContextLength: 8,
-      maxResponseTokenLength: 3000,
-      temperatureOverrideEnabled: false,
-      temperature: 1,
-      customModelApiKey: 'sk-should-not-leak',
-    }),
-    resolveOpenAICompatibleRequest: () => ({
-      requestUrl: 'https://api.openai.com/v1/chat/completions',
-      apiKey: 'sk-should-not-leak',
-      providerId: 'openai',
-      extraBody: { custom: true },
-      extraHeaders: { Authorization: 'Bearer sk-should-not-leak' },
-    }),
+  const gateway = createGateway({
+    generateTextWithModel: async () => {
+      throw Object.assign(new Error('private transcript and provider response'), {
+        code: 'MODEL_LOGIN_REQUIRED',
+        condition: 'login-required',
+      })
+    },
     logger: createLogger(entries),
-  }
-
-  const modelSnapshot = Object.freeze({
-    apiMode: Object.freeze({
-      groupName: 'customApiModelKeys',
-      providerId: 'openai',
-      customName: 'gpt-4.1-mini',
-    }),
-  })
-  const messages = Object.freeze([
-    Object.freeze({ role: 'system', content: 'Do not leak this transcript content.' }),
-    Object.freeze({ role: 'user', content: 'transcript content' }),
-  ])
-  const tool = Object.freeze({
-    name: 'video_summary',
-    description: 'Return the requested video summary.',
-    parameters: Object.freeze({
-      type: 'object',
-      additionalProperties: false,
-      properties: Object.freeze({
-        summary: Object.freeze({ type: 'string' }),
-      }),
-      required: Object.freeze(['summary']),
-    }),
-  })
-
-  const knownError = Object.assign(new Error('MODEL_TOOL_CALL_MISSING'), {
-    code: 'MODEL_TOOL_CALL_MISSING',
-    protocolDiagnostics: {
-      eventCount: 3,
-      choiceEventCount: 2,
-      finishReasons: ['stop', 'function_call', 'other'],
-      sawContent: true,
-      sawReasoningContent: true,
-      sawDeltaToolCalls: false,
-      sawMessageToolCalls: true,
-      sawLegacyFunctionCall: true,
-      rawText: 'transcript content should not leak',
-      arguments: '{"secret":"should not leak"}',
-    },
-    arguments: '{"secret":"should not leak"}',
-  })
-  const knownGateway = createModelGateway({
-    ...baseGateway,
-    invokeOpenAICompatibleTool: async () => {
-      throw knownError
-    },
-    generateAnswersWithOpenAICompatible: async () => {},
   })
 
   await assert.rejects(
     () =>
-      knownGateway.invokeTool({
-        requestId: 'request-known',
-        taskId: 'task-known',
-        modelSnapshot,
-        messages,
+      gateway.generateText({
+        requestId: 'request-failed',
+        taskId: 'task-failed',
+        modelSnapshot: { modelName: 'moonshotWebFree' },
+        messages: [{ role: 'user', content: 'private transcript' }],
         maxOutputTokens: 200,
-        tool,
       }),
-    { message: 'MODEL_TOOL_CALL_MISSING' },
+    { code: 'MODEL_LOGIN_REQUIRED' },
   )
 
-  const knownFailureLog = entries.find(
-    ([level, entry]) =>
-      level === 'warn' && entry?.event === 'video-summary-model-gateway.invokeTool.failed',
-  )?.[1]
-  assert.equal(knownFailureLog?.errorCode, 'MODEL_TOOL_CALL_MISSING')
-  assert.deepEqual(knownFailureLog?.protocolDiagnostics, {
-    eventCount: 3,
-    choiceEventCount: 2,
-    finishReasons: ['stop', 'other'],
-    sawContent: true,
-    sawReasoningContent: true,
-    sawDeltaToolCalls: false,
-    sawMessageToolCalls: true,
-    sawLegacyFunctionCall: true,
-  })
-
-  // Unknown failures must map to a stable redacted code.
-  const unknownError = new Error(
-    'boom: transcript content sk-should-not-leak {"arguments":{"a":1}}',
-  )
-  const unknownGateway = createModelGateway({
-    ...baseGateway,
-    invokeOpenAICompatibleTool: async () => {
-      throw unknownError
-    },
-    generateAnswersWithOpenAICompatible: async () => {},
-  })
-
-  await assert.rejects(
-    () =>
-      unknownGateway.invokeTool({
-        requestId: 'request-unknown',
-        taskId: 'task-unknown',
-        modelSnapshot,
-        messages,
-        maxOutputTokens: 200,
-        tool,
-      }),
-    { message: unknownError.message },
-  )
-
-  const unknownFailureLog = entries
-    .filter(
-      ([level, entry]) =>
-        level === 'warn' && entry?.event === 'video-summary-model-gateway.invokeTool.failed',
-    )
-    .at(-1)?.[1]
-  assert.equal(unknownFailureLog?.errorCode, 'MODEL_GATEWAY_TOOL_CALL_FAILED')
-
-  const serializedLogs = JSON.stringify(entries)
-  assert.equal(serializedLogs.includes('transcript content'), false)
-  assert.equal(serializedLogs.includes('sk-should-not-leak'), false)
-  assert.equal(serializedLogs.includes('"messages"'), false)
-  assert.equal(serializedLogs.includes('"parameters"'), false)
-  assert.equal(serializedLogs.includes('"arguments"'), false)
-  assert.equal(serializedLogs.includes('function_call'), false)
+  const logs = JSON.stringify(entries)
+  assert.equal(logs.includes('MODEL_LOGIN_REQUIRED'), true)
+  assert.equal(logs.includes('private transcript'), false)
+  assert.equal(logs.includes('provider response'), false)
 })
 
-test('invokeTool accepts a legacy customModel resolved by the configured API endpoint', async () => {
-  let capturedModel = null
-  const gateway = createModelGateway({
-    getUserConfig: async () => ({ customModelName: 'doubao-pro-32k' }),
-    resolveOpenAICompatibleRequest: () => ({
-      requestUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-      apiKey: 'test-key',
-      providerId: 'legacy-custom-default',
-    }),
-    invokeOpenAICompatibleTool: async ({ model }) => {
-      capturedModel = model
-      return { toolName: 'video_summary', arguments: { summary: 'summary' }, argumentBytes: 19 }
-    },
-    logger: { info() {}, warn() {}, error() {} },
-  })
-
-  const result = await gateway.invokeTool({
-    requestId: 'request-legacy-custom',
-    taskId: 'task-legacy-custom',
-    modelSnapshot: { modelName: 'customModel', apiMode: null },
-    messages: [{ role: 'user', content: 'transcript content' }],
-    maxOutputTokens: 200,
-    tool: { name: 'video_summary', description: 'Return a summary.', parameters: {} },
-  })
-
-  assert.deepEqual(result, {
-    toolName: 'video_summary',
-    arguments: { summary: 'summary' },
-    argumentBytes: 19,
-  })
-  assert.equal(capturedModel, 'doubao-pro-32k')
-})
-
-test('invokeTool rejects unsupported model identities before calling the OpenAI-compatible tool invoker', async () => {
-  let callCount = 0
-  const gateway = createModelGateway({
-    getUserConfig: async () => ({
-      maxConversationContextLength: 8,
-      maxResponseTokenLength: 3000,
-      temperatureOverrideEnabled: false,
-      temperature: 1,
-    }),
-    resolveOpenAICompatibleRequest: () => null,
-    invokeOpenAICompatibleTool: async () => {
-      callCount += 1
-    },
-    logger: { info() {}, warn() {}, error() {} },
-  })
-
-  await assert.rejects(
-    () =>
-      gateway.invokeTool({
-        requestId: 'request-2',
-        taskId: 'task-2',
-        modelSnapshot: { modelName: 'chatgptFree35' },
-        messages: [{ role: 'user', content: 'transcript content' }],
-        maxOutputTokens: 200,
-        tool: { name: 'video_summary', description: 'Return a summary.', parameters: {} },
-      }),
-    { message: 'MODEL_GATEWAY_UNSUPPORTED' },
-  )
-  assert.equal(callCount, 0)
-})
-
-test('cancel aborts only the matching in-flight invokeTool request', async () => {
-  const abortedSignals = []
-  const settled = []
-  const gateway = createModelGateway({
-    getUserConfig: async () => ({
-      maxConversationContextLength: 8,
-      maxResponseTokenLength: 3000,
-      temperatureOverrideEnabled: false,
-      temperature: 1,
-    }),
-    resolveOpenAICompatibleRequest: () => ({
-      requestUrl: 'https://api.openai.com/v1/chat/completions',
-      apiKey: 'sk-test',
-      providerId: 'openai',
-    }),
-    invokeOpenAICompatibleTool: ({ signal }) =>
+test('cancel aborts only the matching in-flight generateText request', async () => {
+  const signals = []
+  const gateway = createGateway({
+    generateTextWithModel: ({ signal }) =>
       new Promise((resolve, reject) => {
-        abortedSignals.push(signal)
-        if (signal.aborted) {
-          reject(new Error('aborted before start'))
-          return
-        }
-        signal.addEventListener(
-          'abort',
-          () => {
-            settled.push('aborted')
-            reject(new Error('request aborted'))
-          },
-          { once: true },
-        )
+        signals.push(signal)
+        signal.addEventListener('abort', () => reject(new Error('request aborted')), { once: true })
       }),
-    logger: { info() {}, warn() {}, error() {} },
   })
 
-  const pending = gateway.invokeTool({
+  const pending = gateway.generateText({
     requestId: 'request-3',
     taskId: 'task-3',
-    modelSnapshot: {
-      apiMode: { groupName: 'customApiModelKeys', providerId: 'openai', customName: 'gpt-4o-mini' },
-    },
-    messages: [{ role: 'user', content: 'transcript content' }],
+    modelSnapshot: { modelName: 'moonshotWebFree' },
+    messages: [{ role: 'user', content: 'private transcript' }],
     maxOutputTokens: 200,
-    tool: { name: 'video_summary', description: 'Return a summary.', parameters: {} },
   })
   await Promise.resolve()
 
   gateway.cancel({ requestId: 'other-request', taskId: 'task-3' })
-  assert.equal(abortedSignals[0]?.aborted, false)
+  assert.equal(signals[0]?.aborted, false)
 
   gateway.cancel({ requestId: 'request-3', taskId: 'task-3' })
   await assert.rejects(() => pending, { message: 'request aborted' })
-  assert.deepEqual(settled, ['aborted'])
+  assert.equal(signals[0]?.aborted, true)
 })
