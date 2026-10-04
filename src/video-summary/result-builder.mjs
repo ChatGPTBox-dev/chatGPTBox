@@ -6,6 +6,34 @@ function dedupeStrings(values) {
   return Array.from(new Set((Array.isArray(values) ? values : []).filter(Boolean)))
 }
 
+function buildKeyPoints({ localChunkResults, synthesisResult, coveredIndexes, segmentIndex }) {
+  const sourcePoints = Array.isArray(synthesisResult?.keyPoints)
+    ? synthesisResult.keyPoints
+    : dedupeStrings(
+        (Array.isArray(localChunkResults) ? localChunkResults : []).flatMap((chunkResult) =>
+          Array.isArray(chunkResult?.keyPoints) ? chunkResult.keyPoints : [],
+        ),
+      )
+  const seen = new Set()
+  const keyPoints = []
+
+  for (const sourcePoint of sourcePoints) {
+    const point = String(sourcePoint?.point ?? sourcePoint ?? '').trim()
+    if (!point || seen.has(point)) continue
+    seen.add(point)
+
+    const info = segmentIndex.get(sourcePoint?.segmentId)
+    const anchored = info && coveredIndexes.has(info.index)
+    keyPoints.push({
+      segmentId: anchored ? info.segment.id : null,
+      startMs: anchored ? info.segment.startMs : null,
+      point,
+    })
+  }
+
+  return keyPoints
+}
+
 function buildSegmentIndex(segments) {
   return new Map(segments.map((segment, index) => [segment.id, { segment, index }]))
 }
@@ -295,13 +323,12 @@ export function buildStructuredSummaryResult({
     hasUnanchoredSummaryLocations: hasUnanchoredLocations(chapters, keyMoments),
   })
   const overview = buildOverview(localChunkResults, synthesisResult)
-  const keyPoints = dedupeStrings(
-    Array.isArray(synthesisResult?.keyPoints)
-      ? synthesisResult.keyPoints
-      : (Array.isArray(localChunkResults) ? localChunkResults : []).flatMap((chunkResult) =>
-          Array.isArray(chunkResult?.keyPoints) ? chunkResult.keyPoints : [],
-        ),
-  )
+  const keyPoints = buildKeyPoints({
+    localChunkResults,
+    synthesisResult,
+    coveredIndexes,
+    segmentIndex,
+  })
 
   return {
     status,

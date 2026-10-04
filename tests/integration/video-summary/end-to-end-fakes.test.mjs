@@ -355,7 +355,12 @@ function createModelGateway({
           '## Overview',
           `overview ${successfulChunkResults.length}`,
           '## Key Points',
-          ...keyPoints.map((point) => `- ${point}`),
+          ...keyPoints.map((point, index) =>
+            index === 0 && locations[0]?.segmentId
+              ? `- [segment:${locations[0].segmentId}] ${point}`
+              : `- [segment:invalid-${index}] ${point}`,
+          ),
+          '- [segment:invalid] Unanchored point',
           '## Chapters',
           ...locations.map(
             (item) =>
@@ -703,6 +708,14 @@ test('native subtitles complete without any MediaKit call', async () => {
 
   const resultEvent = await mounted.waitFor((event) => event.type === 'TASK_RESULT')
   assert.equal(resultEvent.result.status, 'complete')
+  assert.deepEqual(resultEvent.result.keyPoints, [
+    {
+      segmentId: 'native-1',
+      startMs: resultEvent.result.transcriptSegments[0].startMs,
+      point: 'Point native-1',
+    },
+    { segmentId: null, startMs: null, point: 'Unanchored point' },
+  ])
   assert.deepEqual(
     resultEvent.result.transcriptSegments.map((segment) => segment.text),
     ['hello', 'world'],

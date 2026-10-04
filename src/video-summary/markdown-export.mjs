@@ -1,16 +1,11 @@
 import { formatVideoOffset } from './time.mjs'
 
-function renderList(title, items) {
-  if (!Array.isArray(items) || items.length === 0) return ''
-  return `## ${title}\n\n${items.map((item) => `- ${item}`).join('\n')}\n`
-}
-
-function renderKeyMoments(keyMoments) {
-  if (!Array.isArray(keyMoments) || keyMoments.length === 0) return ''
-  return `## Key Moments\n\n${keyMoments
-    .map((moment) => {
-      if (!Number.isFinite(moment.startMs)) return `- ${moment.point}`
-      return `- ${formatVideoOffset(moment.startMs) || 'Unknown'}: ${moment.point}`
+function renderLocatedPoints(title, points) {
+  if (!Array.isArray(points) || points.length === 0) return ''
+  return `## ${title}\n\n${points
+    .map((item) => {
+      if (!Number.isFinite(item.startMs)) return `- ${item.point}`
+      return `- ${formatVideoOffset(item.startMs)}: ${item.point}`
     })
     .join('\n')}\n`
 }
@@ -54,8 +49,8 @@ export function buildVideoSummaryMarkdown({ title, result, preferredLanguage }) 
   }
 
   const sections = [
-    renderList('Key Points', result?.keyPoints),
-    renderKeyMoments(result?.keyMoments),
+    renderLocatedPoints('Key Points', result?.keyPoints),
+    renderLocatedPoints('Key Moments', result?.keyMoments),
     renderChapters(result?.chapters),
     renderTranscript(result?.transcriptSegments),
   ].filter(Boolean)

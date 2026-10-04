@@ -4,11 +4,11 @@ export const SUMMARY_TEXT_LIMITS = Object.freeze({
   chunkPointCharacters: 120,
   candidateCount: 5,
   candidateCharacters: 120,
-  overviewCharacters: 600,
+  overviewCharacters: 1000,
   keyPointCount: 12,
-  keyPointCharacters: 150,
+  keyPointCharacters: 200,
   chapterCount: 20,
-  chapterDescriptionCharacters: 150,
+  chapterDescriptionCharacters: 180,
   keyMomentCount: 15,
   keyMomentCharacters: 120,
 })
@@ -169,10 +169,12 @@ export function parseFinalSummaryMarkdown(text, { allowedSegmentIds = new Set() 
       (sections.get('overview') || []).join('\n'),
       SUMMARY_TEXT_LIMITS.overviewCharacters,
     ),
-    keyPoints: parsePoints(
+    keyPoints: parseLocations(
       sections.get('keyPoints'),
+      allowedSegmentIds,
       SUMMARY_TEXT_LIMITS.keyPointCount,
       SUMMARY_TEXT_LIMITS.keyPointCharacters,
+      'point',
     ),
     chapters: parseChapters(sections.get('chapters'), allowedSegmentIds),
     keyMoments: parseLocations(
@@ -236,6 +238,10 @@ export function buildFinalSummaryMessages({ chunkResults, preferredLanguage }) {
       content: `${summaryInstructions(preferredLanguage)}
 Synthesize the supplied compact chunk results in source order.
 Use only validated candidate segment IDs supplied in the chunk results as anchors.
+Write medium-detail output. The overview should cover necessary background and context, the main argument or narrative, supporting evidence and reasoning, conclusions, and practical takeaways when supported by the source material.
+Each key point should explain the claim, its supporting evidence or reasoning, and why it matters or its practical implication. Do not fabricate absent evidence or force every dimension when unsupported.
+Each chapter description should explain what the chapter covers, how it advances the overall narrative or argument, and its stage conclusion.
+Avoid repetition across the overview, key points, chapters, and key moments; preserve concrete facts from the source. Keep key moments concise.
 Overview: at most ${SUMMARY_TEXT_LIMITS.overviewCharacters} characters.
 Key points: at most ${SUMMARY_TEXT_LIMITS.keyPointCount}, each at most ${
         SUMMARY_TEXT_LIMITS.keyPointCharacters
@@ -249,7 +255,7 @@ Key moments: at most ${SUMMARY_TEXT_LIMITS.keyMomentCount}, each at most ${
 ## 整体摘要
 Overall summary.
 ## 核心要点
-- Key point.
+- [segment:<id>] Key point.
 ## 章节
 - [segment:<id>] Chapter title — Brief description.
 ## 关键时刻

@@ -290,7 +290,12 @@ export default function BilibiliVideoSummaryView({
                 <summary>{t('Key points')}</summary>
                 <ul>
                   {keyPoints.map((item) => (
-                    <li key={item}>{item}</li>
+                    <li key={`${item.point}-${item.startMs}`}>
+                      {Number.isFinite(item.startMs) ? (
+                        <TimestampButton startMs={item.startMs} onSeekTo={onSeekTo} />
+                      ) : null}
+                      <span>{item.point}</span>
+                    </li>
                   ))}
                 </ul>
               </details>

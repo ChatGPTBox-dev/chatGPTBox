@@ -34,7 +34,10 @@ test('markdown export preserves anchored and unanchored free-text results withou
       status: 'partial',
       overview: 'Parsed overview',
       rawSummaryText: '[segment:secret] Raw model response',
-      keyPoints: [],
+      keyPoints: [
+        { segmentId: 's1', startMs: 1_000, point: 'Anchored point' },
+        { segmentId: null, startMs: null, point: 'Unanchored point' },
+      ],
       keyMoments: [
         { startMs: 1_000, point: 'Anchored moment' },
         { startMs: null, point: 'Unanchored moment' },
@@ -59,6 +62,8 @@ test('markdown export preserves anchored and unanchored free-text results withou
 
   assert.match(markdown, /Anchored/)
   assert.match(markdown, /Unanchored/)
+  assert.match(markdown, /- 00:01: Anchored point/)
+  assert.match(markdown, /- Unanchored point/)
   assert.match(markdown, /- Unanchored moment/)
   assert.doesNotMatch(markdown, /Unknown - Unknown/)
   assert.doesNotMatch(markdown, /NaN|segment:/)

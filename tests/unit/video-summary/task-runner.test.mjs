@@ -53,7 +53,7 @@ test('runner uses staged Markdown text generation without tool calls', async () 
           }
         }
         return {
-          text: '## Overview\nfinal\n## Key Points\n- point\n## Chapters\n- [segment:s1] Opening — intro\n## Key Moments\n- [segment:s2] moment',
+          text: '## Overview\nfinal\n## Key Points\n- [segment:s1] anchored point\n- [segment:s2] invalid point\n## Chapters\n- [segment:s1] Opening — intro\n## Key Moments\n- [segment:s2] moment',
           finishReason: 'stop',
         }
       },
@@ -90,6 +90,10 @@ test('runner uses staged Markdown text generation without tool calls', async () 
     false,
   )
   assert.equal(result.chapters[0].startMs, 0)
+  assert.deepEqual(result.keyPoints, [
+    { segmentId: 's1', startMs: transcription.segments[0].startMs, point: 'anchored point' },
+    { segmentId: null, startMs: null, point: 'invalid point' },
+  ])
 })
 
 test('article-only final Markdown output is preserved as an unanchored complete summary', async () => {
@@ -138,7 +142,7 @@ test('article-only final Markdown output is preserved as an unanchored complete 
   const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
   assert.equal(result.status, 'complete')
   assert.equal(result.overview, 'A prose-only article summary.')
-  assert.deepEqual(result.keyPoints, ['durable point'])
+  assert.deepEqual(result.keyPoints, [{ segmentId: null, startMs: null, point: 'durable point' }])
   assert.equal(result.rawSummaryText.includes('A prose-only article summary.'), true)
 })
 

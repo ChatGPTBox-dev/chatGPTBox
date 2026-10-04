@@ -281,7 +281,10 @@ test('view renders structured result states, timestamp seek actions, and explici
       result: {
         status: 'partial',
         overview: 'A compact overview',
-        keyPoints: ['Point A', 'Point B'],
+        keyPoints: [
+          { segmentId: 's2', startMs: 1000, point: 'Point A' },
+          { segmentId: null, startMs: null, point: 'Point B' },
+        ],
         keyMoments: [{ startMs: 0, point: 'Intro moment' }],
         chapters: [
           { startMs: 0, endMs: 1000, title: 'Opening', summary: 'Opening summary' },
@@ -352,6 +355,8 @@ test('view renders structured result states, timestamp seek actions, and explici
   assert.ok(momentButton)
   assert.ok(summary)
   assert.ok(keyPoints)
+  assert.equal(keyPoints.querySelectorAll('button[data-seek-ms="1000"]').length, 1)
+  assert.equal(keyPoints.querySelectorAll('button[data-seek-ms]').length, 1)
   assert.ok(chapters)
   assert.ok(keyMoments)
   assert.ok(transcript)

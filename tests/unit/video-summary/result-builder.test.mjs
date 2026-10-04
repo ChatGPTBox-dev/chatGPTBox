@@ -63,6 +63,36 @@ test('preserves unanchored free-text entries without inventing timestamps', () =
   })
 })
 
+test('normalizes final key points with exact transcript locations and no inferred timestamps', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: createTranscription(),
+    localChunkResults: [
+      {
+        primaryStartSegmentId: 's1',
+        primaryEndSegmentId: 's4',
+        localSummary: 'local',
+        keyPoints: ['local point'],
+        candidates: [{ segmentId: 's2', text: 'candidate', anchored: true }],
+      },
+    ],
+    synthesisResult: {
+      overview: 'final',
+      keyPoints: [
+        { segmentId: 's2', point: 'Anchored point', anchored: true },
+        { segmentId: null, point: 'Invalid point', anchored: false },
+      ],
+      chapters: [],
+      keyMoments: [],
+    },
+    failedRanges: [],
+  })
+
+  assert.deepEqual(result.keyPoints, [
+    { segmentId: 's2', startMs: 1000, point: 'Anchored point' },
+    { segmentId: null, startMs: null, point: 'Invalid point' },
+  ])
+})
+
 test('uses local summaries, points, and candidates when final output is absent', () => {
   const result = buildStructuredSummaryResult({
     transcription: createTranscription(),
@@ -88,7 +118,10 @@ test('uses local summaries, points, and candidates when final output is absent',
 
   assert.equal(result.rawSummaryText, '')
   assert.equal(result.overview, 'first local\n\nsecond local')
-  assert.deepEqual(result.keyPoints, ['local point', 'another point'])
+  assert.deepEqual(result.keyPoints, [
+    { segmentId: null, startMs: null, point: 'local point' },
+    { segmentId: null, startMs: null, point: 'another point' },
+  ])
   assert.deepEqual(result.keyMoments, [
     { segmentId: 's2', startMs: 1000, point: 'local candidate' },
     { segmentId: null, startMs: null, point: 'unanchored candidate' },
@@ -175,7 +208,7 @@ test('result builder emits degraded output when synthesis fails but local summar
   assert.equal(result.status, 'degraded')
   assert.equal(result.transcriptSegments.length, 4)
   assert.equal(result.overview.includes('overview'), true)
-  assert.deepEqual(result.keyPoints, ['point'])
+  assert.deepEqual(result.keyPoints, [{ segmentId: null, startMs: null, point: 'point' }])
 })
 
 test('result builder emits partial output with deterministic chapters and failed-range coverage', () => {

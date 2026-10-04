@@ -40,9 +40,9 @@ function buildAskPrompt({ title, result }) {
     `Overview: ${result?.overview || 'Unavailable'}`,
     '',
     'Key points:',
-    ...((Array.isArray(result?.keyPoints) ? result.keyPoints : []).map((point) => `- ${point}`) || [
-      '- None',
-    ]),
+    ...((Array.isArray(result?.keyPoints) ? result.keyPoints : []).map(
+      (point) => `- ${String(point?.point || '').trim()}`,
+    ) || ['- None']),
     '',
     'Chapter summaries:',
     chapterLines || '- None',
