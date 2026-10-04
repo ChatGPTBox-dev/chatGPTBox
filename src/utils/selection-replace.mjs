@@ -140,13 +140,13 @@ const replaceInContentEditable = (captured, text, doc) => {
     selection.removeAllRanges()
     selection.addRange(range)
     if (typeof doc.execCommand === 'function') {
-      const contentBefore = element.textContent
       try {
-        // as for text fields, only trust execCommand when the content actually
-        // changed: editors may cancel the edit while the command reports success
+        // as for text fields, only trust execCommand when the captured text was
+        // actually replaced (the live range no longer holds it): editors may
+        // cancel the edit while the command reports success
         if (
           doc.execCommand('insertText', false, text) &&
-          (element.textContent !== contentBefore || text === originalText)
+          (range.toString() !== originalText || text === originalText)
         ) {
           return true
         }

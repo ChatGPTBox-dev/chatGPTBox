@@ -35,7 +35,6 @@ const createContentEditableElement = () => ({
   isContentEditable: true,
   isConnected: true,
   parentElement: null,
-  textContent: '',
   dispatchedEvents: [],
   focus() {
     this.focused = true
@@ -406,7 +405,7 @@ test('replaceCapturedSelection uses execCommand for contenteditable when availab
     selection,
     execCommand: (command, showUI, text) => {
       inserted = text
-      element.textContent = text
+      range.toString = () => '' // the live range collapses once its contents are replaced
       return true
     },
   })
@@ -435,6 +434,26 @@ test('replaceCapturedSelection falls back when contenteditable execCommand chang
   assert.equal(range.deletedContents, true)
   assert.equal(range.insertedNodes[0].textContent, 'new text')
   assert.equal(element.dispatchedEvents.length, 1)
+})
+
+test('replaceCapturedSelection falls back when contenteditable execCommand only changes other content', () => {
+  const element = createContentEditableElement()
+  element.textContent = 'old text'
+  const range = createRange(element, 'old text')
+  const doc = createDocument({
+    selection: createSelection(range),
+    execCommand: () => {
+      element.textContent = 'old text, edited elsewhere' // the captured text stays untouched
+      return true
+    },
+  })
+  const captured = captureEditableSelection(doc)
+
+  const replaced = replaceCapturedSelection(captured, 'new text', doc)
+
+  assert.equal(replaced, true)
+  assert.equal(range.deletedContents, true)
+  assert.equal(range.insertedNodes[0].textContent, 'new text')
 })
 
 test('replaceCapturedSelection rechecks contenteditable content after focusing', () => {
