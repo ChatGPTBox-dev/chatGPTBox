@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatVideoOffset } from '../../video-summary/time.mjs'
 
-function renderTimestampLabel(startMs, endMs = null) {
-  const startLabel = formatVideoOffset(startMs) || 'Unknown'
+function renderTimestampLabel(startMs, endMs = null, unknownLabel = 'Unknown') {
+  const startLabel = formatVideoOffset(startMs) || unknownLabel
   if (!Number.isFinite(endMs)) return startLabel
-  return `${startLabel} - ${formatVideoOffset(endMs) || 'Unknown'}`
+  return `${startLabel} - ${formatVideoOffset(endMs) || unknownLabel}`
 }
 
 function SourceChoiceButtons({ sourceChoice, subtitleTrack, onChooseSource }) {
@@ -58,18 +58,20 @@ SourceChoiceButtons.propTypes = {
 }
 
 function AsrConfirmation({ onConfirmAsr, onCancelAsrConfirmation }) {
+  const { t } = useTranslation()
   return (
     <div className="bilibili-video-summary-view__confirm">
       <p>
-        ASR uploads audio to a remote service. Confirm that you accept remote retention and the
-        cancellation cost before continuing.
+        {t(
+          'ASR uploads audio to a remote service. Confirm that you accept remote retention and the cancellation cost before continuing.',
+        )}
       </p>
       <div className="bilibili-video-summary-view__actions">
         <button type="button" data-action="confirm-asr" onClick={onConfirmAsr}>
-          Confirm ASR
+          {t('Confirm ASR')}
         </button>
         <button type="button" data-action="cancel-asr" onClick={onCancelAsrConfirmation}>
-          Cancel
+          {t('Cancel')}
         </button>
       </div>
     </div>
@@ -89,15 +91,16 @@ function SummaryActions({
   onDownloadMarkdown,
   onRetrySummary,
 }) {
+  const { t } = useTranslation()
   return (
     <div className="bilibili-video-summary-view__actions">
       {canRetrySummary ? (
         <button type="button" data-action="retry-summary" onClick={onRetrySummary}>
-          Retry summary only
+          {t('Retry summary only')}
         </button>
       ) : null}
       <button type="button" data-action="archive" disabled={!hasResult} onClick={onArchive}>
-        Archive summary
+        {t('Archive summary')}
       </button>
       <button
         type="button"
@@ -105,7 +108,7 @@ function SummaryActions({
         disabled={!hasResult}
         onClick={onAskAboutVideo}
       >
-        Ask about this video
+        {t('Ask about this video')}
       </button>
       <button
         type="button"
@@ -113,7 +116,7 @@ function SummaryActions({
         disabled={!hasResult}
         onClick={onDownloadMarkdown}
       >
-        Download Markdown
+        {t('Download Markdown')}
       </button>
     </div>
   )
@@ -129,9 +132,10 @@ SummaryActions.propTypes = {
 }
 
 function TimestampButton({ startMs, endMs = null, label, onSeekTo }) {
+  const { t } = useTranslation()
   return (
     <button type="button" data-seek-ms={String(startMs)} onClick={() => onSeekTo(startMs)}>
-      {label || renderTimestampLabel(startMs, endMs)}
+      {label || renderTimestampLabel(startMs, endMs, t('Unknown'))}
     </button>
   )
 }
@@ -184,12 +188,20 @@ export default function BilibiliVideoSummaryView({
   return (
     <section className="bilibili-video-summary-view">
       <header className="bilibili-video-summary-view__header">
-        <h2>{videoTitle || 'Bilibili video summary'}</h2>
+        <h2>{videoTitle || t('Bilibili video summary')}</h2>
         <div className="bilibili-video-summary-view__meta">
-          <span>choice: {sourceChoice || 'none'}</span>
-          <span>phase: {taskState?.phase || 'idle'}</span>
-          <span>status: {result?.status || 'pending'}</span>
-          <span>stage: {taskState?.activeStage || 'idle'}</span>
+          <span>
+            {t('Choice')}: {sourceChoice || t('None')}
+          </span>
+          <span>
+            {t('Phase')}: {taskState?.phase || t('Idle')}
+          </span>
+          <span>
+            {t('Status')}: {result?.status || t('Pending')}
+          </span>
+          <span>
+            {t('Stage')}: {taskState?.activeStage || t('Idle')}
+          </span>
         </div>
       </header>
 
@@ -254,13 +266,13 @@ export default function BilibiliVideoSummaryView({
           open={summaryOpen}
           onToggle={(event) => setSummaryOpen(event.currentTarget.open)}
         >
-          <summary>Summary</summary>
+          <summary>{t('Summary')}</summary>
           <div className="bilibili-video-summary-view__summary-scroll">
             {result.overview ? <p>{result.overview}</p> : null}
 
             {keyPoints.length > 0 ? (
               <details data-section="key-points">
-                <summary>Key points</summary>
+                <summary>{t('Key points')}</summary>
                 <ul>
                   {keyPoints.map((item) => (
                     <li key={item}>{item}</li>
@@ -271,7 +283,7 @@ export default function BilibiliVideoSummaryView({
 
             {chapters.length > 0 ? (
               <details data-section="chapters">
-                <summary>Chapters</summary>
+                <summary>{t('Chapters')}</summary>
                 <ul>
                   {chapters.map((chapter) => (
                     <li key={`${chapter.title}-${chapter.startMs}`}>
@@ -290,13 +302,13 @@ export default function BilibiliVideoSummaryView({
 
             {keyMoments.length > 0 ? (
               <details data-section="key-moments">
-                <summary>Key moments</summary>
+                <summary>{t('Key moments')}</summary>
                 <ul>
                   {keyMoments.map((moment) => (
                     <li key={`${moment.point}-${moment.startMs}`}>
                       <TimestampButton
                         startMs={moment.startMs}
-                        label={renderTimestampLabel(moment.startMs)}
+                        label={renderTimestampLabel(moment.startMs, null, t('Unknown'))}
                         onSeekTo={onSeekTo}
                       />
                       <span>{moment.point}</span>
@@ -310,7 +322,7 @@ export default function BilibiliVideoSummaryView({
       ) : null}
 
       <details data-section="transcript">
-        <summary>Transcript</summary>
+        <summary>{t('Transcript')}</summary>
         <div className="bilibili-video-summary-view__transcript-scroll">
           <ul>
             {transcriptSegments.map((segment) => {

@@ -54,11 +54,17 @@ before(async () => {
   const englishMessages = JSON.parse(
     await readFile(new URL('../../../src/_locales/en/main.json', import.meta.url), 'utf8'),
   )
+  const simplifiedChineseMessages = JSON.parse(
+    await readFile(new URL('../../../src/_locales/zh-hans/main.json', import.meta.url), 'utf8'),
+  )
   await i18n.use(initReactI18next).init({
     lng: 'en',
     resources: {
       en: {
         translation: englishMessages,
+      },
+      'zh-Hans': {
+        translation: simplifiedChineseMessages,
       },
     },
     fallbackLng: 'en',
@@ -70,9 +76,10 @@ before(async () => {
   BilibiliVideoSummaryView = importedModule.default
 })
 
-afterEach(() => {
+afterEach(async () => {
   act(() => render(null, container))
   container.replaceChildren()
+  await i18n.changeLanguage('en')
 })
 
 after(() => {
@@ -186,6 +193,80 @@ test('view explains login-required subtitle discovery and never auto-selects ASR
   )
   assert.deepEqual(calls, [])
   assert.equal(container.querySelector('[data-action="confirm-asr"]'), null)
+})
+
+test('view translates every fixed action and section label in Simplified Chinese', async () => {
+  await i18n.changeLanguage('zh-Hans')
+  mountView({
+    videoTitle: '',
+    sourceChoice: 'native-subtitle',
+    subtitleTrack: {
+      id: 'ai-track',
+      label: '中文（自动生成）',
+      sourceKind: 'bilibili-ai',
+      cues: [{ startMs: 0, endMs: 1000, text: '字幕内容' }],
+    },
+    subtitleDiscoveryStatus: 'available',
+    asrConfirmationVisible: true,
+    taskState: {
+      phase: 'complete',
+      activeStage: null,
+      checkpointAvailable: true,
+      errorMessage: null,
+      result: {
+        status: 'complete',
+        overview: '模型生成内容',
+        keyPoints: ['动态要点'],
+        keyMoments: [{ startMs: 0, point: '动态时刻' }],
+        chapters: [{ startMs: 0, endMs: 1000, title: '动态章节', summary: '动态摘要' }],
+        transcriptSegments: [
+          { id: 's1', startMs: 0, endMs: 1000, speaker: null, text: '动态字幕' },
+        ],
+        warnings: [],
+      },
+    },
+    onChooseSource() {},
+    onConfirmAsr() {},
+    onCancelAsrConfirmation() {},
+    onArchive() {},
+    onAskAboutVideo() {},
+    onDownloadMarkdown() {},
+    onSeekTo() {},
+    onRetrySummary() {},
+  })
+
+  const buttonText = Array.from(container.querySelectorAll('button')).map((button) =>
+    button.textContent.trim(),
+  )
+  assert.equal(
+    buttonText.some((text) => text.includes('使用 B 站 AI 字幕')),
+    true,
+  )
+  assert.equal(
+    buttonText.some((text) => text.includes('推荐')),
+    true,
+  )
+  assert.equal(buttonText.includes('运行 ASR'), true)
+  assert.equal(buttonText.includes('确认运行 ASR'), true)
+  assert.equal(buttonText.includes('取消'), true)
+  assert.equal(buttonText.includes('仅重试总结'), true)
+  assert.equal(buttonText.includes('归档总结'), true)
+  assert.equal(buttonText.includes('询问此视频'), true)
+  assert.equal(buttonText.includes('下载 Markdown'), true)
+
+  assert.equal(container.textContent.includes('ASR 会将音频上传到远程服务'), true)
+  assert.equal(container.textContent.includes('B 站视频总结'), true)
+  assert.equal(container.textContent.includes('来源: native-subtitle'), true)
+  assert.equal(container.textContent.includes('阶段: complete'), true)
+  assert.equal(container.textContent.includes('状态: complete'), true)
+  assert.equal(container.textContent.includes('处理阶段: 空闲'), true)
+  assert.equal(container.textContent.includes('总结'), true)
+  assert.equal(container.textContent.includes('关键要点'), true)
+  assert.equal(container.textContent.includes('章节'), true)
+  assert.equal(container.textContent.includes('关键时刻'), true)
+  assert.equal(container.textContent.includes('字幕文本'), true)
+  assert.equal(container.textContent.includes('模型生成内容'), true)
+  assert.equal(container.textContent.includes('动态字幕'), true)
 })
 
 test('view renders structured result states, timestamp seek actions, and explicit result buttons', () => {
