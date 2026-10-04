@@ -117,6 +117,10 @@ function isAbortError(error) {
   return error?.name === 'AbortError'
 }
 
+function isActionableModelError(error) {
+  return ['MODEL_LOGIN_REQUIRED', 'MODEL_PROVIDER_PAGE_REQUIRED'].includes(error?.code)
+}
+
 function emitTaskFailure({ emit, taskId, owner, checkpointAvailable, error }) {
   emitEvent(emit, {
     type: 'TASK_FAILED',
@@ -404,7 +408,7 @@ async function summarizeChunks({
         }),
       )
     } catch (error) {
-      if (isAbortError(error)) throw error
+      if (isAbortError(error) || isActionableModelError(error)) throw error
       failedRanges.push(normalizeFailedRange(chunk, error?.code || error?.message))
     }
 
@@ -437,7 +441,7 @@ async function summarizeChunks({
     synthesisResult = synthesis.result
     synthesisFinishReason = synthesis.finishReason
   } catch (error) {
-    if (isAbortError(error)) throw error
+    if (isAbortError(error) || isActionableModelError(error)) throw error
     synthesisResult = null
   }
 

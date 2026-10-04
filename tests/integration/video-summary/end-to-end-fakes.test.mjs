@@ -3,6 +3,7 @@ import test from 'node:test'
 import { ensureVideoSummaryOffscreenDocument } from '../../../src/background/offscreen.mjs'
 import { createVideoSummaryOffscreenRpc } from '../../../src/background/video-summary-offscreen-rpc.mjs'
 import { createVideoSummaryRouter } from '../../../src/background/video-summary-router.mjs'
+import { createModelTextDispatcher } from '../../../src/background/model-text-dispatcher.mjs'
 import { createMediaPipeline } from '../../../src/video-summary/media-pipeline.mjs'
 import { createTaskOpfsStore } from '../../../src/video-summary/opfs.mjs'
 import { createVideoTaskRunner } from '../../../src/video-summary/task-runner.mjs'
@@ -370,6 +371,64 @@ function createModelGateway({
   }
 }
 
+function createKimiModelGateway({ loggedIn, fallbackCalls = [] }) {
+  const dispatcher = createModelTextDispatcher({
+    getUserConfig: async () => ({
+      modelName: 'moonshotWebFree',
+      apiMode: null,
+      kimiMoonShotRefreshToken: loggedIn ? 'test-refresh-token' : '',
+    }),
+    getChatGptAccessToken: async () => undefined,
+    getClaudeSessionKey: async () => undefined,
+    getBingAccessToken: async () => undefined,
+    getBardCookies: async () => undefined,
+    generateAnswersWithChatgptWebApi: async () => fallbackCalls.push('chatgpt-web'),
+    generateAnswersWithClaudeWebApi: async () => fallbackCalls.push('claude-web'),
+    generateAnswersWithMoonshotWebApi: async (port, question, session, config) => {
+      assert.equal(session.modelName, 'moonshotWebFree')
+      assert.equal(config.maxResponseTokenLength <= 20_000, true)
+      const answer = question.includes('"chunkResults"')
+        ? [
+            '## Overview',
+            'Kimi overview',
+            '## Key Points',
+            '- Kimi point',
+            '## Chapters',
+            '- [segment:native-1] Kimi chapter — Kimi chapter summary',
+            '## Key Moments',
+            '- [segment:native-2] Kimi moment',
+          ].join('\n')
+        : [
+            '## Chunk Summary',
+            'Kimi local summary',
+            '## Chunk Key Points',
+            '- Kimi point',
+            '## Candidate Locations',
+            '- [segment:native-1] Kimi chapter',
+            '- [segment:native-2] Kimi moment',
+          ].join('\n')
+      port.postMessage({ answer, done: true })
+    },
+    generateAnswersWithBingWebApi: async () => fallbackCalls.push('bing-web'),
+    generateAnswersWithBardWebApi: async () => fallbackCalls.push('gemini-web'),
+    generateAnswersWithOpenAICompatibleApi: async () => fallbackCalls.push('openai-compatible'),
+    generateAnswersWithClaudeApi: async () => fallbackCalls.push('claude-api'),
+    generateAnswersWithAzureOpenaiApi: async () => fallbackCalls.push('azure-api'),
+    generateAnswersWithWaylaidwandererApi: async () => fallbackCalls.push('github-third-party'),
+    logger: { info() {}, warn() {}, error() {} },
+  })
+
+  return {
+    async describeCapabilities() {
+      return { supported: true, inputTokenBudget: 4000, maxOutputTokens: 20_000 }
+    },
+    generateText(request) {
+      return dispatcher.generateText(request)
+    },
+    cancel() {},
+  }
+}
+
 function createDirectPipeline({
   transcription,
   submitCalls,
@@ -712,6 +771,88 @@ for (const fixture of [
     )
   })
 }
+
+test('logged-in Kimi Web produces a structured native-subtitle summary', async () => {
+  const mediaPipeline = {
+    async transcribeFromSource() {
+      assert.fail('native subtitle path must not call MediaKit')
+    },
+  }
+  const fallbackCalls = []
+  const harness = createHarness({
+    mediaPipeline,
+    modelGateway: createKimiModelGateway({ loggedIn: true, fallbackCalls }),
+  })
+  const owner = createVideoSummaryOwner({
+    tabId: 13,
+    documentId: 'doc-kimi-logged-in',
+    videoId: 'BV1kimiLoggedIn',
+  })
+  const sourceSnapshot = createSourceSnapshot({
+    videoId: owner.videoId,
+    nativeSubtitleTracks: createSubtitleTrack([
+      { startMs: 250, endMs: 1250, text: 'Kimi intro' },
+      { startMs: 1750, endMs: 2750, text: 'Kimi detail' },
+    ]),
+  })
+  const mounted = await harness.mountClient({ owner, sourceSnapshot })
+
+  await mounted.client.startTask({
+    sourceChoice: 'native-subtitle',
+    subtitleTrackId: 'sub-1',
+    sourceSnapshot,
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { modelName: 'moonshotWebFree', apiMode: null },
+  })
+
+  const resultEvent = await mounted.waitFor((event) => event.type === 'TASK_RESULT')
+  const { result } = resultEvent
+  assert.equal(result.status, 'complete')
+  assert.equal(result.overview, 'Kimi overview')
+  assert.equal(result.chapters[0].startMs, result.transcriptSegments[0].startMs)
+  assert.equal(result.keyMoments[0].startMs, result.transcriptSegments[1].startMs)
+  assert.equal(result.warnings.includes('MODEL_GATEWAY_UNSUPPORTED'), false)
+  assert.deepEqual(fallbackCalls, [])
+})
+
+test('logged-out Kimi Web fails actionably with a reusable transcript checkpoint', async () => {
+  const mediaPipeline = {
+    async transcribeFromSource() {
+      assert.fail('native subtitle path must not call MediaKit')
+    },
+  }
+  const fallbackCalls = []
+  const harness = createHarness({
+    mediaPipeline,
+    modelGateway: createKimiModelGateway({ loggedIn: false, fallbackCalls }),
+  })
+  const owner = createVideoSummaryOwner({
+    tabId: 14,
+    documentId: 'doc-kimi-logged-out',
+    videoId: 'BV1kimiLoggedOut',
+  })
+  const sourceSnapshot = createSourceSnapshot({
+    videoId: owner.videoId,
+    nativeSubtitleTracks: createSubtitleTrack([
+      { startMs: 250, endMs: 1250, text: 'Kimi intro' },
+      { startMs: 1750, endMs: 2750, text: 'Kimi detail' },
+    ]),
+  })
+  const mounted = await harness.mountClient({ owner, sourceSnapshot })
+
+  await mounted.client.startTask({
+    sourceChoice: 'native-subtitle',
+    subtitleTrackId: 'sub-1',
+    sourceSnapshot,
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { modelName: 'moonshotWebFree', apiMode: null },
+  })
+
+  const failedEvent = await mounted.waitFor((event) => event.type === 'TASK_FAILED')
+  assert.equal(failedEvent.errorCode, 'MODEL_LOGIN_REQUIRED')
+  assert.equal(failedEvent.checkpointAvailable, true)
+  assert.deepEqual(fallbackCalls, [])
+})
 
 test('direct MediaKit success reaches complete and keeps upload count at 0', async () => {
   const transcription = createTranscription()

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createModelTextDispatcher } from '../../../src/background/model-text-dispatcher.mjs'
+import { ModelGroups } from '../../../src/config/index.mjs'
 
 function createLogger(entries) {
   return {
@@ -321,6 +322,82 @@ test('web models select Claude, Bing, Gemini, ChatGPT direct, ChatGPT page, and 
     ['chatgpt-page', 'chatgptFree35'],
     ['kimi-web', 'moonshotWebFree', 66],
   ])
+})
+
+test('every configured model family reaches an explicit dispatcher execution family', async () => {
+  const executionFamilies = new Set([
+    'openai-compatible',
+    'claude-api',
+    'azure-api',
+    'github-third-party',
+    'chatgpt-web',
+    'claude-web',
+    'kimi-web',
+    'bing-web',
+    'gemini-web',
+  ])
+  const expectedFamilyByGroup = {
+    chatgptWebModelKeys: 'chatgpt-web',
+    claudeWebModelKeys: 'claude-web',
+    moonshotWebModelKeys: 'kimi-web',
+    bingWebModelKeys: 'bing-web',
+    bardWebModelKeys: 'gemini-web',
+    chatgptApiModelKeys: 'openai-compatible',
+    claudeApiModelKeys: 'claude-api',
+    moonshotApiModelKeys: 'openai-compatible',
+    mistralApiModelKeys: 'openai-compatible',
+    chatglmApiModelKeys: 'openai-compatible',
+    ollamaApiModelKeys: 'openai-compatible',
+    azureOpenAiApiModelKeys: 'azure-api',
+    gptApiModelKeys: 'openai-compatible',
+    githubThirdPartyApiModelKeys: 'github-third-party',
+    nvidiaNimApiModelKeys: 'openai-compatible',
+    deepSeekApiModelKeys: 'openai-compatible',
+    openRouterApiModelKeys: 'openai-compatible',
+    aimlModelKeys: 'openai-compatible',
+    googleApiModelKeys: 'openai-compatible',
+    xaiApiModelKeys: 'openai-compatible',
+    customApiModelKeys: 'openai-compatible',
+  }
+  assert.deepEqual(Object.keys(expectedFamilyByGroup).sort(), Object.keys(ModelGroups).sort())
+
+  for (const [groupName, group] of Object.entries(ModelGroups)) {
+    const modelName = group.value[0]
+    let selectedFamily = null
+    const adapter = (family) => async (port) => {
+      selectedFamily = family
+      port.postMessage({ answer: family, done: true })
+    }
+    const dispatcher = createModelTextDispatcher(
+      createBaseDependencies({
+        getUserConfig: async () => ({
+          modelName,
+          apiMode: null,
+          chatgptTabId: null,
+          kimiMoonShotRefreshToken: 'test-refresh-token',
+        }),
+        generateAnswersWithChatgptWebApi: adapter('chatgpt-web'),
+        generateAnswersWithClaudeWebApi: adapter('claude-web'),
+        generateAnswersWithMoonshotWebApi: adapter('kimi-web'),
+        generateAnswersWithBingWebApi: adapter('bing-web'),
+        generateAnswersWithBardWebApi: adapter('gemini-web'),
+        generateAnswersWithOpenAICompatibleApi: adapter('openai-compatible'),
+        generateAnswersWithClaudeApi: adapter('claude-api'),
+        generateAnswersWithAzureOpenaiApi: adapter('azure-api'),
+        generateAnswersWithWaylaidwandererApi: adapter('github-third-party'),
+      }),
+    )
+
+    await dispatcher.generateText({
+      modelSnapshot: { modelName, apiMode: null },
+      messages: [{ role: 'user', content: 'routing matrix input' }],
+      maxOutputTokens: 1,
+      signal: new AbortController().signal,
+    })
+
+    assert.equal(executionFamilies.has(selectedFamily), true, `${groupName} (${modelName})`)
+    assert.equal(selectedFamily, expectedFamilyByGroup[groupName], `${groupName} (${modelName})`)
+  }
 })
 
 test('two concurrent calls receive different synthetic ports and sessions', async () => {
