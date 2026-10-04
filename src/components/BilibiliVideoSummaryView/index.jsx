@@ -3,10 +3,23 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatVideoOffset } from '../../video-summary/time.mjs'
 
+const ACTIONABLE_MESSAGE_KEYS = {
+  MODEL_LOGIN_REQUIRED: 'Sign in to the selected AI provider, then retry the summary.',
+  MODEL_PROVIDER_PAGE_REQUIRED: 'Open the selected AI provider page, then retry the summary.',
+  VIDEO_SUMMARY_LOCATIONS_PARTIALLY_UNAVAILABLE:
+    'Some chapter or key-moment locations are unavailable.',
+  MODEL_OUTPUT_INCOMPLETE:
+    'The model response reached its output limit; available content was preserved.',
+}
+
 function renderTimestampLabel(startMs, endMs = null, unknownLabel = 'Unknown') {
   const startLabel = formatVideoOffset(startMs) || unknownLabel
   if (!Number.isFinite(endMs)) return startLabel
   return `${startLabel} - ${formatVideoOffset(endMs) || unknownLabel}`
+}
+
+function renderActionableMessage(code, t) {
+  return t(ACTIONABLE_MESSAGE_KEYS[code] || code)
 }
 
 function SourceChoiceButtons({ sourceChoice, subtitleTrack, onChooseSource }) {
@@ -248,14 +261,14 @@ export default function BilibiliVideoSummaryView({
 
       {taskState?.errorMessage ? (
         <p className="bilibili-video-summary-view__error" role="alert">
-          {taskState.errorMessage}
+          {renderActionableMessage(taskState.errorMessage, t)}
         </p>
       ) : null}
 
       {warnings.length > 0 ? (
         <ul className="bilibili-video-summary-view__warnings">
           {warnings.map((warning) => (
-            <li key={warning}>{warning}</li>
+            <li key={warning}>{renderActionableMessage(warning, t)}</li>
           ))}
         </ul>
       ) : null}
@@ -268,7 +281,9 @@ export default function BilibiliVideoSummaryView({
         >
           <summary>{t('Summary')}</summary>
           <div className="bilibili-video-summary-view__summary-scroll">
-            {result.overview ? <p>{result.overview}</p> : null}
+            {result.overview || result.rawSummaryText ? (
+              <p>{result.overview || result.rawSummaryText}</p>
+            ) : null}
 
             {keyPoints.length > 0 ? (
               <details data-section="key-points">
@@ -287,11 +302,13 @@ export default function BilibiliVideoSummaryView({
                 <ul>
                   {chapters.map((chapter) => (
                     <li key={`${chapter.title}-${chapter.startMs}`}>
-                      <TimestampButton
-                        startMs={chapter.startMs}
-                        endMs={chapter.endMs}
-                        onSeekTo={onSeekTo}
-                      />
+                      {Number.isFinite(chapter.startMs) ? (
+                        <TimestampButton
+                          startMs={chapter.startMs}
+                          endMs={chapter.endMs}
+                          onSeekTo={onSeekTo}
+                        />
+                      ) : null}
                       <strong>{chapter.title}</strong>
                       <p>{chapter.summary}</p>
                     </li>
@@ -306,11 +323,13 @@ export default function BilibiliVideoSummaryView({
                 <ul>
                   {keyMoments.map((moment) => (
                     <li key={`${moment.point}-${moment.startMs}`}>
-                      <TimestampButton
-                        startMs={moment.startMs}
-                        label={renderTimestampLabel(moment.startMs, null, t('Unknown'))}
-                        onSeekTo={onSeekTo}
-                      />
+                      {Number.isFinite(moment.startMs) ? (
+                        <TimestampButton
+                          startMs={moment.startMs}
+                          label={renderTimestampLabel(moment.startMs, null, t('Unknown'))}
+                          onSeekTo={onSeekTo}
+                        />
+                      ) : null}
                       <span>{moment.point}</span>
                     </li>
                   ))}

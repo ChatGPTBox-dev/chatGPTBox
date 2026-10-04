@@ -8,19 +8,24 @@ function renderList(title, items) {
 function renderKeyMoments(keyMoments) {
   if (!Array.isArray(keyMoments) || keyMoments.length === 0) return ''
   return `## Key Moments\n\n${keyMoments
-    .map((moment) => `- ${formatVideoOffset(moment.startMs) || 'Unknown'}: ${moment.point}`)
+    .map((moment) => {
+      if (!Number.isFinite(moment.startMs)) return `- ${moment.point}`
+      return `- ${formatVideoOffset(moment.startMs) || 'Unknown'}: ${moment.point}`
+    })
     .join('\n')}\n`
 }
 
 function renderChapters(chapters) {
   if (!Array.isArray(chapters) || chapters.length === 0) return ''
   return `## Chapters\n\n${chapters
-    .map(
-      (chapter) =>
-        `### ${chapter.title}\n${formatVideoOffset(chapter.startMs) || 'Unknown'} - ${
-          formatVideoOffset(chapter.endMs) || 'Unknown'
-        }\n\n${chapter.summary || ''}`,
-    )
+    .map((chapter) => {
+      const range = Number.isFinite(chapter.startMs)
+        ? `\n${formatVideoOffset(chapter.startMs) || 'Unknown'} - ${
+            formatVideoOffset(chapter.endMs) || 'Unknown'
+          }`
+        : ''
+      return `### ${chapter.title}${range}\n\n${chapter.summary || ''}`
+    })
     .join('\n\n')}\n`
 }
 
@@ -43,8 +48,9 @@ export function buildVideoSummaryMarkdown({ title, result, preferredLanguage }) 
     '',
   ]
 
-  if (result?.overview) {
-    lines.push('## Overview', '', result.overview, '')
+  const overview = result?.overview || result?.rawSummaryText
+  if (overview) {
+    lines.push('## Overview', '', overview, '')
   }
 
   const sections = [

@@ -391,6 +391,136 @@ test('view renders structured result states, timestamp seek actions, and explici
   ])
 })
 
+test('view renders anchored and unanchored free-text locations without unusable seek controls', () => {
+  mountView({
+    videoTitle: 'Free-text Video',
+    sourceChoice: 'native-subtitle',
+    taskState: {
+      phase: 'complete',
+      activeStage: null,
+      checkpointAvailable: false,
+      result: {
+        status: 'partial',
+        overview: '',
+        rawSummaryText: 'Fallback prose summary',
+        keyPoints: [],
+        keyMoments: [
+          { startMs: 1_000, point: 'Anchored moment' },
+          { startMs: null, point: 'Unanchored moment' },
+        ],
+        chapters: [
+          {
+            startMs: 2_000,
+            endMs: 3_000,
+            title: 'Anchored chapter',
+            summary: 'Anchored chapter description',
+          },
+          {
+            startMs: null,
+            endMs: null,
+            title: 'Unanchored chapter',
+            summary: 'Unanchored chapter description',
+          },
+        ],
+        transcriptSegments: [],
+        warnings: [],
+      },
+    },
+    onChooseSource() {},
+    onConfirmAsr() {},
+    onCancelAsrConfirmation() {},
+    onArchive() {},
+    onAskAboutVideo() {},
+    onDownloadMarkdown() {},
+    onSeekTo() {},
+    onRetrySummary() {},
+  })
+
+  assert.equal(container.querySelectorAll('button[data-seek-ms]').length, 2)
+  assert.match(container.textContent, /Anchored moment/)
+  assert.match(container.textContent, /Unanchored moment/)
+  assert.match(container.textContent, /Anchored chapter description/)
+  assert.match(container.textContent, /Unanchored chapter description/)
+  assert.match(container.textContent, /Fallback prose summary/)
+})
+
+test('view renders actionable localized model errors and location warnings', () => {
+  mountView({
+    videoTitle: 'Actionable Video',
+    sourceChoice: 'native-subtitle',
+    taskState: {
+      phase: 'failed',
+      activeStage: null,
+      checkpointAvailable: false,
+      errorMessage: 'MODEL_LOGIN_REQUIRED',
+      result: {
+        status: 'partial',
+        overview: 'Partial summary',
+        keyPoints: [],
+        keyMoments: [],
+        chapters: [],
+        transcriptSegments: [],
+        warnings: ['VIDEO_SUMMARY_LOCATIONS_PARTIALLY_UNAVAILABLE'],
+      },
+    },
+    onChooseSource() {},
+    onConfirmAsr() {},
+    onCancelAsrConfirmation() {},
+    onArchive() {},
+    onAskAboutVideo() {},
+    onDownloadMarkdown() {},
+    onSeekTo() {},
+    onRetrySummary() {},
+  })
+
+  assert.equal(
+    container.querySelector('[role="alert"]').textContent,
+    'Sign in to the selected AI provider, then retry the summary.',
+  )
+  assert.match(container.textContent, /Some chapter or key-moment locations are unavailable\./)
+  assert.doesNotMatch(container.textContent, /MODEL_LOGIN_REQUIRED/)
+  assert.doesNotMatch(container.textContent, /VIDEO_SUMMARY_LOCATIONS_PARTIALLY_UNAVAILABLE/)
+})
+
+test('view maps provider-page errors and incomplete-output warnings to actionable text', () => {
+  mountView({
+    videoTitle: 'Actionable Video',
+    sourceChoice: 'native-subtitle',
+    taskState: {
+      phase: 'failed',
+      activeStage: null,
+      checkpointAvailable: false,
+      errorMessage: 'MODEL_PROVIDER_PAGE_REQUIRED',
+      result: {
+        status: 'partial',
+        overview: 'Partial summary',
+        keyPoints: [],
+        keyMoments: [],
+        chapters: [],
+        transcriptSegments: [],
+        warnings: ['MODEL_OUTPUT_INCOMPLETE'],
+      },
+    },
+    onChooseSource() {},
+    onConfirmAsr() {},
+    onCancelAsrConfirmation() {},
+    onArchive() {},
+    onAskAboutVideo() {},
+    onDownloadMarkdown() {},
+    onSeekTo() {},
+    onRetrySummary() {},
+  })
+
+  assert.equal(
+    container.querySelector('[role="alert"]').textContent,
+    'Open the selected AI provider page, then retry the summary.',
+  )
+  assert.match(
+    container.textContent,
+    /The model response reached its output limit; available content was preserved\./,
+  )
+})
+
 test('view renders the task error code when processing fails', () => {
   mountView({
     videoTitle: 'Failed Video',

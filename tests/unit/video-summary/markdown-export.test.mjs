@@ -25,3 +25,59 @@ test('markdown export renders video-relative offsets instead of Asia/Shanghai wa
   assert.equal(markdown.includes('- 00:00 Host: Welcome'), true)
   assert.equal(markdown.includes('- 00:00 Negative clamped'), true)
 })
+
+test('markdown export preserves anchored and unanchored free-text results without raw markers', () => {
+  const markdown = buildVideoSummaryMarkdown({
+    title: 'Tolerant Video',
+    preferredLanguage: 'en',
+    result: {
+      status: 'partial',
+      overview: 'Parsed overview',
+      rawSummaryText: '[segment:secret] Raw model response',
+      keyPoints: [],
+      keyMoments: [
+        { startMs: 1_000, point: 'Anchored moment' },
+        { startMs: null, point: 'Unanchored moment' },
+      ],
+      chapters: [
+        {
+          startMs: 2_000,
+          endMs: 3_000,
+          title: 'Anchored chapter',
+          summary: 'Anchored chapter summary',
+        },
+        {
+          startMs: null,
+          endMs: null,
+          title: 'Unanchored chapter',
+          summary: 'Unanchored chapter summary',
+        },
+      ],
+      transcriptSegments: [],
+    },
+  })
+
+  assert.match(markdown, /Anchored/)
+  assert.match(markdown, /Unanchored/)
+  assert.match(markdown, /- Unanchored moment/)
+  assert.doesNotMatch(markdown, /Unknown - Unknown/)
+  assert.doesNotMatch(markdown, /NaN|segment:/)
+})
+
+test('markdown export uses raw summary text only when parsed overview is empty', () => {
+  const markdown = buildVideoSummaryMarkdown({
+    title: 'Raw Video',
+    preferredLanguage: 'en',
+    result: {
+      status: 'partial',
+      overview: '',
+      rawSummaryText: 'Only available free-text summary',
+      keyPoints: [],
+      keyMoments: [],
+      chapters: [],
+      transcriptSegments: [],
+    },
+  })
+
+  assert.match(markdown, /Only available free-text summary/)
+})
