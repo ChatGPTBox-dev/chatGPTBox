@@ -4,8 +4,11 @@ import {
   extractBilibiliInitialState,
   extractBilibiliPlayInfo,
   getBilibiliVideoIdentity,
+  normalizeBilibiliAiConclusion,
   normalizeBilibiliAudioCandidates,
+  normalizeSubtitleTracks,
   resolveBilibiliSelectedPageMetadata,
+  selectPreferredBilibiliSubtitleTrack,
 } from '../../../src/content-script/site-adapters/bilibili/media-source.mjs'
 
 const videoUrl = 'https://video.example.invalid/video/BVTESTCASE01'
@@ -253,4 +256,96 @@ test('resolveBilibiliSelectedPageMetadata rejects initial-state identity mismatc
       }),
     { message: 'BILIBILI_INITIAL_STATE_IDENTITY_MISMATCH' },
   )
+})
+
+test('normalizes and orders player subtitle tracks by source kind', async () => {
+  const playInfoWithTracks = {
+    data: {
+      subtitle: {
+        subtitles: [
+          { id: 3, lan: 'ja', lan_doc: '日本語', subtitle_url: '//sub/unknown' },
+          {
+            id: 2,
+            lan: 'zh-CN',
+            lan_doc: '中文（自动生成）',
+            ai_type: 1,
+            subtitle_url: '//sub/ai',
+          },
+          { id: 1, lan: 'zh-CN', lan_doc: '中文', ai_type: 0, subtitle_url: '//sub/author' },
+        ],
+      },
+    },
+  }
+  const tracks = await normalizeSubtitleTracks(playInfoWithTracks, async (url) => {
+    return { body: [{ from: 0, to: 1.5, content: `cue:${url}` }] }
+  })
+
+  assert.deepEqual(
+    tracks.map(({ id, sourceKind }) => ({ id, sourceKind })),
+    [
+      { id: '1', sourceKind: 'author' },
+      { id: '2', sourceKind: 'bilibili-ai' },
+      { id: '3', sourceKind: 'unknown' },
+    ],
+  )
+  assert.equal(selectPreferredBilibiliSubtitleTrack(tracks).id, '1')
+})
+
+test('skips a failing player subtitle body while retaining usable tracks', async () => {
+  const tracks = await normalizeSubtitleTracks(
+    {
+      data: {
+        subtitle: {
+          subtitles: [
+            { id: 1, lan: 'en', ai_type: 0, subtitle_url: '//sub/fails' },
+            { id: 2, lan: 'zh-CN', ai_type: 1, subtitle_url: '//sub/works' },
+          ],
+        },
+      },
+    },
+    async (url) => {
+      if (url.endsWith('/fails')) throw new Error('fixture failure')
+      return { body: [{ from: 0, to: 1, content: 'usable' }] }
+    },
+  )
+
+  assert.deepEqual(tracks.map((track) => track.id), ['2'])
+})
+
+test('normalizes conclusion AI subtitle groups and removes invalid duplicate cues', () => {
+  const tracks = normalizeBilibiliAiConclusion({
+    code: 0,
+    data: {
+      model_result: {
+        subtitle: [
+          {
+            part_subtitle: [
+              { content: 'second', start_timestamp: 2, end_timestamp: 3.25 },
+              { content: 'first', start_timestamp: 0, end_timestamp: 1 },
+              { content: 'first', start_timestamp: 0, end_timestamp: 1 },
+              { content: ' ', start_timestamp: 4, end_timestamp: 5 },
+              { content: 'invalid', start_timestamp: 8, end_timestamp: 7 },
+            ],
+          },
+        ],
+      },
+    },
+  })
+
+  assert.deepEqual(tracks, [
+    {
+      id: 'bilibili-ai-conclusion',
+      language: 'zh-CN',
+      label: 'Bilibili AI subtitles',
+      sourceKind: 'bilibili-ai',
+      cues: [
+        { startMs: 0, endMs: 1000, text: 'first' },
+        { startMs: 2000, endMs: 3250, text: 'second' },
+      ],
+    },
+  ])
+})
+
+test('returns no conclusion track when no usable AI subtitle cue exists', () => {
+  assert.deepEqual(normalizeBilibiliAiConclusion({ code: 0, data: { model_result: {} } }), [])
 })

@@ -109,6 +109,33 @@ function durationToMs(value) {
   return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : 0
 }
 
+function secondsToMilliseconds(value) {
+  const seconds = Number(value)
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : null
+}
+
+function normalizeTimedCue(item, startKey, endKey) {
+  const startMs = secondsToMilliseconds(item?.[startKey])
+  const endMs = secondsToMilliseconds(item?.[endKey])
+  const text = typeof item?.content === 'string' ? item.content.trim() : ''
+  if (!text || startMs === null || endMs === null || endMs < startMs) return null
+  return { startMs, endMs, text }
+}
+
+function classifyPlayerSubtitle(track) {
+  const label = String(track?.lan_doc || track?.lan || '')
+  const aiType = Number(track?.ai_type)
+  if ((Number.isFinite(aiType) && aiType > 0) || /(?:AI|自动生成)/iu.test(label)) {
+    return 'bilibili-ai'
+  }
+  if (track?.ai_type !== undefined && Number.isFinite(aiType) && aiType === 0) return 'author'
+  return 'unknown'
+}
+
+function subtitleSourceWeight(track) {
+  return { author: 0, 'bilibili-ai': 1, unknown: 2 }[track?.sourceKind] ?? 2
+}
+
 export function resolveBilibiliSelectedPageMetadata({ url, initialState }) {
   const identity = getBilibiliVideoIdentity(url)
   const videoData = initialState?.videoData
@@ -199,17 +226,8 @@ function normalizeSubtitleUrl(value) {
   return `https://${raw.replace(/^\/+/, '')}`
 }
 
-function normalizeSubtitleCues(body) {
-  if (!Array.isArray(body)) return []
-  return body
-    .map((item) => {
-      const startMs = durationToMs(item?.from)
-      const endMs = durationToMs(item?.to)
-      const text = typeof item?.content === 'string' ? item.content : ''
-      if (!text) return null
-      return { startMs, endMs, text }
-    })
-    .filter(Boolean)
+export function selectPreferredBilibiliSubtitleTrack(tracks) {
+  return Array.isArray(tracks) ? tracks.find((track) => track?.cues?.length > 0) || null : null
 }
 
 export async function normalizeSubtitleTracks(playInfo, loadSubtitleBody) {
@@ -222,16 +240,58 @@ export async function normalizeSubtitleTracks(playInfo, loadSubtitleBody) {
   for (const [index, track] of tracks.entries()) {
     const subtitleUrl = normalizeSubtitleUrl(track?.subtitle_url || track?.subtitleUrl)
     if (!subtitleUrl) continue
-    const bodyResponse = await loadSubtitleBody(subtitleUrl)
-    const cues = normalizeSubtitleCues(bodyResponse?.body)
-    if (cues.length === 0) continue
-    resolved.push({
-      id: String(track?.id ?? index),
-      language: String(track?.lan || ''),
-      label: String(track?.lan_doc || track?.lan || ''),
-      cues,
-    })
+    try {
+      const bodyResponse = await loadSubtitleBody(subtitleUrl)
+      const cues = (Array.isArray(bodyResponse?.body) ? bodyResponse.body : [])
+        .map((item) => normalizeTimedCue(item, 'from', 'to'))
+        .filter(Boolean)
+      if (cues.length === 0) continue
+      resolved.push({
+        id: String(track?.id ?? index),
+        language: String(track?.lan || ''),
+        label: String(track?.lan_doc || track?.lan || ''),
+        sourceKind: classifyPlayerSubtitle(track),
+        cues,
+      })
+    } catch {
+      continue
+    }
   }
 
   return resolved
+    .map((track, index) => ({ track, index }))
+    .sort(
+      (left, right) =>
+        subtitleSourceWeight(left.track) - subtitleSourceWeight(right.track) ||
+        left.index - right.index,
+    )
+    .map(({ track }) => track)
+}
+
+export function normalizeBilibiliAiConclusion(response) {
+  const groups = response?.data?.model_result?.subtitle
+  const seen = new Set()
+  const cues = (Array.isArray(groups) ? groups : [])
+    .flatMap((group) => (Array.isArray(group?.part_subtitle) ? group.part_subtitle : []))
+    .map((item) => normalizeTimedCue(item, 'start_timestamp', 'end_timestamp'))
+    .filter(Boolean)
+    .sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs)
+    .filter((cue) => {
+      const key = `${cue.startMs}:${cue.endMs}:${cue.text}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+  return cues.length > 0
+    ? [
+        {
+          id: 'bilibili-ai-conclusion',
+          language: 'zh-CN',
+          label: 'Bilibili AI subtitles',
+          sourceKind: 'bilibili-ai',
+          cues,
+        },
+      ]
+    : []
 }
