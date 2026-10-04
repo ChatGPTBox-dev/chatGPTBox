@@ -93,12 +93,17 @@ const setNativeValue = (element, value) => {
 }
 
 const replaceInTextField = (captured, text, doc) => {
-  const { element, start, end, text: originalText } = captured
-  if (element.isConnected === false || element.readOnly || element.disabled) return false
-  const value = element.value ?? ''
-  if (value !== captured.fieldValue) return false
+  const { element, start, end, text: originalText, fieldValue: value } = captured
+  const isUnchanged = () =>
+    element.isConnected !== false &&
+    !element.readOnly &&
+    !element.disabled &&
+    (element.value ?? '') === value
+  if (!isUnchanged()) return false
 
   if (typeof element.focus === 'function') element.focus()
+  // focus handlers of the page may have changed the field in the meantime
+  if (!isUnchanged()) return false
   let replaced = false
   if (typeof element.setSelectionRange === 'function' && typeof doc.execCommand === 'function') {
     element.setSelectionRange(start, end)
@@ -123,17 +128,28 @@ const replaceInTextField = (captured, text, doc) => {
 
 const replaceInContentEditable = (captured, text, doc) => {
   const { element, range, text: originalText } = captured
-  if (element.isConnected === false || !element.isContentEditable) return false
-  if (range.toString() !== originalText) return false
+  const isUnchanged = () =>
+    element.isConnected !== false && element.isContentEditable && range.toString() === originalText
+  if (!isUnchanged()) return false
 
   if (typeof element.focus === 'function') element.focus()
+  // focus handlers of the page may have changed the content in the meantime
+  if (!isUnchanged()) return false
   const selection = typeof doc.getSelection === 'function' ? doc.getSelection() : null
   if (selection) {
     selection.removeAllRanges()
     selection.addRange(range)
     if (typeof doc.execCommand === 'function') {
+      const contentBefore = element.textContent
       try {
-        if (doc.execCommand('insertText', false, text)) return true
+        // as for text fields, only trust execCommand when the content actually
+        // changed: editors may cancel the edit while the command reports success
+        if (
+          doc.execCommand('insertText', false, text) &&
+          (element.textContent !== contentBefore || text === originalText)
+        ) {
+          return true
+        }
       } catch (error) {
         // fall through to manual replacement
       }

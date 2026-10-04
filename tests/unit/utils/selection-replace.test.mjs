@@ -35,6 +35,7 @@ const createContentEditableElement = () => ({
   isContentEditable: true,
   isConnected: true,
   parentElement: null,
+  textContent: '',
   dispatchedEvents: [],
   focus() {
     this.focused = true
@@ -62,7 +63,10 @@ const createRange = (element, text) => ({
   insertNode(node) {
     this.insertedNodes.push(node)
   },
-  collapse() {},
+  collapse(toStart = false) {
+    this.collapsed = true
+    this.collapsedToStart = toStart
+  },
 })
 
 const createDocument = ({ activeElement = null, selection = null, execCommand } = {}) => {
@@ -83,6 +87,7 @@ const createSelection = (range) => ({
   rangeCount: range ? 1 : 0,
   isCollapsed: range ? range.collapsed : true,
   ranges: [],
+  addedRangesCollapsed: [],
   getRangeAt() {
     return range
   },
@@ -91,6 +96,7 @@ const createSelection = (range) => ({
   },
   addRange(newRange) {
     this.ranges.push(newRange)
+    this.addedRangesCollapsed.push(newRange.collapsed)
   },
 })
 
@@ -324,6 +330,39 @@ test('replaceCapturedSelection refuses fields that became readonly after capture
   assert.equal(element.value, 'hello')
 })
 
+test('replaceCapturedSelection rechecks text fields after focusing', () => {
+  const element = createTextField({ value: 'hello world', start: 0, end: 5 })
+  const doc = createDocument({ activeElement: element })
+  const captured = captureEditableSelection(doc)
+  element.focus = () => {
+    element.value = 'changed on focus' // a focus handler of the page changed the field
+  }
+
+  assert.equal(replaceCapturedSelection(captured, 'hi', doc), false)
+  assert.equal(element.value, 'changed on focus')
+})
+
+test('replaceCapturedSelection dispatches an InputEvent when available', () => {
+  globalThis.InputEvent = class InputEvent extends Event {
+    constructor(type, init = {}) {
+      super(type, init)
+      this.inputType = init.inputType
+    }
+  }
+  const element = createTextField({ value: 'helo', start: 0, end: 4 })
+  const doc = createDocument({ activeElement: element })
+  const captured = captureEditableSelection(doc)
+
+  const replaced = replaceCapturedSelection(captured, 'hello', doc)
+
+  assert.equal(replaced, true)
+  const [event] = element.dispatchedEvents
+  assert.ok(event instanceof globalThis.InputEvent)
+  assert.equal(event.type, 'input')
+  assert.equal(event.bubbles, true)
+  assert.equal(event.inputType, 'insertText')
+})
+
 test('replaceCapturedSelection dispatches a real Event instance as fallback', () => {
   const element = createTextField({ value: 'helo', start: 0, end: 4 })
   const doc = createDocument({ activeElement: element })
@@ -352,7 +391,10 @@ test('replaceCapturedSelection replaces contenteditable content via range fallba
   assert.equal(range.insertedNodes[0].textContent, 'new text')
   assert.equal(element.dispatchedEvents.length, 1)
   assert.equal(element.dispatchedEvents[0].type, 'input')
-  assert.deepEqual(selection.ranges, [range]) // cursor re-applied after the inserted text
+  // cursor re-applied after the inserted text
+  assert.equal(range.collapsedToStart, false)
+  assert.deepEqual(selection.ranges, [range])
+  assert.equal(selection.addedRangesCollapsed.at(-1), true)
 })
 
 test('replaceCapturedSelection uses execCommand for contenteditable when available', () => {
@@ -364,6 +406,7 @@ test('replaceCapturedSelection uses execCommand for contenteditable when availab
     selection,
     execCommand: (command, showUI, text) => {
       inserted = text
+      element.textContent = text
       return true
     },
   })
@@ -375,6 +418,36 @@ test('replaceCapturedSelection uses execCommand for contenteditable when availab
   assert.equal(inserted, 'new text')
   assert.equal(range.deletedContents, false)
   assert.deepEqual(selection.ranges, [range])
+})
+
+test('replaceCapturedSelection falls back when contenteditable execCommand changes nothing', () => {
+  const element = createContentEditableElement()
+  const range = createRange(element, 'old text')
+  const doc = createDocument({
+    selection: createSelection(range),
+    execCommand: () => true, // e.g. an editor cancelled the edit
+  })
+  const captured = captureEditableSelection(doc)
+
+  const replaced = replaceCapturedSelection(captured, 'new text', doc)
+
+  assert.equal(replaced, true)
+  assert.equal(range.deletedContents, true)
+  assert.equal(range.insertedNodes[0].textContent, 'new text')
+  assert.equal(element.dispatchedEvents.length, 1)
+})
+
+test('replaceCapturedSelection rechecks contenteditable content after focusing', () => {
+  const element = createContentEditableElement()
+  const range = createRange(element, 'old text')
+  const doc = createDocument({ selection: createSelection(range) })
+  const captured = captureEditableSelection(doc)
+  element.focus = () => {
+    range.toString = () => '' // a focus handler of the page removed the content
+  }
+
+  assert.equal(replaceCapturedSelection(captured, 'new text', doc), false)
+  assert.equal(range.deletedContents, false)
 })
 
 test('replaceCapturedSelection refuses stale contenteditable ranges', () => {
