@@ -211,7 +211,13 @@ export async function registerWebsocket(accessToken) {
  * @param {Session} session
  * @param {string} accessToken
  */
-export async function generateAnswersWithChatgptWebApi(port, question, session, accessToken) {
+export async function generateAnswersWithChatgptWebApi(
+  port,
+  question,
+  session,
+  accessToken,
+  configOverride,
+) {
   let wsCallback
   let cleanController = () => {}
   const removeWebsocketCallback = () => {
@@ -241,7 +247,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   const { controller } = abortControllerState
   cleanController = abortControllerState.cleanController
 
-  const config = await getUserConfig()
+  const config = configOverride || (await getUserConfig())
   let arkoseError
   const [models, requirements, arkoseToken, useWebsocket] = await Promise.all([
     getModels(accessToken).catch(() => undefined),

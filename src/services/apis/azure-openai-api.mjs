@@ -11,9 +11,9 @@ import { getTemperatureParams } from './temperature-params.mjs'
  * @param {string} question
  * @param {Session} session
  */
-export async function generateAnswersWithAzureOpenaiApi(port, question, session) {
+export async function generateAnswersWithAzureOpenaiApi(port, question, session, configOverride) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
-  const config = await getUserConfig()
+  const config = configOverride || (await getUserConfig())
   let deploymentName = getModelValue(session)
   if (!deploymentName) deploymentName = config.azureDeploymentName
 

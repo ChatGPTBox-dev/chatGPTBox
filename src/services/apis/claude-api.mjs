@@ -16,9 +16,9 @@ function getThinkingConfig(model) {
  * @param {string} question
  * @param {Session} session
  */
-export async function generateAnswersWithClaudeApi(port, question, session) {
+export async function generateAnswersWithClaudeApi(port, question, session, configOverride) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
-  const config = await getUserConfig()
+  const config = configOverride || (await getUserConfig())
   const apiUrl = config.customAnthropicApiUrl
   const model = getModelValue(session)
 

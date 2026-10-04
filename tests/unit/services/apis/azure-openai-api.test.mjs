@@ -290,3 +290,46 @@ test('azure-openai: throws on error response with JSON body', async (t) => {
   )
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })
+
+test('azure-openai: uses an isolated config override instead of stored defaults', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    azureEndpoint: 'https://stored.openai.azure.com',
+    azureApiKey: 'stored-key',
+    azureDeploymentName: 'stored-deployment',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 99,
+  })
+
+  const session = {
+    modelName: 'azureOpenAi',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  const configOverride = {
+    azureEndpoint: 'https://override.openai.azure.com/',
+    azureApiKey: 'override-key',
+    azureDeploymentName: 'override-deployment',
+    maxConversationContextLength: 1,
+    maxResponseTokenLength: 777,
+  }
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithAzureOpenaiApi(port, 'Q', session, configOverride)
+
+  assert.equal(
+    capturedInput,
+    'https://override.openai.azure.com/openai/deployments/override-deployment/chat/completions?api-version=2024-02-01',
+  )
+  assert.equal(capturedInit.headers['api-key'], 'override-key')
+  assert.equal(JSON.parse(capturedInit.body).max_tokens, 777)
+})

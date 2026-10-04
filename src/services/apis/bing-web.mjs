@@ -16,12 +16,13 @@ export async function generateAnswersWithBingWebApi(
   session,
   accessToken,
   sydneyMode = false,
+  configOverride,
 ) {
   const { controller, cleanController, messageListener, disconnectListener } =
     setAbortController(port)
   let config
   try {
-    config = await getUserConfig()
+    config = configOverride || (await getUserConfig())
   } catch (error) {
     cleanController()
     throw error

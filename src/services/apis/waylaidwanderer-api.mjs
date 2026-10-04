@@ -8,10 +8,15 @@ import { isEmpty } from 'lodash-es'
  * @param {string} question
  * @param {Session} session
  */
-export async function generateAnswersWithWaylaidwandererApi(port, question, session) {
+export async function generateAnswersWithWaylaidwandererApi(
+  port,
+  question,
+  session,
+  configOverride,
+) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
 
-  const config = await getUserConfig()
+  const config = configOverride || (await getUserConfig())
 
   let answer = ''
   await fetchSSE(config.githubThirdPartyUrl, {

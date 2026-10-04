@@ -621,6 +621,46 @@ test('claude-api: reports an incomplete stop reason without waiting for EOF', as
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })
 
+test('claude-api: uses an isolated config override instead of stored defaults', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customClaudeApiUrl: 'https://stored.example.invalid',
+    claudeApiKey: 'stored-key',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 99,
+  })
+
+  const session = {
+    modelName: 'claudeSonnet46Api',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  const configOverride = {
+    customAnthropicApiUrl: 'https://override.anthropic.test',
+    anthropicApiKey: 'override-key',
+    maxConversationContextLength: 1,
+    maxResponseTokenLength: 777,
+  }
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ])
+  })
+
+  await generateAnswersWithClaudeApi(port, 'Q', session, configOverride)
+
+  assert.equal(capturedInput, 'https://override.anthropic.test/v1/messages')
+  assert.equal(capturedInit.headers['x-api-key'], 'override-key')
+  assert.equal(JSON.parse(capturedInit.body).max_tokens, 777)
+})
+
 test('claude-api: pushRecord on message_stop', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({

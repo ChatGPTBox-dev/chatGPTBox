@@ -8,7 +8,14 @@ import { getModelValue } from '../../utils/model-name-convert.mjs'
  * @param {Session} session
  * @param {string} sessionKey
  */
-export async function generateAnswersWithClaudeWebApi(port, question, session, sessionKey) {
+export async function generateAnswersWithClaudeWebApi(
+  port,
+  question,
+  session,
+  sessionKey,
+  configOverride,
+) {
+  void configOverride
   const { controller, cleanController } = setAbortController(port)
   let bot
   try {
