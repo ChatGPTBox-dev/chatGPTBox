@@ -22,6 +22,15 @@ function createLogger() {
   return { info() {}, warn() {}, error() {} }
 }
 
+function createUnsupportedModelGateway() {
+  return {
+    async describeCapabilities() {
+      return { supported: false, reason: 'MODEL_GATEWAY_UNSUPPORTED' }
+    },
+    cancel() {},
+  }
+}
+
 test('retry from summarizing reuses the saved transcription checkpoint without another ASR call', async () => {
   const transcription = createTranscription()
   const mediaPipelineCalls = []
@@ -101,6 +110,7 @@ test('retry from summarizing reuses the saved transcription checkpoint without a
   const command = {
     taskId: 'task-7',
     owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1task7001' },
+    sourceChoice: 'asr',
     sourceSnapshot: { videoId: 'BV1task7001', mediaCandidates: [{ id: 'c1' }] },
     settingsSnapshot: { preferredLanguage: 'en', speakerIdentification: true },
     modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
@@ -185,6 +195,7 @@ test('assistant content is never passed as runner input messages', async () => {
     {
       taskId: 'task-no-assistant-input',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1noassistant' },
+      sourceChoice: 'asr',
       sourceSnapshot: { videoId: 'BV1noassistant', mediaCandidates: [{ id: 'c1' }] },
       settingsSnapshot: { preferredLanguage: 'en', summaryMaxOutputTokens: 20_000 },
       modelSnapshot: { modelName: 'customModel', apiMode: null },
@@ -260,6 +271,7 @@ test('protocol errors fail only that chunk, no repair calls happen, and synthesi
     {
       taskId: 'task-protocol-failures',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1protocol' },
+      sourceChoice: 'asr',
       sourceSnapshot: { videoId: 'BV1protocol', mediaCandidates: [{ id: 'c1' }] },
       settingsSnapshot: { preferredLanguage: 'en' },
       modelSnapshot: { modelName: 'customModel', apiMode: null },
@@ -283,4 +295,108 @@ test('protocol errors fail only that chunk, no repair calls happen, and synthesi
     `unexpected overview: ${result.overview}`,
   )
   assert.equal(result.failedRanges.length, 1)
+})
+
+test('Bilibili subtitle choice uses the requested track and never calls MediaKit', async () => {
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      async transcribeFromSource() {
+        assert.fail('Bilibili subtitle path must not call MediaKit')
+      },
+    },
+    modelGateway: createUnsupportedModelGateway(),
+    logger: createLogger(),
+    clock: { now: () => 1234 },
+  })
+  const emitted = []
+
+  await runner.start(
+    {
+      taskId: 'task-ai-subtitle',
+      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1ai' },
+      sourceChoice: 'native-subtitle',
+      subtitleTrackId: 'ai-track',
+      sourceSnapshot: {
+        nativeSubtitleTracks: [
+          {
+            id: 'author-track',
+            language: 'en',
+            cues: [{ startMs: 0, endMs: 500, text: 'wrong track' }],
+          },
+          {
+            id: 'ai-track',
+            language: 'zh-CN',
+            sourceKind: 'bilibili-ai',
+            cues: [{ startMs: 1000, endMs: 2000, text: 'selected AI track' }],
+          },
+        ],
+      },
+      settingsSnapshot: { preferredLanguage: 'zh-Hans' },
+      modelSnapshot: {},
+    },
+    (event) => emitted.push(event),
+  )
+
+  const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
+  assert.equal(result.transcriptSegments[0].text, 'selected AI track')
+  assert.equal(result.transcriptSegments[0].id, 'native-1')
+})
+
+test('Bilibili subtitle choice rejects a missing requested track without MediaKit fallback', async () => {
+  const mediaCalls = []
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      async transcribeFromSource(args) {
+        mediaCalls.push(args)
+      },
+    },
+    modelGateway: {},
+    logger: createLogger(),
+    clock: { now: () => 1234 },
+  })
+
+  await assert.rejects(
+    () =>
+      runner.start(
+        {
+          taskId: 'task-missing-track',
+          owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1ai' },
+          sourceChoice: 'native-subtitle',
+          subtitleTrackId: 'missing',
+          sourceSnapshot: { nativeSubtitleTracks: [] },
+        },
+        () => {},
+      ),
+    { message: 'BILIBILI_SUBTITLE_TRACK_NOT_FOUND' },
+  )
+  assert.equal(mediaCalls.length, 0)
+})
+
+test('unsupported source choice cannot fall through to paid ASR', async () => {
+  const mediaCalls = []
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      async transcribeFromSource(args) {
+        mediaCalls.push(args)
+      },
+    },
+    modelGateway: {},
+    logger: createLogger(),
+    clock: { now: () => 1234 },
+  })
+
+  await assert.rejects(
+    () =>
+      runner.start(
+        {
+          taskId: 'task-invalid-source',
+          owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1ai' },
+          sourceChoice: 'unexpected-source',
+          sourceSnapshot: { nativeSubtitleTracks: [], mediaCandidates: [{ id: 'audio' }] },
+        },
+        () => {},
+      ),
+    { message: 'VIDEO_SUMMARY_SOURCE_CHOICE_UNSUPPORTED' },
+  )
+  assert.equal(mediaCalls.length, 0)
 })

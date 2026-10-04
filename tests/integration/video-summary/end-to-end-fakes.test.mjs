@@ -149,12 +149,16 @@ function createLinkedPortPair({ name, sender }) {
   return { clientPort, backgroundPort, clientPostedMessages, backgroundPostedMessages }
 }
 
-function createSubtitleTrack(cues, language = 'zh-CN', label = 'Chinese') {
+function createSubtitleTrack(
+  cues,
+  { id = 'sub-1', language = 'zh-CN', label = 'Chinese', sourceKind = 'unknown' } = {},
+) {
   return [
     {
-      id: 'sub-1',
+      id,
       language,
       label,
+      sourceKind,
       cues: cues.map((cue) => ({ ...cue })),
     },
   ]
@@ -635,6 +639,7 @@ test('native subtitles complete without any MediaKit call', async () => {
 
   await mounted.client.startTask({
     sourceChoice: 'native-subtitle',
+    subtitleTrackId: 'sub-1',
     sourceSnapshot,
     settingsSnapshot: { preferredLanguage: 'en' },
     modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
@@ -650,6 +655,64 @@ test('native subtitles complete without any MediaKit call', async () => {
   assert.equal(toolNames.has('submit_chunk_summary'), true)
   assert.equal(toolNames.has('submit_video_summary'), true)
 })
+
+for (const fixture of [
+  {
+    name: 'player AI subtitles',
+    id: 'player-ai',
+    label: '中文（自动生成）',
+    lines: ['播放器 AI 字幕第一句', '播放器 AI 字幕第二句'],
+  },
+  {
+    name: 'conclusion AI subtitles',
+    id: 'bilibili-ai-conclusion',
+    label: 'Bilibili AI subtitles',
+    lines: ['总结接口 AI 字幕第一句', '总结接口 AI 字幕第二句'],
+  },
+]) {
+  test(`${fixture.name} complete without any MediaKit call`, async () => {
+    const mediaPipeline = {
+      async transcribeFromSource() {
+        assert.fail('Bilibili subtitle path must not call MediaKit')
+      },
+    }
+    const harness = createHarness({ mediaPipeline, modelGateway: createModelGateway() })
+    const owner = createVideoSummaryOwner({
+      tabId: 1,
+      documentId: `doc-${fixture.id}`,
+      videoId: `BV1-${fixture.id}`,
+    })
+    const sourceSnapshot = createSourceSnapshot({
+      videoId: owner.videoId,
+      nativeSubtitleTracks: createSubtitleTrack(
+        [
+          { startMs: 0, endMs: 1000, text: fixture.lines[0] },
+          { startMs: 1000, endMs: 2200, text: fixture.lines[1] },
+        ],
+        {
+          id: fixture.id,
+          label: fixture.label,
+          sourceKind: 'bilibili-ai',
+        },
+      ),
+    })
+    const mounted = await harness.mountClient({ owner, sourceSnapshot })
+
+    await mounted.client.startTask({
+      sourceChoice: 'native-subtitle',
+      subtitleTrackId: fixture.id,
+      sourceSnapshot,
+      settingsSnapshot: { preferredLanguage: 'zh-Hans' },
+      modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
+    })
+
+    const resultEvent = await mounted.waitFor((event) => event.type === 'TASK_RESULT')
+    assert.deepEqual(
+      resultEvent.result.transcriptSegments.map((segment) => segment.text),
+      fixture.lines,
+    )
+  })
+}
 
 test('direct MediaKit success reaches complete and keeps upload count at 0', async () => {
   const transcription = createTranscription()
@@ -1138,6 +1201,7 @@ test('native subtitle and ASR tasks traverse the real background-offscreen port 
 
   await mounted.startTask({
     sourceChoice: 'native-subtitle',
+    subtitleTrackId: 'sub-1',
     sourceSnapshot,
     settingsSnapshot: { preferredLanguage: 'en' },
     modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },

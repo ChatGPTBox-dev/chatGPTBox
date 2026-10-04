@@ -71,14 +71,14 @@ function toFiniteMs(value) {
   return Number.isFinite(number) ? number : 0
 }
 
-function createNativeSubtitleTranscription(sourceSnapshot) {
-  const track = Array.isArray(sourceSnapshot?.nativeSubtitleTracks)
-    ? sourceSnapshot.nativeSubtitleTracks[0]
-    : null
+function createNativeSubtitleTranscription(sourceSnapshot, subtitleTrackId) {
+  const tracks = Array.isArray(sourceSnapshot?.nativeSubtitleTracks)
+    ? sourceSnapshot.nativeSubtitleTracks
+    : []
+  const normalizedTrackId = String(subtitleTrackId || '').trim()
+  const track = tracks.find((item) => String(item?.id || '') === normalizedTrackId) || null
   const cues = Array.isArray(track?.cues) ? track.cues : []
-  if (cues.length === 0) {
-    throw new Error('BILIBILI_NATIVE_SUBTITLES_NOT_FOUND')
-  }
+  if (!track || cues.length === 0) throw new Error('BILIBILI_SUBTITLE_TRACK_NOT_FOUND')
 
   const segments = cues
     .map((cue, index) => ({
@@ -91,9 +91,7 @@ function createNativeSubtitleTranscription(sourceSnapshot) {
     }))
     .filter((segment) => segment.text)
 
-  if (segments.length === 0) {
-    throw new Error('BILIBILI_NATIVE_SUBTITLES_NOT_FOUND')
-  }
+  if (segments.length === 0) throw new Error('BILIBILI_SUBTITLE_TRACK_NOT_FOUND')
 
   return {
     durationMs: Math.max(...segments.map((segment) => segment.endMs), 0),
@@ -408,8 +406,11 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
             stage: 'loading-native-subtitles',
             checkpointAvailable: false,
           })
-          transcription = createNativeSubtitleTranscription(command.sourceSnapshot)
-        } else {
+          transcription = createNativeSubtitleTranscription(
+            command.sourceSnapshot,
+            command.subtitleTrackId,
+          )
+        } else if (command.sourceChoice === 'asr') {
           transcription = await mediaPipeline.transcribeFromSource({
             taskId,
             owner: command.owner,
@@ -427,6 +428,8 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
               })
             },
           })
+        } else {
+          throw new Error('VIDEO_SUMMARY_SOURCE_CHOICE_UNSUPPORTED')
         }
 
         checkpoints.set(taskId, {

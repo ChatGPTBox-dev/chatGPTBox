@@ -73,6 +73,7 @@ test('port client sends serializable START_TASK and ignores stale task events', 
 
   const taskId = await client.startTask({
     sourceChoice: 'native-subtitle',
+    subtitleTrackId: 'bilibili-ai-conclusion',
     sourceSnapshot: { videoId: 'BV1test' },
     settingsSnapshot: { preferredLanguage: 'en', speakerIdentification: true },
   })
@@ -80,6 +81,7 @@ test('port client sends serializable START_TASK and ignores stale task events', 
   assert.equal(port.outbound[0].type, 'START_TASK')
   assert.equal(port.outbound[0].videoId, 'BV1test')
   assert.equal(port.outbound[0].taskId, taskId)
+  assert.equal(port.outbound[0].subtitleTrackId, 'bilibili-ai-conclusion')
   assert.doesNotThrow(() => structuredClone(port.outbound[0]))
 
   port.emitMessage({

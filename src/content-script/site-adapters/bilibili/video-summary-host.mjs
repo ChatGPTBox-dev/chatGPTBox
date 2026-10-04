@@ -8,6 +8,7 @@ import { buildVideoSummaryMarkdown } from '../../../video-summary/markdown-expor
 import { createVideoSummarySettingsSnapshot } from '../../../video-summary/settings.mjs'
 import { createVideoSummaryPortClient } from './video-summary-port.mjs'
 import { createVideoSummaryHostWidthController } from './video-summary-host-width.mjs'
+import { selectPreferredBilibiliSubtitleTrack } from './media-source.mjs'
 import { createElementAtPosition } from '../../../utils'
 import { createSession, initDefaultSession } from '../../../services/local-session.mjs'
 import { getPreferredLanguageKey, getUserConfig } from '../../../config/index.mjs'
@@ -124,10 +125,16 @@ export function mountBilibiliVideoSummaryHost({
   }
 
   const rerender = () => {
+    const subtitleTrack = selectPreferredBilibiliSubtitleTrack(
+      state.sourceSnapshot?.nativeSubtitleTracks,
+    )
+
     render(
       h(BilibiliVideoSummaryView, {
         videoTitle: state.videoTitle,
         sourceChoice: state.sourceChoice,
+        subtitleTrack,
+        subtitleDiscoveryStatus: state.sourceSnapshot?.subtitleDiscovery?.conclusionStatus,
         asrConfirmationVisible: state.asrConfirmationVisible,
         taskState: state.taskState,
         onChooseSource: async (choice) => {
@@ -254,6 +261,10 @@ export function mountBilibiliVideoSummaryHost({
     rerender()
     const taskId = await client.startTask({
       sourceChoice: choice,
+      subtitleTrackId:
+        choice === 'native-subtitle'
+          ? selectPreferredBilibiliSubtitleTrack(sourceSnapshot.nativeSubtitleTracks)?.id
+          : undefined,
       sourceSnapshot,
       settingsSnapshot: await getSettingsSnapshot(),
       modelSnapshot: await getModelSnapshot(),

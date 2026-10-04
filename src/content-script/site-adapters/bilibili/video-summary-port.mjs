@@ -86,7 +86,13 @@ export function createVideoSummaryPortClient({
   port.onDisconnect.addListener(handleDisconnect)
 
   return {
-    async startTask({ sourceChoice, sourceSnapshot, settingsSnapshot, modelSnapshot }) {
+    async startTask({
+      sourceChoice,
+      subtitleTrackId,
+      sourceSnapshot,
+      settingsSnapshot,
+      modelSnapshot,
+    }) {
       const taskId = crypto.randomUUID()
       activeTaskId = taskId
       port.postMessage(
@@ -95,6 +101,7 @@ export function createVideoSummaryPortClient({
           taskId,
           videoId,
           sourceChoice,
+          ...(subtitleTrackId ? { subtitleTrackId } : {}),
           sourceSnapshot,
           settingsSnapshot,
           ...(modelSnapshot === undefined ? {} : { modelSnapshot }),
