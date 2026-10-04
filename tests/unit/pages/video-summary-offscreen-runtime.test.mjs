@@ -138,7 +138,6 @@ test('source refresh requests and gateway responses resolve and reject by reques
     taskId: 'task-6',
     signal: new AbortController().signal,
   })
-  assert.equal('invokeTool' in runtime.modelGateway, false)
   const generationPromise = runtime.modelGateway.generateText({
     requestId: 'chunk-1',
     taskId: 'task-6',

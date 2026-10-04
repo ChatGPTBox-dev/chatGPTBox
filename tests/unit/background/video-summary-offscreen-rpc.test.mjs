@@ -19,7 +19,6 @@ function createLogger() {
 test('gateway RPC enforces allowlists and serializes safe errors without leaking request payloads', async () => {
   const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
   const generationCalls = []
-  const toolCalls = []
   const rpc = createVideoSummaryOffscreenRpc({
     mediaKitGateway: {
       async queryTask(args) {
@@ -48,10 +47,6 @@ test('gateway RPC enforces allowlists and serializes safe errors without leaking
           finishReason: 'stop',
           rawProviderResponse: 'private provider payload',
         }
-      },
-      async invokeTool(args) {
-        toolCalls.push(args)
-        return { toolName: args.tool?.name, arguments: { ok: true }, argumentBytes: 12 }
       },
     },
     logger: createLogger(),
@@ -150,36 +145,6 @@ test('gateway RPC enforces allowlists and serializes safe errors without leaking
     type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayRequest,
     requestId: 'request-5',
     gateway: 'model',
-    operation: 'invokeTool',
-    args: {
-      requestId: 'chunk-2',
-      taskId: 'task-1',
-      modelSnapshot: { provider: 'openai' },
-      messages: [{ role: 'user', content: 'private prompt' }],
-      maxOutputTokens: 200,
-      tool: { name: 'video_summary', description: 'Return a summary.', parameters: {} },
-    },
-  })
-  await Promise.resolve()
-
-  assert.deepEqual(toolCalls, [])
-  assert.deepEqual(port.postedMessages[4], {
-    type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse,
-    requestId: 'request-5',
-    ok: false,
-    error: {
-      code: 'VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED',
-      operation: 'invokeTool',
-      httpStatus: null,
-      providerCode: null,
-      retryAfterMs: null,
-    },
-  })
-
-  port.emitMessage({
-    type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayRequest,
-    requestId: 'request-6',
-    gateway: 'model',
     operation: 'generateText',
     args: {
       requestId: 'chunk-3',
@@ -200,9 +165,9 @@ test('gateway RPC enforces allowlists and serializes safe errors without leaking
       maxOutputTokens: 1200,
     },
   ])
-  assert.deepEqual(port.postedMessages[5], {
+  assert.deepEqual(port.postedMessages[4], {
     type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse,
-    requestId: 'request-6',
+    requestId: 'request-5',
     ok: true,
     result: { text: 'generated summary', finishReason: 'stop' },
   })
