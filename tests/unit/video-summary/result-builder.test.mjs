@@ -18,6 +18,143 @@ function createTranscription() {
   }
 }
 
+test('preserves unanchored free-text entries without inventing timestamps', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: createTranscription(),
+    localChunkResults: [
+      {
+        primaryStartSegmentId: 's1',
+        primaryEndSegmentId: 's3',
+        localSummary: 'local',
+        keyPoints: ['local point'],
+        candidates: [],
+      },
+    ],
+    synthesisResult: {
+      overview: 'final',
+      rawText: 'raw private answer',
+      keyPoints: ['point'],
+      chapters: [
+        { segmentId: 's1', title: 'Anchored', summary: 'a', anchored: true },
+        { segmentId: null, title: 'Unanchored', summary: 'b', anchored: false },
+      ],
+      keyMoments: [
+        { segmentId: 's2', point: 'Jump', anchored: true },
+        { segmentId: null, point: 'Read only', anchored: false },
+      ],
+    },
+    failedRanges: [],
+  })
+
+  assert.equal(result.rawSummaryText, 'raw private answer')
+  assert.equal(result.warnings.includes('VIDEO_SUMMARY_LOCATIONS_PARTIALLY_UNAVAILABLE'), true)
+  assert.deepEqual(result.chapters[1], {
+    startSegmentId: null,
+    endSegmentId: null,
+    startMs: null,
+    endMs: null,
+    title: 'Unanchored',
+    summary: 'b',
+  })
+  assert.deepEqual(result.keyMoments[1], {
+    segmentId: null,
+    startMs: null,
+    point: 'Read only',
+  })
+})
+
+test('uses local summaries, points, and candidates when final output is absent', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: createTranscription(),
+    localChunkResults: [
+      {
+        primaryStartSegmentId: 's1',
+        primaryEndSegmentId: 's2',
+        localSummary: 'first local',
+        keyPoints: ['local point'],
+        candidates: [{ segmentId: 's2', text: 'local candidate', anchored: true }],
+      },
+      {
+        primaryStartSegmentId: 's3',
+        primaryEndSegmentId: 's4',
+        localSummary: 'second local',
+        keyPoints: ['another point'],
+        candidates: [{ segmentId: null, text: 'unanchored candidate', anchored: false }],
+      },
+    ],
+    synthesisResult: null,
+    failedRanges: [],
+  })
+
+  assert.equal(result.rawSummaryText, '')
+  assert.equal(result.overview, 'first local\n\nsecond local')
+  assert.deepEqual(result.keyPoints, ['local point', 'another point'])
+  assert.deepEqual(result.keyMoments, [
+    { segmentId: 's2', startMs: 1000, point: 'local candidate' },
+    { segmentId: null, startMs: null, point: 'unanchored candidate' },
+  ])
+})
+
+test('invalid and unanchored locations do not change complete status to partial', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: createTranscription(),
+    localChunkResults: [
+      {
+        primaryStartSegmentId: 's1',
+        primaryEndSegmentId: 's4',
+        localSummary: 'local',
+        keyPoints: [],
+        candidates: [],
+      },
+    ],
+    synthesisResult: {
+      overview: 'final',
+      keyPoints: [],
+      chapters: [
+        { segmentId: 'missing', title: 'Missing', summary: 'ignored', anchored: true },
+        { segmentId: null, title: 'Unanchored', summary: 'kept', anchored: false },
+      ],
+      keyMoments: [
+        { segmentId: 'missing', point: 'ignored', anchored: true },
+        { segmentId: null, point: 'kept', anchored: false },
+      ],
+    },
+    failedRanges: [],
+  })
+
+  assert.equal(result.status, 'complete')
+  assert.deepEqual(result.chapters, [
+    {
+      startSegmentId: null,
+      endSegmentId: null,
+      startMs: null,
+      endMs: null,
+      title: 'Unanchored',
+      summary: 'kept',
+    },
+  ])
+  assert.deepEqual(result.keyMoments, [{ segmentId: null, startMs: null, point: 'kept' }])
+})
+
+test('raw summary text falls back to an empty string', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: createTranscription(),
+    localChunkResults: [
+      {
+        primaryStartSegmentId: 's1',
+        primaryEndSegmentId: 's1',
+        localSummary: 'local',
+        keyPoints: [],
+        candidates: [],
+      },
+    ],
+    synthesisResult: { overview: 'final', keyPoints: [], chapters: [], keyMoments: [] },
+    failedRanges: [],
+  })
+
+  assert.equal(result.rawSummaryText, '')
+})
+
 test('result builder emits degraded output when synthesis fails but local summaries exist', () => {
   const result = buildStructuredSummaryResult({
     transcription: createTranscription(),

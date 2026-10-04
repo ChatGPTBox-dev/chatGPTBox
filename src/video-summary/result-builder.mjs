@@ -1,5 +1,7 @@
 import { formatShanghaiTimestamp, formatVideoOffset } from './time.mjs'
 
+const UNANCHORED_LOCATION_WARNING = 'VIDEO_SUMMARY_LOCATIONS_PARTIALLY_UNAVAILABLE'
+
 function dedupeStrings(values) {
   return Array.from(new Set((Array.isArray(values) ? values : []).filter(Boolean)))
 }
@@ -49,11 +51,21 @@ function indexesToDuration(indexes, segments) {
 }
 
 function getChapterCandidates(localChunkResults, synthesisResult) {
+  if (Array.isArray(synthesisResult?.chapters)) return synthesisResult.chapters
   if (Array.isArray(synthesisResult?.chapterStarts)) return synthesisResult.chapterStarts
 
   return (Array.isArray(localChunkResults) ? localChunkResults : []).flatMap((chunkResult) =>
     Array.isArray(chunkResult?.chapterStarts) ? chunkResult.chapterStarts : [],
   )
+}
+
+function getMomentCandidates(localChunkResults, synthesisResult) {
+  if (Array.isArray(synthesisResult?.keyMoments)) return synthesisResult.keyMoments
+
+  return (Array.isArray(localChunkResults) ? localChunkResults : []).flatMap((chunkResult) => {
+    if (Array.isArray(chunkResult?.candidates)) return chunkResult.candidates
+    return Array.isArray(chunkResult?.keyMoments) ? chunkResult.keyMoments : []
+  })
 }
 
 function getOrderedCoveredIndexes(coveredIndexes) {
@@ -69,6 +81,31 @@ function getLastCoveredIndexBefore(orderedCoveredIndexes, nextIndex) {
   return candidate
 }
 
+function isUnanchoredCandidate(candidate) {
+  return candidate?.anchored === false && !candidate?.segmentId
+}
+
+function buildFallbackChapter({ segments, localChunkResults, orderedCoveredIndexes }) {
+  if (orderedCoveredIndexes.length === 0) return []
+
+  const firstIndex = orderedCoveredIndexes[0]
+  const lastIndex = orderedCoveredIndexes.at(-1)
+  return [
+    {
+      startSegmentId: segments[firstIndex].id,
+      endSegmentId: segments[lastIndex].id,
+      startMs: segments[firstIndex].startMs,
+      endMs: segments[lastIndex].endMs,
+      title: 'Summary',
+      summary:
+        (Array.isArray(localChunkResults) ? localChunkResults : [])
+          .map((chunkResult) => String(chunkResult?.localSummary || '').trim())
+          .filter(Boolean)
+          .join('\n\n') || 'Summary unavailable.',
+    },
+  ]
+}
+
 function buildChapters({
   segments,
   localChunkResults,
@@ -77,53 +114,49 @@ function buildChapters({
   segmentIndex,
 }) {
   const orderedCoveredIndexes = getOrderedCoveredIndexes(coveredIndexes)
-  if (orderedCoveredIndexes.length === 0) return []
-
   const candidates = getChapterCandidates(localChunkResults, synthesisResult)
-  const filteredStarts = []
+  const anchored = []
+  const unanchored = []
   const seenIndexes = new Set()
 
   for (const candidate of candidates) {
+    if (isUnanchoredCandidate(candidate)) {
+      const title = String(candidate?.title || '').trim()
+      const summary = String(candidate?.summary || '').trim()
+      if (!title && !summary) continue
+      unanchored.push({
+        startSegmentId: null,
+        endSegmentId: null,
+        startMs: null,
+        endMs: null,
+        title: title || 'Chapter',
+        summary,
+      })
+      continue
+    }
+
     const info = segmentIndex.get(candidate?.segmentId)
     if (!info || !coveredIndexes.has(info.index) || seenIndexes.has(info.index)) continue
+
+    const title = String(candidate?.title || '').trim()
+    const summary = String(candidate?.summary || '').trim()
+    if (!title && !summary) continue
+
     seenIndexes.add(info.index)
-    filteredStarts.push({
+    anchored.push({
       index: info.index,
-      segmentId: candidate.segmentId,
-      title: String(candidate?.title || '').trim() || 'Chapter',
-      summary: String(candidate?.summary || '').trim(),
+      title: title || 'Chapter',
+      summary,
     })
   }
 
-  filteredStarts.sort((left, right) => left.index - right.index)
+  anchored.sort((left, right) => left.index - right.index)
 
-  if (filteredStarts.length === 0) {
-    const firstIndex = orderedCoveredIndexes[0]
-    const lastIndex = orderedCoveredIndexes.at(-1)
-    return [
-      {
-        startSegmentId: segments[firstIndex].id,
-        endSegmentId: segments[lastIndex].id,
-        startMs: segments[firstIndex].startMs,
-        endMs: segments[lastIndex].endMs,
-        title: 'Summary',
-        summary:
-          (Array.isArray(localChunkResults) ? localChunkResults : [])
-            .map((chunkResult) => String(chunkResult?.localSummary || '').trim())
-            .filter(Boolean)
-            .join('\n\n') || 'Summary unavailable.',
-      },
-    ]
-  }
-
-  filteredStarts[0].index = orderedCoveredIndexes[0]
-  filteredStarts[0].segmentId = segments[orderedCoveredIndexes[0]].id
-
-  return filteredStarts.map((start, index) => {
-    const nextStart = filteredStarts[index + 1]
+  const anchoredChapters = anchored.map((start, index) => {
+    const nextStart = anchored[index + 1]
     const endIndex = nextStart
-      ? getLastCoveredIndexBefore(orderedCoveredIndexes, nextStart.index)
-      : orderedCoveredIndexes.at(-1)
+      ? getLastCoveredIndexBefore(orderedCoveredIndexes, nextStart.index) ?? start.index
+      : orderedCoveredIndexes.at(-1) ?? start.index
 
     return {
       startSegmentId: segments[start.index].id,
@@ -134,31 +167,46 @@ function buildChapters({
       summary: start.summary,
     }
   })
+
+  if (anchoredChapters.length === 0 && unanchored.length === 0 && candidates.length === 0) {
+    return buildFallbackChapter({ segments, localChunkResults, orderedCoveredIndexes })
+  }
+
+  return [...anchoredChapters, ...unanchored]
 }
 
 function buildKeyMoments({ localChunkResults, synthesisResult, coveredIndexes, segmentIndex }) {
-  const sourceMoments = Array.isArray(synthesisResult?.keyMoments)
-    ? synthesisResult.keyMoments
-    : (Array.isArray(localChunkResults) ? localChunkResults : []).flatMap((chunkResult) =>
-        Array.isArray(chunkResult?.keyMoments) ? chunkResult.keyMoments : [],
-      )
-
+  const sourceMoments = getMomentCandidates(localChunkResults, synthesisResult)
+  const anchored = []
+  const unanchored = []
   const seen = new Set()
-  const moments = []
 
   for (const moment of sourceMoments) {
+    const point = String(moment?.point ?? moment?.text ?? '').trim()
+    if (!point) continue
+
+    if (isUnanchoredCandidate(moment)) {
+      unanchored.push({
+        segmentId: null,
+        startMs: null,
+        point,
+      })
+      continue
+    }
+
     const info = segmentIndex.get(moment?.segmentId)
     if (!info || !coveredIndexes.has(info.index) || seen.has(info.segment.id)) continue
+
     seen.add(info.segment.id)
-    moments.push({
+    anchored.push({
       segmentId: info.segment.id,
       startMs: info.segment.startMs,
-      point: String(moment?.point || '').trim(),
+      point,
     })
   }
 
-  moments.sort((left, right) => left.startMs - right.startMs)
-  return moments.filter((moment) => moment.point)
+  anchored.sort((left, right) => left.startMs - right.startMs)
+  return [...anchored, ...unanchored]
 }
 
 function buildOverview(localChunkResults, synthesisResult) {
@@ -172,12 +220,26 @@ function buildOverview(localChunkResults, synthesisResult) {
     .join('\n\n')
 }
 
-function buildWarnings(status, failedRanges, synthesisResult, localChunkResults) {
+function hasUnanchoredLocations(chapters, keyMoments) {
+  return (
+    chapters.some((chapter) => chapter.startSegmentId === null || chapter.endSegmentId === null) ||
+    keyMoments.some((moment) => moment.segmentId === null)
+  )
+}
+
+function buildWarnings({
+  status,
+  failedRanges,
+  synthesisResult,
+  localChunkResults,
+  hasUnanchoredSummaryLocations,
+}) {
   const warnings = []
   if (failedRanges.length > 0) warnings.push('Some transcript ranges could not be summarized.')
   if (!synthesisResult && (Array.isArray(localChunkResults) ? localChunkResults.length : 0) > 0) {
     warnings.push('Summary synthesis was unavailable; local summaries were used instead.')
   }
+  if (hasUnanchoredSummaryLocations) warnings.push(UNANCHORED_LOCATION_WARNING)
   if (status === 'degraded' && warnings.length === 0) {
     warnings.push('Structured summary data is incomplete.')
   }
@@ -212,37 +274,49 @@ export function buildStructuredSummaryResult({
     : hasLocalSummaries
     ? 'degraded'
     : 'degraded'
+  const keyMoments = buildKeyMoments({
+    localChunkResults,
+    synthesisResult,
+    coveredIndexes,
+    segmentIndex,
+  })
+  const chapters = buildChapters({
+    segments,
+    localChunkResults,
+    synthesisResult,
+    coveredIndexes,
+    segmentIndex,
+  })
+  const warnings = buildWarnings({
+    status,
+    failedRanges: normalizedFailedRanges,
+    synthesisResult,
+    localChunkResults,
+    hasUnanchoredSummaryLocations: hasUnanchoredLocations(chapters, keyMoments),
+  })
+  const overview = buildOverview(localChunkResults, synthesisResult)
+  const keyPoints = dedupeStrings(
+    Array.isArray(synthesisResult?.keyPoints)
+      ? synthesisResult.keyPoints
+      : (Array.isArray(localChunkResults) ? localChunkResults : []).flatMap((chunkResult) =>
+          Array.isArray(chunkResult?.keyPoints) ? chunkResult.keyPoints : [],
+        ),
+  )
 
   return {
     status,
-    overview: buildOverview(localChunkResults, synthesisResult),
-    keyPoints: dedupeStrings(
-      Array.isArray(synthesisResult?.keyPoints)
-        ? synthesisResult.keyPoints
-        : (Array.isArray(localChunkResults) ? localChunkResults : []).flatMap((chunkResult) =>
-            Array.isArray(chunkResult?.keyPoints) ? chunkResult.keyPoints : [],
-          ),
-    ),
-    keyMoments: buildKeyMoments({
-      localChunkResults,
-      synthesisResult,
-      coveredIndexes,
-      segmentIndex,
-    }),
-    chapters: buildChapters({
-      segments,
-      localChunkResults,
-      synthesisResult,
-      coveredIndexes,
-      segmentIndex,
-    }),
+    overview,
+    rawSummaryText: String(synthesisResult?.rawText || '').trim(),
+    keyPoints,
+    keyMoments,
+    chapters,
     transcriptSegments: segments.map((segment) => ({ ...segment })),
     coverage: {
       coveredDurationMs,
       totalDurationMs,
       ratio: totalDurationMs > 0 ? Number((coveredDurationMs / totalDurationMs).toFixed(4)) : 0,
     },
-    warnings: buildWarnings(status, normalizedFailedRanges, synthesisResult, localChunkResults),
+    warnings,
     failedRanges: normalizedFailedRanges,
   }
 }
