@@ -25,6 +25,19 @@ function sanitizeRpcArgs(args) {
   return cloneSerializable(serializableArgs)
 }
 
+const SAFE_GATEWAY_CONDITIONS = new Set(['login-required', 'provider-page-required', 'temporary'])
+
+function projectSafeCondition(value) {
+  return SAFE_GATEWAY_CONDITIONS.has(value) ? value : null
+}
+
+function projectSafeModelName(value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized || normalized.length > 120) return null
+  return /^[A-Za-z0-9_.:/-]+$/.test(normalized) ? normalized : null
+}
+
 function createRpcError(error) {
   const rpcError = new Error(error?.code || 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED')
   rpcError.code = error?.code || 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED'
@@ -32,6 +45,8 @@ function createRpcError(error) {
   rpcError.httpStatus = error?.httpStatus ?? null
   rpcError.providerCode = error?.providerCode ?? null
   rpcError.retryAfterMs = error?.retryAfterMs ?? null
+  rpcError.condition = projectSafeCondition(error?.condition)
+  rpcError.modelName = projectSafeModelName(error?.modelName)
   return rpcError
 }
 
@@ -98,13 +113,6 @@ export function startVideoSummaryOffscreenRuntime({
       return requestGateway({
         gateway: 'model',
         operation: 'generateText',
-        args,
-      })
-    },
-    async invokeTool(args) {
-      return requestGateway({
-        gateway: 'model',
-        operation: 'invokeTool',
         args,
       })
     },

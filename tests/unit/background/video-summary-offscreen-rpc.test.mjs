@@ -18,6 +18,7 @@ function createLogger() {
 
 test('gateway RPC enforces allowlists and serializes safe errors without leaking request payloads', async () => {
   const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
+  const generationCalls = []
   const toolCalls = []
   const rpc = createVideoSummaryOffscreenRpc({
     mediaKitGateway: {
@@ -39,6 +40,14 @@ test('gateway RPC enforces allowlists and serializes safe errors without leaking
     modelGateway: {
       describeCapabilities(snapshot) {
         return { supported: snapshot?.provider === 'openai' }
+      },
+      async generateText(args) {
+        generationCalls.push(args)
+        return {
+          text: 'generated summary',
+          finishReason: 'stop',
+          rawProviderResponse: 'private provider payload',
+        }
       },
       async invokeTool(args) {
         toolCalls.push(args)
@@ -153,21 +162,145 @@ test('gateway RPC enforces allowlists and serializes safe errors without leaking
   })
   await Promise.resolve()
 
-  assert.deepEqual(toolCalls, [
-    {
-      requestId: 'chunk-2',
-      taskId: 'task-1',
-      modelSnapshot: { provider: 'openai' },
-      messages: [{ role: 'user', content: 'private prompt' }],
-      maxOutputTokens: 200,
-      tool: { name: 'video_summary', description: 'Return a summary.', parameters: {} },
-    },
-  ])
+  assert.deepEqual(toolCalls, [])
   assert.deepEqual(port.postedMessages[4], {
     type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse,
     requestId: 'request-5',
+    ok: false,
+    error: {
+      code: 'VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED',
+      operation: 'invokeTool',
+      httpStatus: null,
+      providerCode: null,
+      retryAfterMs: null,
+    },
+  })
+
+  port.emitMessage({
+    type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayRequest,
+    requestId: 'request-6',
+    gateway: 'model',
+    operation: 'generateText',
+    args: {
+      requestId: 'chunk-3',
+      taskId: 'task-1',
+      modelSnapshot: { modelName: 'moonshotWebFree' },
+      messages: [{ role: 'user', content: 'private prompt' }],
+      maxOutputTokens: 1200,
+    },
+  })
+  await Promise.resolve()
+
+  assert.deepEqual(generationCalls, [
+    {
+      requestId: 'chunk-3',
+      taskId: 'task-1',
+      modelSnapshot: { modelName: 'moonshotWebFree' },
+      messages: [{ role: 'user', content: 'private prompt' }],
+      maxOutputTokens: 1200,
+    },
+  ])
+  assert.deepEqual(port.postedMessages[5], {
+    type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse,
+    requestId: 'request-6',
     ok: true,
-    result: { toolName: 'video_summary', arguments: { ok: true }, argumentBytes: 12 },
+    result: { text: 'generated summary', finishReason: 'stop' },
+  })
+})
+
+test('model generation RPC serializes only safe actionable error metadata', async () => {
+  const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
+  const rpc = createVideoSummaryOffscreenRpc({
+    mediaKitGateway: {},
+    modelGateway: {
+      async generateText() {
+        const error = Object.assign(new Error('raw provider response with private prompt'), {
+          code: 'MODEL_LOGIN_REQUIRED',
+          operation: 'rawOperationShouldNotLeak',
+          httpStatus: Number.NaN,
+          providerCode: { raw: 'response' },
+          retryAfterMs: Number.NaN,
+          condition: 'login-required',
+          modelName: 'moonshotWebFree',
+          responseText: 'raw provider response body',
+          messages: [{ role: 'user', content: 'private prompt' }],
+        })
+        throw error
+      },
+    },
+    logger: createLogger(),
+    onTaskEvent() {},
+    requestSourceRefresh() {},
+  })
+
+  rpc.attachPort(port)
+  port.emitMessage({
+    type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayRequest,
+    requestId: 'request-login',
+    gateway: 'model',
+    operation: 'generateText',
+    args: {
+      requestId: 'chunk-1',
+      taskId: 'task-1',
+      modelSnapshot: { modelName: 'moonshotWebFree' },
+      messages: [{ role: 'user', content: 'private prompt' }],
+      maxOutputTokens: 1200,
+    },
+  })
+  await Promise.resolve()
+
+  assert.deepEqual(port.postedMessages[0], {
+    type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse,
+    requestId: 'request-login',
+    ok: false,
+    error: {
+      code: 'MODEL_LOGIN_REQUIRED',
+      operation: 'generateText',
+      httpStatus: null,
+      providerCode: null,
+      retryAfterMs: null,
+      condition: 'login-required',
+      modelName: 'moonshotWebFree',
+    },
+  })
+})
+
+test('model generation RPC replaces unsafe condition and model name metadata with nulls', async () => {
+  const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
+  const rpc = createVideoSummaryOffscreenRpc({
+    mediaKitGateway: {},
+    modelGateway: {
+      async generateText() {
+        throw Object.assign(new Error('unsafe provider failure'), {
+          code: 'MODEL_TEMPORARY_FAILURE',
+          condition: 'private prompt leaked here',
+          modelName: 'moonshotWebFree private prompt',
+        })
+      },
+    },
+    logger: createLogger(),
+    onTaskEvent() {},
+    requestSourceRefresh() {},
+  })
+
+  rpc.attachPort(port)
+  port.emitMessage({
+    type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayRequest,
+    requestId: 'request-unsafe',
+    gateway: 'model',
+    operation: 'generateText',
+    args: { requestId: 'chunk-unsafe', taskId: 'task-1' },
+  })
+  await Promise.resolve()
+
+  assert.deepEqual(port.postedMessages[0].error, {
+    code: 'MODEL_TEMPORARY_FAILURE',
+    operation: 'generateText',
+    httpStatus: null,
+    providerCode: null,
+    retryAfterMs: null,
+    condition: null,
+    modelName: null,
   })
 })
 

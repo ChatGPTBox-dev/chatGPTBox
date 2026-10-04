@@ -138,13 +138,13 @@ test('source refresh requests and gateway responses resolve and reject by reques
     taskId: 'task-6',
     signal: new AbortController().signal,
   })
-  const invokeToolPromise = runtime.modelGateway.invokeTool({
+  assert.equal('invokeTool' in runtime.modelGateway, false)
+  const generationPromise = runtime.modelGateway.generateText({
     requestId: 'chunk-1',
     taskId: 'task-6',
-    modelSnapshot: { provider: 'openai' },
+    modelSnapshot: { modelName: 'moonshotWebFree' },
     messages: [{ role: 'user', content: 'private prompt' }],
-    maxOutputTokens: 200,
-    tool: { name: 'video_summary', description: 'Return a summary.', parameters: {} },
+    maxOutputTokens: 1200,
   })
 
   assert.deepEqual(port.postedMessages.slice(0, 3), [
@@ -167,14 +167,13 @@ test('source refresh requests and gateway responses resolve and reject by reques
       type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayRequest,
       requestId: 'request-3',
       gateway: 'model',
-      operation: 'invokeTool',
+      operation: 'generateText',
       args: {
         requestId: 'chunk-1',
         taskId: 'task-6',
-        modelSnapshot: { provider: 'openai' },
+        modelSnapshot: { modelName: 'moonshotWebFree' },
         messages: [{ role: 'user', content: 'private prompt' }],
-        maxOutputTokens: 200,
-        tool: { name: 'video_summary', description: 'Return a summary.', parameters: {} },
+        maxOutputTokens: 1200,
       },
     },
   ])
@@ -197,20 +196,24 @@ test('source refresh requests and gateway responses resolve and reject by reques
     requestId: 'request-3',
     ok: false,
     error: {
-      code: 'MODEL_GATEWAY_ABORTED',
-      operation: 'invokeTool',
+      code: 'MODEL_LOGIN_REQUIRED',
+      operation: 'generateText',
       httpStatus: null,
       providerCode: null,
       retryAfterMs: null,
+      condition: 'login-required',
+      modelName: 'moonshotWebFree',
     },
   })
 
   assert.deepEqual(await refreshPromise, { videoId: owner.videoId, refreshed: true })
   assert.deepEqual(await queryPromise, { status: 'completed' })
-  await assert.rejects(invokeToolPromise, (error) => {
-    assert.equal(error.message, 'MODEL_GATEWAY_ABORTED')
-    assert.equal(error.code, 'MODEL_GATEWAY_ABORTED')
-    assert.equal(error.operation, 'invokeTool')
+  await assert.rejects(generationPromise, (error) => {
+    assert.equal(error.message, 'MODEL_LOGIN_REQUIRED')
+    assert.equal(error.code, 'MODEL_LOGIN_REQUIRED')
+    assert.equal(error.operation, 'generateText')
+    assert.equal(error.condition, 'login-required')
+    assert.equal(error.modelName, 'moonshotWebFree')
     return true
   })
 })

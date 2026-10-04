@@ -17,7 +17,7 @@ export const VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES = Object.freeze({
 })
 export const VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS = Object.freeze({
   mediakit: Object.freeze(['submitDirectAsr', 'requestUploadTarget', 'queryTask']),
-  model: Object.freeze(['describeCapabilities', 'generateText', 'invokeTool', 'cancel']),
+  model: Object.freeze(['describeCapabilities', 'generateText', 'cancel']),
 })
 
 export function createVideoSummaryOwner({ tabId, documentId, videoId }) {

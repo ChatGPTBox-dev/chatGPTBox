@@ -17,8 +17,25 @@ function toSafeCode(value, fallback) {
   return fallback
 }
 
+const SAFE_GATEWAY_CONDITIONS = new Set(['login-required', 'provider-page-required', 'temporary'])
+
 function cloneSerializable(value) {
   return structuredClone(value)
+}
+
+function projectSafeCondition(value) {
+  return SAFE_GATEWAY_CONDITIONS.has(value) ? value : null
+}
+
+function projectSafeModelName(value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized || normalized.length > 120) return null
+  return /^[A-Za-z0-9_.:/-]+$/.test(normalized) ? normalized : null
+}
+
+function hasOwnProperty(object, property) {
+  return Object.prototype.hasOwnProperty.call(object || {}, property)
 }
 
 function createRefreshKey({ owner, taskId }) {
@@ -27,18 +44,33 @@ function createRefreshKey({ owner, taskId }) {
   }`
 }
 
+function serializeGatewayResult(result, operation) {
+  if (operation !== 'generateText') return cloneSerializable(result)
+  return {
+    text: typeof result?.text === 'string' ? result.text : '',
+    finishReason: typeof result?.finishReason === 'string' ? result.finishReason : null,
+  }
+}
+
 function serializeGatewayError(
   error,
   operation,
   fallbackCode = 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED',
 ) {
-  return {
+  const serialized = {
     code: toSafeCode(error?.code || error?.message, fallbackCode),
     operation: typeof operation === 'string' ? operation : null,
     httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
     providerCode: typeof error?.providerCode === 'string' ? error.providerCode : null,
     retryAfterMs: Number.isFinite(error?.retryAfterMs) ? error.retryAfterMs : null,
   }
+
+  if (hasOwnProperty(error, 'condition'))
+    serialized.condition = projectSafeCondition(error?.condition)
+  if (hasOwnProperty(error, 'modelName'))
+    serialized.modelName = projectSafeModelName(error?.modelName)
+
+  return serialized
 }
 
 function resolveGateway(gatewayName, gatewaysByName) {
@@ -112,7 +144,7 @@ export function createVideoSummaryOffscreenRpc({
         type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse,
         requestId,
         ok: true,
-        result: cloneSerializable(result),
+        result: serializeGatewayResult(result, operation),
       })
     } catch (error) {
       postMessage({
