@@ -287,9 +287,9 @@ test('web models select Claude, Bing, Gemini, ChatGPT direct, ChatGPT page, and 
   const pageDispatcher = createModelTextDispatcher(
     createBaseDependencies({
       getUserConfig: async () => ({ modelName: 'chatgptFree35', chatgptTabId: 8765 }),
-      generateWithChatgptPageProxy: async ({ port, session, tabId, config }) => {
-        calls.push(['chatgpt-page', tabId, session.modelName, config.maxResponseTokenLength])
-        port.postMessage({ answer: 'chatgpt page', done: true })
+      generateWithChatgptPageProxy: async ({ session }) => {
+        calls.push(['chatgpt-page', session.modelName])
+        return { text: 'chatgpt page', finishReason: null }
       },
     }),
   )
@@ -318,7 +318,7 @@ test('web models select Claude, Bing, Gemini, ChatGPT direct, ChatGPT page, and 
     ['bing-web', 'bing-token', true, 'bingFreeSydney', 22],
     ['gemini-web', '__Secure-1PSID=bard-cookie', 'bardWebFree'],
     ['chatgpt-direct', 'chatgpt-token', 'chatgptFree35', 44],
-    ['chatgpt-page', 8765, 'chatgptFree35', 55],
+    ['chatgpt-page', 'chatgptFree35'],
     ['kimi-web', 'moonshotWebFree', 66],
   ])
 })
@@ -514,7 +514,7 @@ test('missing ChatGPT page proxy or direct token becomes actionable instead of u
       maxOutputTokens: 1,
       signal: new AbortController().signal,
     }),
-    'MODEL_GATEWAY_PROVIDER_PAGE_REQUIRED',
+    'MODEL_PROVIDER_PAGE_REQUIRED',
     (error) => {
       assert.equal(error.condition, 'provider-page-required')
       assert.equal(error.modelName, 'chatgptFree35')
@@ -552,4 +552,273 @@ test('prompt answer token and config values never appear in injected logger entr
   assert.equal(serializedLogs.includes('777'), false)
   assert.equal(serializedLogs.includes('sk-sensitive-config'), false)
   assert.equal(serializedLogs.includes('maxResponseTokenLength'), false)
+})
+
+test('aborting during an async credential getter rejects promptly and prevents provider dispatch', async () => {
+  const controller = new AbortController()
+  let providerDispatched = false
+  let credentialStarted = false
+  const dispatcher = createModelTextDispatcher(
+    createBaseDependencies({
+      getUserConfig: async () => ({ modelName: 'chatgptFree35', chatgptTabId: null }),
+      getChatGptAccessToken: async () => {
+        credentialStarted = true
+        await new Promise(() => {})
+      },
+      generateAnswersWithChatgptWebApi: async () => {
+        providerDispatched = true
+      },
+    }),
+  )
+
+  const result = dispatcher.generateText({
+    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
+    messages: [{ role: 'user', content: 'secret prompt during credential wait' }],
+    maxOutputTokens: 1,
+    signal: controller.signal,
+  })
+
+  while (!credentialStarted) await new Promise((resolve) => setTimeout(resolve, 0))
+  controller.abort()
+
+  await assertRejectsWithCode(result, 'MODEL_GATEWAY_ABORTED')
+  assert.equal(providerDispatched, false)
+})
+
+test('aborting before credential getter resolves prevents direct provider dispatch', async () => {
+  const controller = new AbortController()
+  let resolveCredential
+  let providerDispatched = false
+  const dispatcher = createModelTextDispatcher(
+    createBaseDependencies({
+      getUserConfig: async () => ({ modelName: 'chatgptFree35', chatgptTabId: null }),
+      getChatGptAccessToken: async () => {
+        await new Promise((resolve) => {
+          resolveCredential = resolve
+        })
+        return 'late-token'
+      },
+      generateAnswersWithChatgptWebApi: async () => {
+        providerDispatched = true
+      },
+    }),
+  )
+
+  const result = dispatcher.generateText({
+    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
+    messages: [{ role: 'user', content: 'secret late credential prompt' }],
+    maxOutputTokens: 1,
+    signal: controller.signal,
+  })
+
+  while (!resolveCredential) await new Promise((resolve) => setTimeout(resolve, 0))
+  controller.abort()
+  resolveCredential()
+
+  await assertRejectsWithCode(result, 'MODEL_GATEWAY_ABORTED')
+  assert.equal(providerDispatched, false)
+})
+
+test('ChatGPT page proxy uses Task 6 request-scoped contract and aborts promptly', async () => {
+  const controller = new AbortController()
+  let capturedRequest
+  let proxySignalAborted = false
+  const dispatcher = createModelTextDispatcher(
+    createBaseDependencies({
+      getUserConfig: async () => ({ modelName: 'chatgptFree35', chatgptTabId: 42 }),
+      generateWithChatgptPageProxy: async (request) => {
+        capturedRequest = request
+        request.signal.addEventListener('abort', () => {
+          proxySignalAborted = true
+        })
+        await new Promise(() => {})
+      },
+    }),
+  )
+
+  const result = dispatcher.generateText({
+    requestId: 'req-1',
+    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
+    messages: [{ role: 'user', content: 'page proxy prompt' }],
+    maxOutputTokens: 55,
+    signal: controller.signal,
+  })
+
+  while (!capturedRequest) await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(capturedRequest.requestId, 'req-1')
+  assert.equal(capturedRequest.signal, controller.signal)
+  assert.equal(capturedRequest.port, undefined)
+  assert.equal(capturedRequest.tabId, undefined)
+  assert.equal(capturedRequest.session.modelName, 'chatgptFree35')
+  assert.equal(capturedRequest.session.question, '<user>\npage proxy prompt')
+
+  controller.abort()
+
+  await assertRejectsWithCode(result, 'MODEL_GATEWAY_ABORTED')
+  assert.equal(proxySignalAborted, true)
+})
+
+test('ChatGPT page proxy result is returned through request-scoped contract', async () => {
+  let capturedRequest
+  const dispatcher = createModelTextDispatcher(
+    createBaseDependencies({
+      getUserConfig: async () => ({ modelName: 'chatgptFree35', chatgptTabId: 42 }),
+      generateWithChatgptPageProxy: async (request) => {
+        capturedRequest = request
+        return { text: 'page proxy final', finishReason: 'stop' }
+      },
+    }),
+  )
+
+  const result = await dispatcher.generateText({
+    requestId: 'req-2',
+    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
+    messages: [{ role: 'user', content: 'page proxy success' }],
+    maxOutputTokens: 55,
+    signal: new AbortController().signal,
+  })
+
+  assert.equal(capturedRequest.requestId, 'req-2')
+  assert.deepEqual(result, { text: 'page proxy final', finishReason: 'stop' })
+})
+
+test('provider error text is preserved only in trusted background state', async () => {
+  const entries = []
+  const humanMessage = 'Translated provider message with secret prompt fragment'
+  const dispatcher = createModelTextDispatcher(
+    createBaseDependencies({
+      getUserConfig: async () => ({
+        modelName: 'moonshotWebFree',
+        kimiMoonShotRefreshToken: 'kimi-refresh',
+      }),
+      generateAnswersWithMoonshotWebApi: async (port) => {
+        port.postMessage({ error: humanMessage })
+      },
+      logger: createLogger(entries),
+    }),
+  )
+
+  await assert.rejects(
+    dispatcher.generateText({
+      modelSnapshot: { modelName: 'moonshotWebFree', apiMode: null },
+      messages: [{ role: 'user', content: 'secret prompt fragment' }],
+      maxOutputTokens: 1,
+      signal: new AbortController().signal,
+    }),
+    (error) => {
+      assert.equal(error.message, 'MODEL_GATEWAY_PROVIDER_ERROR')
+      assert.equal(error.code, 'MODEL_GATEWAY_PROVIDER_ERROR')
+      assert.equal(error.trustedHumanMessage, humanMessage)
+      assert.equal(Object.keys(error).includes('trustedHumanMessage'), false)
+      assert.equal(JSON.stringify(error).includes(humanMessage), false)
+      return true
+    },
+  )
+  assert.equal(JSON.stringify(entries).includes(humanMessage), false)
+  assert.equal(JSON.stringify(entries).includes('secret prompt fragment'), false)
+})
+
+test('isolated direct-web adapter calls suppress raw console output and restore console afterwards', async () => {
+  const consoleMessages = []
+  const originalDebug = console.debug
+  console.debug = (...args) => {
+    consoleMessages.push(args.join(' '))
+  }
+  const dispatcher = createModelTextDispatcher(
+    createBaseDependencies({
+      getUserConfig: async () => ({ modelName: 'chatgptFree35', chatgptTabId: null }),
+      generateAnswersWithChatgptWebApi: async (port, question, session, accessToken, config) => {
+        console.debug('raw adapter prompt', question, accessToken, config.apiKey)
+        port.postMessage({ answer: 'direct web answer', done: true })
+      },
+    }),
+  )
+
+  await dispatcher.generateText({
+    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
+    messages: [{ role: 'user', content: 'secret console prompt' }],
+    maxOutputTokens: 1,
+    signal: new AbortController().signal,
+  })
+  console.debug('after dispatcher restored')
+
+  assert.equal(
+    consoleMessages.some((message) => message.includes('raw adapter prompt')),
+    false,
+  )
+  assert.equal(
+    consoleMessages.some((message) => message.includes('secret console prompt')),
+    false,
+  )
+  assert.equal(
+    consoleMessages.some((message) => message.includes('chatgpt-token')),
+    false,
+  )
+  assert.equal(
+    consoleMessages.some((message) => message.includes('after dispatcher restored')),
+    true,
+  )
+  console.debug = originalDebug
+})
+
+test('overlapping isolated direct-web suppression restores console once all calls finish', async () => {
+  const consoleMessages = []
+  const originalDebug = console.debug
+  console.debug = (...args) => {
+    consoleMessages.push(args.join(' '))
+  }
+  const releases = []
+  const dispatcher = createModelTextDispatcher(
+    createBaseDependencies({
+      getUserConfig: async () => ({ modelName: 'chatgptFree35', chatgptTabId: null }),
+      generateAnswersWithChatgptWebApi: async (port, question) => {
+        console.debug('raw overlapping prompt', question)
+        await new Promise((resolve) => releases.push(resolve))
+        port.postMessage({ answer: question, done: true })
+      },
+    }),
+  )
+
+  const first = dispatcher.generateText({
+    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
+    messages: [{ role: 'user', content: 'first overlapping secret' }],
+    maxOutputTokens: 1,
+    signal: new AbortController().signal,
+  })
+  const second = dispatcher.generateText({
+    modelSnapshot: { modelName: 'chatgptFree35', apiMode: null },
+    messages: [{ role: 'user', content: 'second overlapping secret' }],
+    maxOutputTokens: 1,
+    signal: new AbortController().signal,
+  })
+
+  while (releases.length < 2) await new Promise((resolve) => setTimeout(resolve, 0))
+  releases[0]()
+  await first
+  console.debug('between overlapping calls')
+  releases[1]()
+  await second
+  console.debug('after overlapping calls')
+
+  assert.equal(
+    consoleMessages.some((message) => message.includes('raw overlapping prompt')),
+    false,
+  )
+  assert.equal(
+    consoleMessages.some((message) => message.includes('first overlapping secret')),
+    false,
+  )
+  assert.equal(
+    consoleMessages.some((message) => message.includes('second overlapping secret')),
+    false,
+  )
+  assert.equal(
+    consoleMessages.some((message) => message.includes('between overlapping calls')),
+    false,
+  )
+  assert.equal(
+    consoleMessages.some((message) => message.includes('after overlapping calls')),
+    true,
+  )
+  console.debug = originalDebug
 })
