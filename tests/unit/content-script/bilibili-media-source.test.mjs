@@ -10,6 +10,7 @@ import {
   resolveBilibiliSelectedPageMetadata,
   selectPreferredBilibiliSubtitleTrack,
 } from '../../../src/content-script/site-adapters/bilibili/media-source.mjs'
+import { resolveBilibiliSourceSnapshot } from '../../../src/content-script/site-adapters/bilibili/video-page-bridge.mjs'
 
 const videoUrl = 'https://video.example.invalid/video/BVTESTCASE01'
 const multipartVideoUrl = 'https://video.example.invalid/video/BVTESTCASE01?p=2'
@@ -39,6 +40,7 @@ const initialState = {
     bvid: 'BVTESTCASE01',
     cid: 111001,
     duration: 600,
+    owner: { mid: 297242063 },
     pages: [
       { page: 1, cid: 111001, duration: 600, part: 'P1' },
       { page: 2, cid: 222002, duration: 321, part: 'P2' },
@@ -231,7 +233,25 @@ test('resolveBilibiliSelectedPageMetadata uses the selected multipart page cid a
       pageNumber: 2,
       bvid: 'BVTESTCASE01',
       cid: 222002,
+      upMid: 297242063,
       durationMs: 321000,
+    },
+  )
+})
+
+test('resolveBilibiliSelectedPageMetadata returns uploader mid when available', () => {
+  assert.deepEqual(
+    resolveBilibiliSelectedPageMetadata({
+      url: videoUrl,
+      initialState,
+    }),
+    {
+      videoId: 'BVTESTCASE01',
+      pageNumber: 1,
+      bvid: 'BVTESTCASE01',
+      cid: 111001,
+      upMid: 297242063,
+      durationMs: 600000,
     },
   )
 })
@@ -348,4 +368,71 @@ test('normalizes conclusion AI subtitle groups and removes invalid duplicate cue
 
 test('returns no conclusion track when no usable AI subtitle cue exists', () => {
   assert.deepEqual(normalizeBilibiliAiConclusion({ code: 0, data: { model_result: {} } }), [])
+})
+
+test('source snapshot skips AI conclusion when a player subtitle is usable', async () => {
+  let conclusionCalls = 0
+  const snapshot = await resolveBilibiliSourceSnapshot({
+    url: videoUrl,
+    html: `<script>window.__INITIAL_STATE__=${JSON.stringify(initialState)}</script>`,
+    loadPlayurl: async () => ({
+      code: 0,
+      data: {
+        ...playInfo.data,
+        bvid: 'BVTESTCASE01',
+        cid: 111001,
+      },
+    }),
+    loadPlayerInfo: async () => ({
+      data: {
+        subtitle: {
+          subtitles: [{ id: 1, lan: 'zh-CN', lan_doc: '中文', ai_type: 0, subtitle_url: '//sub/1' }],
+        },
+      },
+    }),
+    loadSubtitleBody: async () => ({ body: [{ from: 0, to: 1, content: '作者字幕' }] }),
+    loadAiConclusion: async () => {
+      conclusionCalls += 1
+      return { status: 'available', tracks: [] }
+    },
+  })
+
+  assert.equal(conclusionCalls, 0)
+  assert.equal(snapshot.subtitleDiscovery.conclusionStatus, 'not-needed')
+  assert.equal(snapshot.nativeSubtitleTracks[0].sourceKind, 'author')
+})
+
+test('source snapshot falls back to normalized conclusion AI subtitles', async () => {
+  const snapshot = await resolveBilibiliSourceSnapshot({
+    url: videoUrl,
+    html: `<script>window.__INITIAL_STATE__=${JSON.stringify(initialState)}</script>`,
+    loadPlayurl: async () => ({
+      code: 0,
+      data: {
+        ...playInfo.data,
+        bvid: 'BVTESTCASE01',
+        cid: 111001,
+      },
+    }),
+    loadPlayerInfo: async () => ({ data: { subtitle: { subtitles: [] } } }),
+    loadSubtitleBody: async () => assert.fail('no player body should be loaded'),
+    loadAiConclusion: async ({ bvid, cid, upMid }) => {
+      assert.deepEqual({ bvid, cid, upMid }, { bvid: 'BVTESTCASE01', cid: 111001, upMid: 297242063 })
+      return {
+        status: 'available',
+        tracks: [
+          {
+            id: 'bilibili-ai-conclusion',
+            language: 'zh-CN',
+            label: 'Bilibili AI subtitles',
+            sourceKind: 'bilibili-ai',
+            cues: [{ startMs: 0, endMs: 1000, text: 'AI 字幕' }],
+          },
+        ],
+      }
+    },
+  })
+
+  assert.equal(snapshot.subtitleDiscovery.conclusionStatus, 'available')
+  assert.equal(snapshot.nativeSubtitleTracks[0].id, 'bilibili-ai-conclusion')
 })

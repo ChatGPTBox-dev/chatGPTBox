@@ -167,6 +167,7 @@ export function resolveBilibiliSelectedPageMetadata({ url, initialState }) {
     pageNumber: identity.pageNumber,
     bvid,
     cid,
+    upMid: parsePositiveInteger(videoData?.owner?.mid),
     durationMs: durationToMs(selectedPage?.duration ?? videoData.duration),
   }
 }

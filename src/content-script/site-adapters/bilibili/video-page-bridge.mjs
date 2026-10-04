@@ -2,10 +2,12 @@ import {
   assertBilibiliPlayurlResponse,
   extractBilibiliInitialState,
   getBilibiliVideoIdentity,
+  normalizeBilibiliAiConclusion,
   normalizeBilibiliAudioCandidates,
   normalizeSubtitleTracks,
   resolveBilibiliSelectedPageMetadata,
 } from './media-source.mjs'
+import { deriveBilibiliWbiMixinKey, signBilibiliWbiParams } from './wbi-signature.mjs'
 
 function createPlayurlEndpoint({ bvid, cid }) {
   const endpoint = new URL('https://api.bilibili.com/x/player/playurl')
@@ -24,12 +26,21 @@ function createPlayerInfoEndpoint({ bvid, cid }) {
   return endpoint
 }
 
+function createNavEndpoint() {
+  return new URL('https://api.bilibili.com/x/web-interface/nav')
+}
+
+function createConclusionEndpoint(query) {
+  return new URL(`https://api.bilibili.com/x/web-interface/view/conclusion/get?${query}`)
+}
+
 export async function resolveBilibiliSourceSnapshot({
   url,
   html,
   loadPlayurl,
   loadPlayerInfo,
   loadSubtitleBody,
+  loadAiConclusion,
 }) {
   const initialState = extractBilibiliInitialState(html)
   const pageMetadata = resolveBilibiliSelectedPageMetadata({ url, initialState })
@@ -39,6 +50,14 @@ export async function resolveBilibiliSourceSnapshot({
   if (mediaCandidates.length === 0) throw new Error('BILIBILI_PLAYURL_AUDIO_NOT_FOUND')
   const playerInfo =
     typeof loadPlayerInfo === 'function' ? await loadPlayerInfo(pageMetadata) : playInfo
+  const playerSubtitleTracks = await normalizeSubtitleTracks(playerInfo, loadSubtitleBody)
+  let conclusionResult = { status: 'not-needed', tracks: [] }
+  if (playerSubtitleTracks.length === 0 && typeof loadAiConclusion === 'function') {
+    conclusionResult = await loadAiConclusion(pageMetadata).catch(() => ({
+      status: 'unavailable',
+      tracks: [],
+    }))
+  }
 
   return {
     platform: 'bilibili',
@@ -46,7 +65,11 @@ export async function resolveBilibiliSourceSnapshot({
     pageId: String(pageMetadata.cid),
     title: String(initialState?.videoData?.title || ''),
     durationMs: pageMetadata.durationMs,
-    nativeSubtitleTracks: await normalizeSubtitleTracks(playerInfo, loadSubtitleBody),
+    nativeSubtitleTracks:
+      playerSubtitleTracks.length > 0 ? playerSubtitleTracks : conclusionResult.tracks || [],
+    subtitleDiscovery: {
+      conclusionStatus: playerSubtitleTracks.length > 0 ? 'not-needed' : conclusionResult.status,
+    },
     mediaCandidates,
   }
 }
@@ -61,10 +84,13 @@ export function createBilibiliVideoPageBridge({
   fetchImpl = fetch,
   getLocationHref,
   getVideoElement,
+  now = () => Date.now(),
 }) {
   if (typeof getLocationHref !== 'function') {
     throw new Error('BILIBILI_LOCATION_PROVIDER_REQUIRED')
   }
+
+  let cachedWbiMixinKey = null
 
   const scheduleInterval =
     typeof globalThis?.setInterval === 'function'
@@ -105,6 +131,49 @@ export function createBilibiliVideoPageBridge({
     return response.json()
   }
 
+  const loadWbiMixinKey = async ({ refresh = false } = {}) => {
+    if (cachedWbiMixinKey && !refresh) return cachedWbiMixinKey
+    const response = await fetchImpl(createNavEndpoint(), { credentials: 'include' })
+    if (!response?.ok) throw new Error('BILIBILI_WBI_NAV_HTTP_ERROR')
+    const body = await response.json()
+    if (Number(body?.code) !== 0) throw new Error('BILIBILI_WBI_NAV_API_ERROR')
+    cachedWbiMixinKey = deriveBilibiliWbiMixinKey(body?.data?.wbi_img)
+    return cachedWbiMixinKey
+  }
+
+  const loadAiConclusion = async ({ bvid, cid, upMid }) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const mixinKey = await loadWbiMixinKey({ refresh: attempt > 0 })
+        const query = signBilibiliWbiParams({
+          params: {
+            bvid,
+            cid: String(cid),
+            ...(upMid ? { up_mid: String(upMid) } : {}),
+          },
+          mixinKey,
+          nowSeconds: Math.floor(now() / 1000),
+        })
+        const response = await fetchImpl(createConclusionEndpoint(query), {
+          credentials: 'include',
+        })
+        if (!response?.ok) return { status: 'unavailable', tracks: [] }
+        const body = await response.json()
+        if (Number(body?.code) === -101) return { status: 'login-required', tracks: [] }
+        if (Number(body?.code) === -403 && attempt === 0) {
+          cachedWbiMixinKey = null
+          continue
+        }
+        if (Number(body?.code) !== 0) return { status: 'unavailable', tracks: [] }
+        const tracks = normalizeBilibiliAiConclusion(body)
+        return { status: tracks.length > 0 ? 'available' : 'not-found', tracks }
+      } catch {
+        return { status: 'unavailable', tracks: [] }
+      }
+    }
+    return { status: 'unavailable', tracks: [] }
+  }
+
   const getSnapshot = async () => {
     const href = getLocationHref()
     const html = await loadHtml(href)
@@ -114,6 +183,7 @@ export function createBilibiliVideoPageBridge({
       loadPlayurl,
       loadPlayerInfo,
       loadSubtitleBody,
+      loadAiConclusion,
     })
   }
 
