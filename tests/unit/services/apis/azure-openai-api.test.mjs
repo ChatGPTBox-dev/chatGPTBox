@@ -291,6 +291,46 @@ test('azure-openai: throws on error response with JSON body', async (t) => {
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })
 
+test('azure-openai: isolated diagnostics do not emit raw SSE or console output', async (t) => {
+  const consoleMessages = []
+  t.mock.method(console, 'debug', (...args) => consoleMessages.push(args.join(' ')))
+  const config = {
+    azureEndpoint: 'https://myinstance.openai.azure.com',
+    azureApiKey: 'az-key',
+    azureDeploymentName: 'gpt-4o',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 128,
+  }
+  setStorage(config)
+  const diagnostics = []
+  const session = {
+    modelName: 'azureOpenAi',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"SECRET_ANSWER"},"finish_reason":"stop"}]}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithAzureOpenaiApi(port, 'SECRET_PROMPT', session, config, {
+    diagnostics: {
+      debug(message, details) {
+        diagnostics.push({ message, details })
+      },
+    },
+  })
+
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_ANSWER'), false)
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_PROMPT'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_ANSWER'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_PROMPT'), false)
+  assert.equal(diagnostics.length > 0, true)
+})
+
 test('azure-openai: uses an isolated config override instead of stored defaults', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({

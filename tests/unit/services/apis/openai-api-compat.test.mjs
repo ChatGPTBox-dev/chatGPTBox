@@ -64,6 +64,54 @@ beforeEach(() => {
   globalThis.__TEST_BROWSER_SHIM__.clearStorage()
 })
 
+test('openai-compatible: isolated diagnostics do not emit raw parse errors through console', async (t) => {
+  const consoleMessages = []
+  t.mock.method(console, 'debug', (...args) => consoleMessages.push(args.join(' ')))
+  setStorage({
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+    providerSecrets: { openai: 'sk-test' },
+  })
+  const session = {
+    modelName: 'chatgptApi4oMini',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  const diagnostics = []
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: not-json-SECRET_PROMPT\n\n',
+      'data: {"choices":[{"delta":{"content":"SECRET_ANSWER"},"finish_reason":"stop"}]}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithOpenAICompatibleApi(
+    port,
+    'SECRET_PROMPT',
+    session,
+    {
+      maxConversationContextLength: 3,
+      maxResponseTokenLength: 256,
+      providerSecrets: { openai: 'sk-test' },
+    },
+    {
+      diagnostics: {
+        debug(message, details) {
+          diagnostics.push({ message, details })
+        },
+      },
+    },
+  )
+
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_PROMPT'), false)
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_ANSWER'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_PROMPT'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_ANSWER'), false)
+  assert.equal(diagnostics.length > 0, true)
+})
+
 test('generateAnswersWithOpenAiApiCompat sends expected request and aggregates SSE deltas', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({

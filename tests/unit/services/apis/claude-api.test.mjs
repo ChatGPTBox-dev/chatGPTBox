@@ -661,6 +661,47 @@ test('claude-api: uses an isolated config override instead of stored defaults', 
   assert.equal(JSON.parse(capturedInit.body).max_tokens, 777)
 })
 
+test('claude-api: isolated diagnostics do not emit raw SSE or console output', async (t) => {
+  const consoleMessages = []
+  t.mock.method(console, 'debug', (...args) => consoleMessages.push(args.join(' ')))
+  const config = {
+    customAnthropicApiUrl: 'https://api.anthropic.com',
+    anthropicApiKey: 'sk-ant-test',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 128,
+  }
+  setStorage(config)
+  const diagnostics = []
+  const session = {
+    modelName: 'claudeSonnet46Api',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"SECRET_ANSWER"}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithClaudeApi(port, 'SECRET_PROMPT', session, config, {
+    diagnostics: {
+      debug(message, details) {
+        diagnostics.push({ message, details })
+      },
+    },
+  })
+
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_ANSWER'), false)
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_PROMPT'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_ANSWER'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_PROMPT'), false)
+  assert.equal(diagnostics.length > 0, true)
+})
+
 test('claude-api: pushRecord on message_stop', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({

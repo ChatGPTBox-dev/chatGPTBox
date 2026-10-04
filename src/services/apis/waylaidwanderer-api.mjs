@@ -1,4 +1,4 @@
-import { pushRecord, setAbortController } from './shared.mjs'
+import { createAdapterDiagnostics, pushRecord, setAbortController } from './shared.mjs'
 import { getUserConfig } from '../../config/index.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
@@ -13,8 +13,10 @@ export async function generateAnswersWithWaylaidwandererApi(
   question,
   session,
   configOverride,
+  adapterOptions,
 ) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
+  const diagnostics = createAdapterDiagnostics(adapterOptions)
 
   const config = configOverride || (await getUserConfig())
 
@@ -40,10 +42,10 @@ export async function generateAnswersWithWaylaidwandererApi(
       }),
     }),
     onMessage(message) {
-      console.debug('sse message', message)
+      diagnostics.debug('sse message', message)
       if (message.trim() === '[DONE]') {
         pushRecord(session, question, answer)
-        console.debug('conversation history', { content: session.conversationRecords })
+        diagnostics.debug('conversation history', { content: session.conversationRecords })
         port.postMessage({ answer: null, done: true, session: session })
         return
       }
@@ -51,7 +53,7 @@ export async function generateAnswersWithWaylaidwandererApi(
       try {
         data = JSON.parse(message)
       } catch (error) {
-        console.debug('json error', error)
+        diagnostics.debug('json error', error)
         return
       }
       if (data.conversationId) session.conversationId = data.conversationId

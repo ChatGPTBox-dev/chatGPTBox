@@ -3,7 +3,7 @@
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getUserConfig, Models } from '../../config/index.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import { createAdapterDiagnostics, pushRecord, setAbortController } from './shared.mjs'
 import Browser from 'webextension-polyfill'
 import { v4 as uuidv4 } from 'uuid'
 import { t } from 'i18next'
@@ -217,7 +217,9 @@ export async function generateAnswersWithChatgptWebApi(
   session,
   accessToken,
   configOverride,
+  adapterOptions,
 ) {
+  const diagnostics = createAdapterDiagnostics(adapterOptions)
   let wsCallback
   let cleanController = () => {}
   const removeWebsocketCallback = () => {
@@ -227,8 +229,8 @@ export async function generateAnswersWithChatgptWebApi(
   }
   const stopWebsocketRequest = (conversationId, wsRequestId) => {
     if (!wsRequestId) return
-    stopWebsocketConversation(accessToken, conversationId, wsRequestId).catch((error) => {
-      console.warn('[chatgpt-web] Failed to stop WebSocket conversation:', error)
+    stopWebsocketConversation(accessToken, conversationId, wsRequestId).catch(() => {
+      diagnostics.warn('[chatgpt-web] Failed to stop WebSocket conversation')
     })
   }
   const abortControllerState = setAbortController(
@@ -257,11 +259,11 @@ export async function generateAnswersWithChatgptWebApi(
     }),
     isNeedWebsocket(accessToken).catch(() => undefined),
   ])
-  console.debug('models', models)
+  diagnostics.debug('models')
   const selectedModel = getModelValue(session)
   const usedModel =
     models && models.includes(selectedModel) ? selectedModel : Models.chatgptFree35.value
-  console.debug('usedModel', usedModel)
+  diagnostics.debug('usedModel')
   const needArkoseToken = requirements && requirements.arkose?.required
   if (arkoseError && needArkoseToken) throw arkoseError
 
@@ -358,7 +360,7 @@ export async function generateAnswersWithChatgptWebApi(
       try {
         wsData = JSON.parse(event.data)
       } catch (error) {
-        console.debug('json error', error)
+        diagnostics.debug('json error')
         return
       }
       if (wsData.type === 'http.response.body') {
@@ -366,18 +368,18 @@ export async function generateAnswersWithChatgptWebApi(
         try {
           body = atob(wsData.body).replace(/^data:/, '')
           const data = JSON.parse(body)
-          console.debug('ws message', data)
+          diagnostics.debug('ws message')
           if (wsData.conversation_id === session.conversationId) {
             handleMessage(data)
           }
         } catch (error) {
           if (body && body.trim() === '[DONE]') {
-            console.debug('ws message', '[DONE]')
+            diagnostics.debug('ws message done')
             if (wsData.conversation_id === session.conversationId) {
               finishMessage()
             }
           } else {
-            console.debug('json error', error)
+            diagnostics.debug('json error')
           }
         }
       }
@@ -405,7 +407,7 @@ export async function generateAnswersWithChatgptWebApi(
       await fetchSSE(url, {
         ...options,
         onMessage(message) {
-          console.debug('sse message', message)
+          diagnostics.debug('sse message')
           if (message.trim() === '[DONE]') {
             finishMessage()
             return
@@ -414,7 +416,7 @@ export async function generateAnswersWithChatgptWebApi(
           try {
             data = JSON.parse(message)
           } catch (error) {
-            console.debug('json error', error)
+            diagnostics.debug('json error')
             return
           }
           handleMessage(data)
@@ -500,7 +502,7 @@ export async function generateAnswersWithChatgptWebApi(
     cleanController()
     if (controller.signal.aborted) return
     pushRecord(session, question, answer)
-    console.debug('conversation history', { content: session.conversationRecords })
+    diagnostics.debug('conversation history')
     port.postMessage({ answer: answer, done: true, session: session })
   }
 }

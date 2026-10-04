@@ -1,7 +1,12 @@
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
-import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
+import {
+  createAdapterDiagnostics,
+  getCompletionPromptBase,
+  pushRecord,
+  setAbortController,
+} from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
 
@@ -60,7 +65,9 @@ export async function generateAnswersWithOpenAICompatible({
   extraBody = {},
   extraHeaders = {},
   allowLegacyResponseField = false,
+  adapterOptions,
 }) {
+  const diagnostics = createAdapterDiagnostics(adapterOptions)
   const {
     controller,
     messageListener,
@@ -138,7 +145,7 @@ export async function generateAnswersWithOpenAICompatible({
       try {
         data = JSON.parse(message)
       } catch (error) {
-        console.debug('json error', error)
+        diagnostics.debug('json error', error)
         return
       }
 
@@ -167,7 +174,7 @@ export async function generateAnswersWithOpenAICompatible({
                   ...(stoppedGenerationId === undefined ? {} : { stoppedGenerationId }),
                 })
               } catch (e) {
-                console.warn('[openai-compatible-core] Failed to post session on abort:', e)
+                diagnostics.warn('[openai-compatible-core] Failed to post session on abort')
               }
             }
           } else {
