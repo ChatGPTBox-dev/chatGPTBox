@@ -270,7 +270,12 @@ test('model generation RPC replaces unsafe condition and model name metadata wit
 })
 
 test('task events and source refresh requests cross the offscreen port with correlated responses', async () => {
-  const owner = createVideoSummaryOwner({ tabId: 7, documentId: 'doc-7', videoId: 'BV7test' })
+  const owner = createVideoSummaryOwner({
+    tabId: 7,
+    documentId: 'doc-7',
+    platform: 'bilibili',
+    videoId: 'BV7test',
+  })
   const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
   const taskEvents = []
   const refreshCalls = []
@@ -339,8 +344,65 @@ test('task events and source refresh requests cross the offscreen port with corr
   })
 })
 
+test('source refresh correlations include platform ownership', () => {
+  const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
+  const rpc = createVideoSummaryOffscreenRpc({
+    mediaKitGateway: {},
+    modelGateway: {},
+    logger: createLogger(),
+  })
+  const bilibiliOwner = createVideoSummaryOwner({
+    tabId: 7,
+    documentId: 'doc-7',
+    platform: 'bilibili',
+    videoId: 'same-id',
+  })
+  const youtubeOwner = createVideoSummaryOwner({
+    tabId: 7,
+    documentId: 'doc-7',
+    platform: 'youtube',
+    videoId: 'same-id',
+  })
+
+  rpc.attachPort(port)
+  port.emitMessage({
+    type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.sourceRefreshRequest,
+    requestId: 'bilibili-refresh',
+    taskId: 'same-task',
+    owner: bilibiliOwner,
+  })
+  port.emitMessage({
+    type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.sourceRefreshRequest,
+    requestId: 'youtube-refresh',
+    taskId: 'same-task',
+    owner: youtubeOwner,
+  })
+  rpc.postCommand({
+    type: 'SOURCE_REFRESH_RESULT',
+    taskId: 'same-task',
+    owner: bilibiliOwner,
+    sourceSnapshot: { platform: 'bilibili', videoId: 'same-id' },
+  })
+  rpc.postCommand({
+    type: 'SOURCE_REFRESH_RESULT',
+    taskId: 'same-task',
+    owner: youtubeOwner,
+    sourceSnapshot: { platform: 'youtube', videoId: 'same-id' },
+  })
+
+  assert.deepEqual(
+    port.postedMessages.map(({ requestId }) => requestId),
+    ['bilibili-refresh', 'youtube-refresh'],
+  )
+})
+
 test('disconnect removes listeners and forgets pending source refresh correlations', async () => {
-  const owner = createVideoSummaryOwner({ tabId: 8, documentId: 'doc-8', videoId: 'BV8test' })
+  const owner = createVideoSummaryOwner({
+    tabId: 8,
+    documentId: 'doc-8',
+    platform: 'bilibili',
+    videoId: 'BV8test',
+  })
   const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
   const rpc = createVideoSummaryOffscreenRpc({
     mediaKitGateway: {},

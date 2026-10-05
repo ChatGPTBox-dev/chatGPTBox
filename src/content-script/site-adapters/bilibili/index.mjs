@@ -1,8 +1,8 @@
 import { cropText, waitForElementToExistAndSelect } from '../../../utils'
 import { config } from '../index.mjs'
-import { isBilibiliVideoTranscriptionEnabled } from '../../../video-summary/capabilities.mjs'
+import { isVideoSummaryEnabled } from '../../../video-summary/capabilities.mjs'
+import { mountVideoSummaryHost } from '../../video-summary-host.mjs'
 import { createBilibiliVideoPageBridge } from './video-page-bridge.mjs'
-import { mountBilibiliVideoSummaryHost } from './video-summary-host.mjs'
 
 export default {
   init: async (hostname, userConfig, getInput, mountComponent) => {
@@ -11,14 +11,15 @@ export default {
       // B站页面是SSR的，如果插入过早，页面 js 检测到实际 Dom 和期望 Dom 不一致，会导致重新渲染
       await waitForElementToExistAndSelect('img.bili-avatar-img')
 
-      if (isBilibiliVideoTranscriptionEnabled(userConfig)) {
+      if (isVideoSummaryEnabled(userConfig)) {
         let host = null
         const createHost = () => {
           const targetElement = document.querySelector('#danmukuBox')
           if (!targetElement) return
 
           host?.dispose()
-          host = mountBilibiliVideoSummaryHost({
+          host = mountVideoSummaryHost({
+            platform: 'bilibili',
             bridge: createBilibiliVideoPageBridge({
               getLocationHref: () => location.href,
               getVideoElement: () => document.querySelector('video'),
@@ -39,10 +40,7 @@ export default {
             return
           }
 
-          if (
-            host &&
-            document.body.contains(document.querySelector('.bilibili-video-summary-host'))
-          ) {
+          if (host && document.body.contains(document.querySelector('.video-summary-host'))) {
             return
           }
           createHost()

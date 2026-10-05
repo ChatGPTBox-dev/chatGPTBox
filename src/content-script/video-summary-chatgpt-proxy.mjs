@@ -1,4 +1,4 @@
-export const VIDEO_SUMMARY_CHATGPT_PROXY_PORT_PREFIX = 'bilibili-video-summary-chatgpt-proxy:'
+export const VIDEO_SUMMARY_CHATGPT_PROXY_PORT_PREFIX = 'video-summary-chatgpt-proxy:'
 
 function createListenerSet() {
   const listeners = new Set()

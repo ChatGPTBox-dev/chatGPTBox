@@ -39,9 +39,9 @@ function hasOwnProperty(object, property) {
 }
 
 function createRefreshKey({ owner, taskId }) {
-  return `${owner?.tabId ?? 'tab'}:${owner?.documentId ?? 'doc'}:${owner?.videoId ?? 'video'}:${
-    taskId ?? 'task'
-  }`
+  return `${owner?.tabId ?? 'tab'}:${owner?.documentId ?? 'doc'}:${owner?.platform ?? 'platform'}:${
+    owner?.videoId ?? 'video'
+  }:${taskId ?? 'task'}`
 }
 
 function serializeGatewayResult(result, operation) {

@@ -1,4 +1,4 @@
-const PORT_PREFIX = 'bilibili-video-summary-chatgpt-proxy:'
+const PORT_PREFIX = 'video-summary-chatgpt-proxy:'
 
 function createError(code, { condition, modelName } = {}) {
   const error = new Error(code)

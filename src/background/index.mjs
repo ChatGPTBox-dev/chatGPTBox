@@ -73,9 +73,13 @@ import {
   ensureVideoSummaryOffscreenDocument,
 } from './offscreen.mjs'
 import { createVideoSummaryRouter } from './video-summary-router.mjs'
+import { createYouTubePageDataReader, createYouTubePageDataResponse } from './youtube-page-data.mjs'
 
 const EXTENSION_URL_PREFIX = Browser.runtime.getURL('')
 const POPUP_PAGE_URL = Browser.runtime.getURL('popup.html')
+const readYouTubePageData = createYouTubePageDataReader({
+  executeScript: (details) => globalThis.chrome.scripting.executeScript(details),
+})
 const videoSummaryLogger = {
   info(entry) {
     console.info('[background]', entry)
@@ -890,6 +894,28 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         }
         break
       }
+      case 'YOUTUBE_PAGE_PLAYER_RESPONSE':
+        return createYouTubePageDataResponse(
+          () =>
+            readYouTubePageData({
+              sender,
+              expectedVideoId: message.data?.expectedVideoId,
+            }),
+          'player-response',
+        )
+      case 'YOUTUBE_PAGE_CAPTURE_CAPTION':
+        return createYouTubePageDataResponse(
+          () =>
+            readYouTubePageData.captureCaption({
+              sender,
+              expectedVideoId: message.data?.expectedVideoId,
+              language: message.data?.language,
+              sourceKind: message.data?.sourceKind,
+              vssId: message.data?.vssId,
+              mode: message.data?.mode,
+            }),
+          'caption-request',
+        )
       case 'VIDEO_SUMMARY_MEDIAKIT_KEY_STATE': {
         if (!isPopupSender(sender)) {
           console.warn(

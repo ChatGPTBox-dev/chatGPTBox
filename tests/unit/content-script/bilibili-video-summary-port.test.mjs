@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createVideoSummaryPortClient } from '../../../src/content-script/site-adapters/bilibili/video-summary-port.mjs'
+import { createVideoSummaryPortClient } from '../../../src/content-script/video-summary-port.mjs'
 
 const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -54,13 +54,14 @@ test('port client sends serializable START_TASK and ignores stale task events', 
   const events = []
   const refreshSnapshotCalls = []
   const client = createVideoSummaryPortClient({
+    platform: 'bilibili',
     videoId: 'BV1test',
     pageBridge: {
       async getSnapshot() {
         return { videoId: 'BV1test' }
       },
-      async refreshSnapshot({ expectedVideoId }) {
-        refreshSnapshotCalls.push(expectedVideoId)
+      async refreshSnapshot({ expectedPlatform, expectedVideoId }) {
+        refreshSnapshotCalls.push({ expectedPlatform, expectedVideoId })
         return { videoId: expectedVideoId, mediaCandidates: [{ id: 'fresh' }] }
       },
       seekTo() {},
@@ -79,6 +80,7 @@ test('port client sends serializable START_TASK and ignores stale task events', 
   })
 
   assert.equal(port.outbound[0].type, 'START_TASK')
+  assert.equal(port.outbound[0].platform, 'bilibili')
   assert.equal(port.outbound[0].videoId, 'BV1test')
   assert.equal(port.outbound[0].taskId, taskId)
   assert.equal(port.outbound[0].subtitleTrackId, 'bilibili-ai-conclusion')
@@ -87,40 +89,48 @@ test('port client sends serializable START_TASK and ignores stale task events', 
   port.emitMessage({
     type: 'TASK_STATUS',
     taskId,
-    owner: { tabId: 7, documentId: 'doc-1', videoId: 'BV1test' },
+    owner: { tabId: 7, documentId: 'doc-1', platform: 'bilibili', videoId: 'BV1test' },
     stage: 'transcribing',
   })
   port.emitMessage({
     type: 'TASK_STATUS',
     taskId: 'task-stale',
-    owner: { tabId: 7, documentId: 'doc-1', videoId: 'BV1test' },
+    owner: { tabId: 7, documentId: 'doc-1', platform: 'bilibili', videoId: 'BV1test' },
     stage: 'stale-task',
   })
   port.emitMessage({
     type: 'TASK_STATUS',
     taskId,
-    owner: { tabId: 7, documentId: 'doc-other', videoId: 'BV1test' },
+    owner: {
+      tabId: 7,
+      documentId: 'doc-other',
+      platform: 'bilibili',
+      videoId: 'BV1test',
+    },
     stage: 'stale-owner',
   })
   port.emitMessage({
     type: 'REQUEST_SOURCE_REFRESH',
     taskId,
-    owner: { tabId: 7, documentId: 'doc-1', videoId: 'BV1test' },
+    owner: { tabId: 7, documentId: 'doc-1', platform: 'bilibili', videoId: 'BV1test' },
   })
 
   assert.deepEqual(events, [
     {
       type: 'TASK_STATUS',
       taskId,
-      owner: { tabId: 7, documentId: 'doc-1', videoId: 'BV1test' },
+      owner: { tabId: 7, documentId: 'doc-1', platform: 'bilibili', videoId: 'BV1test' },
       stage: 'transcribing',
     },
   ])
-  assert.deepEqual(refreshSnapshotCalls, ['BV1test'])
+  assert.deepEqual(refreshSnapshotCalls, [
+    { expectedPlatform: 'bilibili', expectedVideoId: 'BV1test' },
+  ])
   await nextTask()
   assert.deepEqual(port.outbound.at(-1), {
     type: 'SOURCE_REFRESH_RESULT',
     taskId,
+    platform: 'bilibili',
     videoId: 'BV1test',
     sourceSnapshot: { videoId: 'BV1test', mediaCandidates: [{ id: 'fresh' }] },
   })
@@ -129,6 +139,7 @@ test('port client sends serializable START_TASK and ignores stale task events', 
 test('port client reattaches, retries, cancels, and disposes the active task', async () => {
   const port = createPort()
   const client = createVideoSummaryPortClient({
+    platform: 'bilibili',
     videoId: 'BV9test',
     pageBridge: {
       async getSnapshot() {
@@ -145,9 +156,15 @@ test('port client reattaches, retries, cancels, and disposes the active task', a
   client.dispose()
 
   assert.deepEqual(port.outbound, [
-    { type: 'ATTACH_TASK', taskId: 'task-9', videoId: 'BV9test' },
-    { type: 'RETRY_TASK', taskId: 'task-9', videoId: 'BV9test', fromStage: 'synthesis' },
-    { type: 'CANCEL_TASK', taskId: 'task-9', videoId: 'BV9test' },
+    { type: 'ATTACH_TASK', taskId: 'task-9', platform: 'bilibili', videoId: 'BV9test' },
+    {
+      type: 'RETRY_TASK',
+      taskId: 'task-9',
+      platform: 'bilibili',
+      videoId: 'BV9test',
+      fromStage: 'synthesis',
+    },
+    { type: 'CANCEL_TASK', taskId: 'task-9', platform: 'bilibili', videoId: 'BV9test' },
   ])
   assert.equal(port.disconnectCalled, true)
 })

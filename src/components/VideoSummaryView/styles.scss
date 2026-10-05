@@ -1,0 +1,132 @@
+.video-summary-host {
+  margin: 12px 0;
+  width: var(--video-summary-width, 100%);
+}
+
+.video-pod-above-modules__inner:has(.video-summary-host),
+.video-pod-above-modules:has(.video-summary-host) {
+  overflow: visible !important;
+}
+
+.video-summary-view {
+  border: 1px solid #d9e2f5;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+  color: #17324d;
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.video-summary-view__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-summary-view__header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.video-summary-view__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #4e6680;
+}
+
+.video-summary-view__choices,
+.video-summary-view__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.video-summary-view__choices label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.video-summary-view select,
+.video-summary-view button {
+  border: 1px solid #8aa8d1;
+  border-radius: 999px;
+  background: #fff;
+  color: #17324d;
+  font: inherit;
+  padding: 6px 12px;
+}
+
+.video-summary-view button {
+  cursor: pointer;
+}
+
+.video-summary-view button.is-selected {
+  background: #17324d;
+  border-color: #17324d;
+  color: #fff;
+}
+
+.video-summary-view button:disabled,
+.video-summary-view select:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.video-summary-view__subtitle-notice {
+  margin: 8px 0 0;
+  color: #4e6680;
+}
+
+.video-summary-view__confirm {
+  margin-top: 12px;
+  border-radius: 10px;
+  background: #fff4e8;
+  color: #7a4200;
+  padding: 12px;
+}
+
+.video-summary-view__confirm p {
+  margin: 0;
+}
+
+.video-summary-view__warnings,
+.video-summary-view__error {
+  margin-top: 12px;
+  color: #a3402b;
+}
+
+.video-summary-view ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.video-summary-view li {
+  margin-bottom: 8px;
+}
+
+.video-summary-view details {
+  margin-top: 16px;
+}
+
+.video-summary-view details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.video-summary-view__summary-scroll,
+.video-summary-view__transcript-scroll {
+  max-height: min(50vh, 480px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
+}
+
+.video-summary-view__summary-scroll > details:first-of-type {
+  margin-top: 12px;
+}

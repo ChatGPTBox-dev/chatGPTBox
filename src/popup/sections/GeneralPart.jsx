@@ -43,7 +43,7 @@ import {
   resolveProviderSecretTargetId,
   rollbackProviderSecretOverrideSessionMigration,
 } from './provider-secret-utils.mjs'
-import { buildExportCredentialWarningMessage } from './BilibiliVideoTranscriptionSettings.jsx'
+import { buildExportCredentialWarningMessage } from './VideoSummarySettings.jsx'
 
 GeneralPart.propTypes = {
   config: PropTypes.object.isRequired,

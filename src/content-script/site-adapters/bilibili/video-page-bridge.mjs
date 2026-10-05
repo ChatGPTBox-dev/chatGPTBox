@@ -189,10 +189,11 @@ export function createBilibiliVideoPageBridge({
 
   return {
     getSnapshot,
-    async refreshSnapshot({ expectedVideoId }) {
+    async refreshSnapshot({ expectedPlatform, expectedVideoId }) {
+      if (expectedPlatform !== 'bilibili') throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
       const currentVideoId = getBilibiliVideoIdentity(getLocationHref()).videoId
-      if (expectedVideoId && currentVideoId && expectedVideoId !== currentVideoId) {
-        throw new Error('BILIBILI_VIDEO_IDENTITY_CHANGED')
+      if (expectedVideoId && currentVideoId !== expectedVideoId) {
+        throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
       }
       return getSnapshot()
     },

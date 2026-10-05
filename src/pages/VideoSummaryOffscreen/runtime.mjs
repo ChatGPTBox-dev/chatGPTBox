@@ -4,6 +4,7 @@ import { createVideoTaskRunner } from '../../video-summary/task-runner.mjs'
 import {
   VIDEO_SUMMARY_OFFSCREEN_COMMAND_TYPES,
   VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES,
+  createVideoSummaryOwner,
 } from '../../video-summary/contracts.mjs'
 
 function getLoggerMethod(logger, level) {
@@ -16,6 +17,27 @@ function normalizeId(value) {
 
 function cloneSerializable(value) {
   return structuredClone(value)
+}
+
+function normalizeOwner(owner) {
+  const taskOwner = createVideoSummaryOwner(owner || {})
+  if (
+    !Number.isInteger(taskOwner.tabId) ||
+    !normalizeId(taskOwner.documentId) ||
+    !normalizeId(taskOwner.videoId)
+  ) {
+    throw new Error('VIDEO_SUMMARY_OWNER_INVALID')
+  }
+  return taskOwner
+}
+
+function ownersEqual(left, right) {
+  return (
+    left?.tabId === right?.tabId &&
+    left?.documentId === right?.documentId &&
+    left?.platform === right?.platform &&
+    left?.videoId === right?.videoId
+  )
 }
 
 function sanitizeRpcArgs(args) {
@@ -71,6 +93,7 @@ export function startVideoSummaryOffscreenRuntime({
 }) {
   const pendingGatewayRequests = new Map()
   const pendingSourceRefreshes = new Map()
+  const taskOwners = new Map()
   const logWarn = getLoggerMethod(logger, 'warn')
   const logError = getLoggerMethod(logger, 'error')
   let stopped = false
@@ -169,22 +192,55 @@ export function startVideoSummaryOffscreenRuntime({
       clock,
     })
 
+  function getBoundOwner(message) {
+    const taskId = normalizeId(message?.taskId)
+    if (!taskId) return null
+    let owner
+    try {
+      owner = normalizeOwner(message?.owner)
+    } catch {
+      return null
+    }
+    if (message?.platform !== owner.platform || message?.videoId !== owner.videoId) return null
+    return ownersEqual(taskOwners.get(taskId), owner) ? owner : null
+  }
+
   function emitTaskEvent(event) {
+    const owner = getBoundOwner({
+      ...event,
+      platform: event?.platform ?? event?.owner?.platform,
+      videoId: event?.videoId ?? event?.owner?.videoId,
+    })
+    if (!owner) return
     postMessage({
       type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.taskEvent,
-      event: cloneSerializable(event),
+      event: cloneSerializable({
+        ...event,
+        platform: owner.platform,
+        videoId: owner.videoId,
+        owner,
+      }),
     })
   }
 
   function requestSourceRefresh({ owner, taskId, expectedVideoId, reason }) {
+    const boundOwner = getBoundOwner({
+      taskId,
+      platform: owner?.platform,
+      videoId: owner?.videoId,
+      owner,
+    })
+    if (!boundOwner) return Promise.reject(new Error('VIDEO_SUMMARY_OWNER_MISMATCH'))
     const requestId = createRequestId()
     return new Promise((resolve, reject) => {
-      pendingSourceRefreshes.set(requestId, { resolve, reject })
+      pendingSourceRefreshes.set(requestId, { resolve, reject, owner: boundOwner, taskId })
       postMessage({
         type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.sourceRefreshRequest,
         requestId,
         taskId,
-        owner: cloneSerializable(owner),
+        platform: boundOwner.platform,
+        videoId: boundOwner.videoId,
+        owner: cloneSerializable(boundOwner),
         expectedVideoId: expectedVideoId ?? null,
         reason: reason ?? null,
       })
@@ -211,6 +267,14 @@ export function startVideoSummaryOffscreenRuntime({
     if (!requestId) return
     const pending = pendingSourceRefreshes.get(requestId)
     if (!pending) return
+    const taskId = normalizeId(message?.taskId)
+    let owner
+    try {
+      owner = normalizeOwner(message?.owner)
+    } catch {
+      return
+    }
+    if (taskId !== pending.taskId || !ownersEqual(owner, pending.owner)) return
     pendingSourceRefreshes.delete(requestId)
 
     if (message.errorCode) {
@@ -237,11 +301,27 @@ export function startVideoSummaryOffscreenRuntime({
     if (!VIDEO_SUMMARY_OFFSCREEN_COMMAND_TYPES.includes(message.type)) return
 
     switch (message.type) {
-      case 'START_TASK':
+      case 'START_TASK': {
+        const taskId = normalizeId(message.taskId)
+        if (!taskId) return
+        let owner
+        try {
+          owner = normalizeOwner(message.owner)
+        } catch {
+          return
+        }
+        if (message.platform !== owner.platform || message.videoId !== owner.videoId) return
+        const existingOwner = taskOwners.get(taskId)
+        if (existingOwner && !ownersEqual(existingOwner, owner)) return
+        taskOwners.set(taskId, owner)
         void Promise.resolve(
           runtimeTaskRunner.start(
             {
               ...message,
+              taskId,
+              platform: owner.platform,
+              videoId: owner.videoId,
+              owner,
               requestSourceRefresh,
             },
             emitTaskEvent,
@@ -249,24 +329,34 @@ export function startVideoSummaryOffscreenRuntime({
         ).catch((error) => {
           logWarn({
             event: 'video-summary-offscreen.start-failed',
-            taskId: normalizeId(message.taskId),
+            taskId,
             error: error?.code || error?.message || 'VIDEO_SUMMARY_OFFSCREEN_START_FAILED',
           })
         })
         return
-      case 'RETRY_TASK':
-        void Promise.resolve(runtimeTaskRunner.retry(message.taskId, message)).catch((error) => {
-          logWarn({
-            event: 'video-summary-offscreen.retry-failed',
-            taskId: normalizeId(message.taskId),
-            error: error?.code || error?.message || 'VIDEO_SUMMARY_OFFSCREEN_RETRY_FAILED',
-          })
-        })
+      }
+      case 'RETRY_TASK': {
+        const owner = getBoundOwner(message)
+        if (!owner) return
+        void Promise.resolve(runtimeTaskRunner.retry(message.taskId, { ...message, owner })).catch(
+          (error) => {
+            logWarn({
+              event: 'video-summary-offscreen.retry-failed',
+              taskId: normalizeId(message.taskId),
+              error: error?.code || error?.message || 'VIDEO_SUMMARY_OFFSCREEN_RETRY_FAILED',
+            })
+          },
+        )
         return
-      case 'CANCEL_TASK':
+      }
+      case 'CANCEL_TASK': {
+        const owner = getBoundOwner(message)
+        if (!owner) return
         runtimeTaskRunner.cancel(message.taskId)
         return
+      }
       case 'ATTACH_TASK':
+        getBoundOwner(message)
         return
       default:
         return

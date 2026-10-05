@@ -23,7 +23,7 @@ function isValidOwnerPart(value) {
   return typeof value === 'string' && value.trim().length > 0
 }
 
-function deriveOwnerFromPort(port, videoId) {
+function deriveOwnerFromPort(port, platform, videoId) {
   const tabId = port?.sender?.tab?.id
   const documentId = port?.sender?.documentId
 
@@ -34,6 +34,7 @@ function deriveOwnerFromPort(port, videoId) {
   return createVideoSummaryOwner({
     tabId,
     documentId: documentId.trim(),
+    platform,
     videoId: videoId.trim(),
   })
 }
@@ -42,8 +43,8 @@ function cloneSerializable(value) {
   return structuredClone(value)
 }
 
-export function routeKeyOf({ tabId, documentId, videoId }) {
-  return `${tabId}:${documentId}:${videoId}`
+export function routeKeyOf({ tabId, documentId, platform, videoId }) {
+  return `${tabId}:${documentId}:${platform}:${videoId}`
 }
 
 export function createVideoSummaryRouter({
@@ -108,6 +109,8 @@ export function createVideoSummaryRouter({
       emitSerializableCommand({
         type: 'CANCEL_TASK',
         taskId: route.taskId,
+        platform: route.owner.platform,
+        videoId: route.owner.videoId,
         owner: route.owner,
         reason: 'OWNER_DISCONNECTED',
       })
@@ -135,7 +138,7 @@ export function createVideoSummaryRouter({
 
   function handleStartTask(port, message) {
     const taskId = normalizeTaskId(message?.taskId)
-    const owner = deriveOwnerFromPort(port, message?.videoId)
+    const owner = deriveOwnerFromPort(port, message?.platform, message?.videoId)
     if (!taskId || !owner) {
       logWarn({ event: 'video-summary-router.start.invalid', taskIdPresent: Boolean(taskId) })
       return
@@ -157,6 +160,7 @@ export function createVideoSummaryRouter({
       ...message,
       type: 'START_TASK',
       taskId,
+      platform: owner.platform,
       videoId: owner.videoId,
       owner,
     })
@@ -164,7 +168,7 @@ export function createVideoSummaryRouter({
 
   function handleAttachTask(port, message) {
     const taskId = normalizeTaskId(message?.taskId)
-    const owner = deriveOwnerFromPort(port, message?.videoId)
+    const owner = deriveOwnerFromPort(port, message?.platform, message?.videoId)
     if (!taskId || !owner) return
 
     const routeKey = routeKeyOf(owner)
@@ -186,13 +190,14 @@ export function createVideoSummaryRouter({
     emitSerializableCommand({
       type: 'ATTACH_TASK',
       taskId,
+      platform: owner.platform,
       videoId: owner.videoId,
       owner,
     })
   }
 
   function handleCancelTask(port, message) {
-    const owner = deriveOwnerFromPort(port, message?.videoId)
+    const owner = deriveOwnerFromPort(port, message?.platform, message?.videoId)
     if (!owner) return
     const routeKey = routeKeyOf(owner)
     const route = routes.get(routeKey)
@@ -204,13 +209,15 @@ export function createVideoSummaryRouter({
     emitSerializableCommand({
       type: 'CANCEL_TASK',
       taskId,
+      platform: owner.platform,
+      videoId: owner.videoId,
       owner,
     })
     deleteRoute(routeKey, route)
   }
 
   function handleRetryTask(port, message) {
-    const owner = deriveOwnerFromPort(port, message?.videoId)
+    const owner = deriveOwnerFromPort(port, message?.platform, message?.videoId)
     if (!owner) return
     const route = routes.get(routeKeyOf(owner))
     if (!route) return
@@ -222,13 +229,14 @@ export function createVideoSummaryRouter({
       ...message,
       type: 'RETRY_TASK',
       taskId,
+      platform: owner.platform,
       videoId: owner.videoId,
       owner,
     })
   }
 
   function handleSourceRefreshResult(port, message) {
-    const owner = deriveOwnerFromPort(port, message?.videoId)
+    const owner = deriveOwnerFromPort(port, message?.platform, message?.videoId)
     const taskId = normalizeTaskId(message?.taskId)
     if (!owner || !taskId) return
 
@@ -239,6 +247,7 @@ export function createVideoSummaryRouter({
       ...message,
       type: 'SOURCE_REFRESH_RESULT',
       taskId,
+      platform: owner.platform,
       videoId: owner.videoId,
       owner,
     })
@@ -322,6 +331,8 @@ export function createVideoSummaryRouter({
         emitSerializableCommand({
           type: 'CANCEL_TASK',
           taskId: route.taskId,
+          platform: route.owner.platform,
+          videoId: route.owner.videoId,
           owner: route.owner,
           reason: 'OWNER_TAB_REMOVED',
         })
@@ -342,6 +353,8 @@ export function createVideoSummaryRouter({
       route.port.postMessage({
         type: 'REQUEST_SOURCE_REFRESH',
         taskId,
+        platform: owner.platform,
+        videoId: owner.videoId,
         owner: cloneSerializable(owner),
       })
     },

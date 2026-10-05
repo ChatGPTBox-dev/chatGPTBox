@@ -1,3 +1,8 @@
+import {
+  orderSubtitleTracks,
+  selectPreferredSubtitleTrack,
+} from '../../../video-summary/subtitle-tracks.mjs'
+
 export function getBilibiliVideoIdentity(input) {
   const url = new URL(input)
   const videoId = url.pathname.match(/^\/video\/(BV[0-9A-Za-z]+)/)?.[1] || ''
@@ -132,10 +137,6 @@ function classifyPlayerSubtitle(track) {
   return 'unknown'
 }
 
-function subtitleSourceWeight(track) {
-  return { author: 0, 'bilibili-ai': 1, unknown: 2 }[track?.sourceKind] ?? 2
-}
-
 export function resolveBilibiliSelectedPageMetadata({ url, initialState }) {
   const identity = getBilibiliVideoIdentity(url)
   const videoData = initialState?.videoData
@@ -227,8 +228,8 @@ function normalizeSubtitleUrl(value) {
   return `https://${raw.replace(/^\/+/, '')}`
 }
 
-export function selectPreferredBilibiliSubtitleTrack(tracks) {
-  return Array.isArray(tracks) ? tracks.find((track) => track?.cues?.length > 0) || null : null
+export function selectPreferredBilibiliSubtitleTrack(tracks, preferredLanguage) {
+  return selectPreferredSubtitleTrack(tracks, preferredLanguage)
 }
 
 export async function normalizeSubtitleTracks(playInfo, loadSubtitleBody) {
@@ -259,14 +260,7 @@ export async function normalizeSubtitleTracks(playInfo, loadSubtitleBody) {
     }
   }
 
-  return resolved
-    .map((track, index) => ({ track, index }))
-    .sort(
-      (left, right) =>
-        subtitleSourceWeight(left.track) - subtitleSourceWeight(right.track) ||
-        left.index - right.index,
-    )
-    .map(({ track }) => track)
+  return orderSubtitleTracks(resolved)
 }
 
 export function normalizeBilibiliAiConclusion(response) {

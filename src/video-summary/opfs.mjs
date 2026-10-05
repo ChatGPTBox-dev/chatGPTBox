@@ -115,7 +115,7 @@ export function createTaskOpfsStore({
     ].filter(Boolean)
 
     if (urls.length === 0) {
-      throw new Error('BILIBILI_MEDIA_CANDIDATE_NOT_FOUND')
+      throw new Error('VIDEO_MEDIA_CANDIDATE_NOT_FOUND')
     }
 
     const root = await getRootDirectory(rootDirectory)

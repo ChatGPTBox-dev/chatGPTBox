@@ -121,7 +121,12 @@ test('pipeline refreshes an expired signed candidate once before retrying the di
 
   const transcription = await pipeline.transcribeFromSource({
     taskId: 'task-2',
-    owner: { tabId: 7, documentId: 'doc-7', videoId: 'BV1task6001' },
+    owner: {
+      tabId: 7,
+      documentId: 'doc-7',
+      platform: 'bilibili',
+      videoId: 'BV1task6001',
+    },
     sourceSnapshot: createSnapshot({
       mediaCandidates: [
         createCandidate({
@@ -169,8 +174,14 @@ test('pipeline refreshes an expired signed candidate once before retrying the di
 
   assert.equal(refreshCalls.length, 1)
   assert.deepEqual(refreshCalls[0], {
-    owner: { tabId: 7, documentId: 'doc-7', videoId: 'BV1task6001' },
+    owner: {
+      tabId: 7,
+      documentId: 'doc-7',
+      platform: 'bilibili',
+      videoId: 'BV1task6001',
+    },
     taskId: 'task-2',
+    expectedPlatform: 'bilibili',
     expectedVideoId: 'BV1task6001',
     reason: 'SIGNED_URL_EXPIRED',
   })
@@ -392,4 +403,75 @@ test('pipeline cleans up task files when cancellation interrupts the local fallb
     ['download'],
     ['cleanup'],
   ])
+})
+
+test('pipeline rejects refreshed snapshots that change platform or video identity', async (t) => {
+  for (const [name, refreshedSnapshot] of [
+    ['platform', createSnapshot({ platform: 'youtube' })],
+    ['video', createSnapshot({ videoId: 'BV1different' })],
+  ]) {
+    await t.test(name, async () => {
+      const pipeline = createMediaPipeline({
+        mediaKitGateway: {
+          async submitDirectAsr() {
+            assert.fail('identity mismatch must prevent submission')
+          },
+        },
+        opfsStoreFactory() {
+          assert.fail('identity mismatch must prevent fallback')
+        },
+        logger: { info() {}, warn() {}, error() {} },
+        clock: createClock(5000),
+      })
+
+      await assert.rejects(
+        () =>
+          pipeline.transcribeFromSource({
+            taskId: `task-changed-${name}`,
+            owner: {
+              tabId: 11,
+              documentId: 'doc-11',
+              platform: 'bilibili',
+              videoId: 'BV1task6001',
+            },
+            sourceSnapshot: createSnapshot({
+              mediaCandidates: [
+                createCandidate({
+                  remoteCandidate: {
+                    url: 'https://cdn.example.invalid/stale.m4s',
+                    expiresAt: 1000,
+                  },
+                }),
+              ],
+            }),
+            requestSourceRefresh: async ({ expectedPlatform, expectedVideoId }) => {
+              assert.equal(expectedPlatform, 'bilibili')
+              assert.equal(expectedVideoId, 'BV1task6001')
+              return refreshedSnapshot
+            },
+            signal: new AbortController().signal,
+          }),
+        { message: 'VIDEO_SOURCE_IDENTITY_CHANGED' },
+      )
+    })
+  }
+})
+
+test('pipeline reports a generic error when no media candidate exists', async () => {
+  const pipeline = createMediaPipeline({
+    mediaKitGateway: {},
+    opfsStoreFactory() {},
+    logger: { info() {}, warn() {}, error() {} },
+    clock: createClock(),
+  })
+
+  await assert.rejects(
+    () =>
+      pipeline.transcribeFromSource({
+        taskId: 'task-no-candidate',
+        owner: { platform: 'youtube', videoId: 'video-1' },
+        sourceSnapshot: { platform: 'youtube', videoId: 'video-1', mediaCandidates: [] },
+      }),
+    { message: 'VIDEO_MEDIA_CANDIDATE_NOT_FOUND' },
+  )
 })

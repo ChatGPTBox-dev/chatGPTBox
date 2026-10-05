@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { defaultConfig } from '../../../src/config/index.mjs'
-import {
-  isBilibiliVideoTranscriptionEnabled,
-  isVideoSummaryRuntimeSupported,
-} from '../../../src/video-summary/capabilities.mjs'
+
+globalThis.__ENABLE_VIDEO_SUMMARY__ = true
+const { isVideoSummaryEnabled, isVideoSummaryRuntimeSupported } = await import(
+  '../../../src/video-summary/capabilities.mjs'
+)
 
 test('runtime support is Chromium-full-build-only', () => {
   assert.equal(
@@ -27,6 +28,10 @@ test('runtime support is Chromium-full-build-only', () => {
   )
 })
 
-test('isBilibiliVideoTranscriptionEnabled respects build gate and config', () => {
-  assert.equal(isBilibiliVideoTranscriptionEnabled(defaultConfig), false)
+test('generic capability gate requires the canonical switch', () => {
+  assert.equal(defaultConfig.videoTranscriptionEnabled, false)
+  assert.equal(isVideoSummaryEnabled({ videoTranscriptionEnabled: true }), true)
+  assert.equal(isVideoSummaryEnabled({ videoTranscriptionEnabled: false }), false)
+  assert.equal(isVideoSummaryEnabled({ bilibiliVideoTranscriptionEnabled: true }), false)
+  assert.equal(isVideoSummaryEnabled(), false)
 })

@@ -121,7 +121,7 @@ test('opens a one-shot request port and collects only its correlated answer', as
   await Promise.resolve()
 
   assert.deepEqual(connectCalls, [
-    { tabId: 42, options: { name: 'bilibili-video-summary-chatgpt-proxy:req-1' } },
+    { tabId: 42, options: { name: 'video-summary-chatgpt-proxy:req-1' } },
   ])
   assert.deepEqual(ports[0].posted[0], { type: 'GENERATE_TEXT', requestId: 'req-1', session })
 

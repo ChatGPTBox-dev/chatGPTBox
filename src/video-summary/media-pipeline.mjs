@@ -26,7 +26,7 @@ function hasUsableSegments(value) {
 
 function requireCandidate(sourceSnapshot) {
   const candidate = sourceSnapshot?.mediaCandidates?.[0]
-  if (!candidate) throw new Error('BILIBILI_MEDIA_CANDIDATE_NOT_FOUND')
+  if (!candidate) throw new Error('VIDEO_MEDIA_CANDIDATE_NOT_FOUND')
   return candidate
 }
 
@@ -59,12 +59,18 @@ async function requestRefreshedSnapshot({
   const refreshedSnapshot = await requestSourceRefresh({
     owner,
     taskId,
+    expectedPlatform: owner?.platform ?? sourceSnapshot?.platform ?? null,
     expectedVideoId: owner?.videoId ?? sourceSnapshot?.videoId ?? null,
     reason,
   })
 
-  if (owner?.videoId && refreshedSnapshot?.videoId && refreshedSnapshot.videoId !== owner.videoId) {
-    throw new Error('BILIBILI_VIDEO_IDENTITY_CHANGED')
+  const expectedPlatform = owner?.platform ?? sourceSnapshot?.platform ?? null
+  const expectedVideoId = owner?.videoId ?? sourceSnapshot?.videoId ?? null
+  if (
+    (expectedPlatform && refreshedSnapshot?.platform !== expectedPlatform) ||
+    (expectedVideoId && refreshedSnapshot?.videoId !== expectedVideoId)
+  ) {
+    throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
   }
 
   requireCandidate(refreshedSnapshot)

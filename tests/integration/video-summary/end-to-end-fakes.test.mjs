@@ -11,9 +11,14 @@ import { startVideoSummaryOffscreenRuntime } from '../../../src/pages/VideoSumma
 import {
   VIDEO_SUMMARY_OFFSCREEN_PORT_NAME,
   VIDEO_SUMMARY_OFFSCREEN_PATH,
-  createVideoSummaryOwner,
+  VIDEO_SUMMARY_PORT_NAME,
+  createVideoSummaryOwner as createOwner,
 } from '../../../src/video-summary/contracts.mjs'
-import { createVideoSummaryPortClient } from '../../../src/content-script/site-adapters/bilibili/video-summary-port.mjs'
+import { createVideoSummaryPortClient } from '../../../src/content-script/video-summary-port.mjs'
+
+function createVideoSummaryOwner(owner) {
+  return createOwner({ platform: 'bilibili', ...owner })
+}
 
 function createFakeClock(start = 10_000) {
   let now = start
@@ -180,7 +185,13 @@ function createTranscription(segmentCount = 12, textPrefix = 'segment') {
   }
 }
 
-function createCandidate(overrides = {}) {
+function createCandidate({
+  platform = 'bilibili',
+  requiredRequestOrigin = platform === 'youtube'
+    ? 'https://www.youtube.com/'
+    : 'https://www.bilibili.com/',
+  ...overrides
+} = {}) {
   return {
     mediaMetadata: {
       kind: 'audio',
@@ -196,24 +207,25 @@ function createCandidate(overrides = {}) {
       ...overrides.remoteCandidate,
     },
     localFetchRecipe: {
-      primaryUrl: 'https://www.bilibili.com/audio.m4s?deadline=1790486400&token=secret',
+      primaryUrl: `${requiredRequestOrigin}audio.m4s?deadline=1790486400&token=secret`,
       backupUrls: [],
       expiresAt: 1_790_486_400_000,
       credentialMode: 'include',
-      requiredRequestOrigin: 'https://www.bilibili.com/',
+      requiredRequestOrigin,
       ...overrides.localFetchRecipe,
     },
   }
 }
 
 function createSourceSnapshot({
-  videoId = 'BV1task1001',
+  platform = 'bilibili',
+  videoId = platform === 'youtube' ? 'youtube-task-1001' : 'BV1task1001',
   nativeSubtitleTracks = [],
-  mediaCandidates = [createCandidate()],
+  mediaCandidates = [createCandidate({ platform })],
   title = 'Test video',
 } = {}) {
   return {
-    platform: 'bilibili',
+    platform,
     videoId,
     pageId: '1001',
     title,
@@ -333,6 +345,9 @@ function createModelGateway({
 
       if (failRequestIds.has(requestId)) {
         throw new Error('TRANSIENT_SUMMARY_FAILURE')
+      }
+      if (failRequestIds.has(`actionable:${requestId}`)) {
+        throw Object.assign(new Error('MODEL_LOGIN_REQUIRED'), { code: 'MODEL_LOGIN_REQUIRED' })
       }
 
       if (requestId.startsWith('chunk-')) {
@@ -470,7 +485,10 @@ function createDirectPipeline({
         rootDirectory,
         fetchImpl: async (input, init = {}) => {
           const url = String(input)
-          if (url === 'https://www.bilibili.com/audio.m4s?deadline=1790486400&token=secret') {
+          if (
+            url === 'https://www.bilibili.com/audio.m4s?deadline=1790486400&token=secret' ||
+            url === 'https://www.youtube.com/audio.m4s?deadline=1790486400&token=secret'
+          ) {
             return createReadableResponse(new Uint8Array([1, 2, 3, 4]), {
               'content-length': '4',
               'content-type': 'audio/mp4',
@@ -580,7 +598,7 @@ function createHarness({ mediaPipeline, modelGateway, clock = createFakeClock() 
     refreshSnapshot = async () => sourceSnapshot,
   }) {
     const { clientPort, backgroundPort } = createLinkedPortPair({
-      name: 'bilibili-video-summary',
+      name: VIDEO_SUMMARY_PORT_NAME,
       sender: {
         tab: { id: owner.tabId },
         documentId: owner.documentId,
@@ -592,13 +610,14 @@ function createHarness({ mediaPipeline, modelGateway, clock = createFakeClock() 
 
     const routerReady = router.handleConnect(backgroundPort)
     const client = createVideoSummaryPortClient({
+      platform: owner.platform,
       videoId: owner.videoId,
       pageBridge: {
         async getSnapshot() {
           return sourceSnapshot
         },
-        async refreshSnapshot({ expectedVideoId }) {
-          return refreshSnapshot({ expectedVideoId })
+        async refreshSnapshot({ expectedPlatform, expectedVideoId }) {
+          return refreshSnapshot({ expectedPlatform, expectedVideoId })
         },
         seekTo() {},
       },
@@ -1126,6 +1145,8 @@ test('port disconnect, tab removal, video identity changes, and stale events aff
   assert.deepEqual(disconnectHarness.emittedCommands.at(-1), {
     type: 'CANCEL_TASK',
     taskId: disconnectHarness.emittedCommands[0].taskId,
+    platform: disconnectOwner.platform,
+    videoId: disconnectOwner.videoId,
     owner: disconnectOwner,
     reason: 'OWNER_DISCONNECTED',
   })
@@ -1252,6 +1273,303 @@ test('port disconnect, tab removal, video identity changes, and stale events aff
   )
 })
 
+for (const fixture of [
+  { name: 'authored', id: 'youtube-authored', sourceKind: 'authored' },
+  { name: 'automatic', id: 'youtube-automatic', sourceKind: 'automatic' },
+]) {
+  test(`YouTube ${fixture.name} subtitles produce a structured result`, async () => {
+    const mediaPipeline = {
+      async transcribeFromSource() {
+        assert.fail('YouTube subtitle path must not call MediaKit')
+      },
+    }
+    const harness = createHarness({ mediaPipeline, modelGateway: createModelGateway() })
+    const owner = createVideoSummaryOwner({
+      tabId: 20,
+      documentId: `doc-${fixture.id}`,
+      platform: 'youtube',
+      videoId: fixture.id,
+    })
+    const sourceSnapshot = createSourceSnapshot({
+      platform: owner.platform,
+      videoId: owner.videoId,
+      nativeSubtitleTracks: createSubtitleTrack(
+        [
+          { startMs: 0, endMs: 1000, text: `${fixture.name} intro` },
+          { startMs: 1000, endMs: 2000, text: `${fixture.name} detail` },
+        ],
+        fixture,
+      ),
+    })
+    const mounted = await harness.mountClient({ owner, sourceSnapshot })
+
+    await mounted.client.startTask({
+      sourceChoice: 'native-subtitle',
+      subtitleTrackId: fixture.id,
+      sourceSnapshot,
+      settingsSnapshot: { preferredLanguage: 'en' },
+      modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
+    })
+
+    const resultEvent = await mounted.waitFor((event) => event.type === 'TASK_RESULT')
+    assert.equal(resultEvent.owner.platform, 'youtube')
+    assert.deepEqual(
+      resultEvent.result.transcriptSegments.map((segment) => segment.text),
+      [`${fixture.name} intro`, `${fixture.name} detail`],
+    )
+  })
+}
+
+test('confirmed YouTube ASR completes through direct remote ingestion', async () => {
+  const submitCalls = []
+  const { pipeline } = createDirectPipeline({
+    transcription: createTranscription(4, 'youtube-direct'),
+    submitCalls,
+  })
+  const harness = createHarness({ mediaPipeline: pipeline, modelGateway: createModelGateway() })
+  const owner = createVideoSummaryOwner({
+    tabId: 21,
+    documentId: 'doc-youtube-direct',
+    platform: 'youtube',
+    videoId: 'youtube-direct',
+  })
+  const sourceSnapshot = createSourceSnapshot({ platform: owner.platform, videoId: owner.videoId })
+  const mounted = await harness.mountClient({ owner, sourceSnapshot })
+
+  await mounted.client.startTask({
+    sourceChoice: 'asr',
+    sourceSnapshot,
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
+  })
+
+  const resultEvent = await mounted.waitFor((event) => event.type === 'TASK_RESULT')
+  assert.equal(resultEvent.owner.platform, 'youtube')
+  assert.equal(resultEvent.result.status, 'complete')
+  assert.equal(submitCalls.length, 1)
+})
+
+test('YouTube direct ingestion failure refreshes the exact owner and falls back to OPFS upload', async () => {
+  const submitCalls = []
+  const uploadCalls = []
+  const { pipeline, rootDirectory } = createDirectPipeline({
+    transcription: createTranscription(3, 'youtube-upload'),
+    submitCalls,
+    directFailureMode: 'documented',
+    uploadCalls,
+  })
+  const harness = createHarness({ mediaPipeline: pipeline, modelGateway: createModelGateway() })
+  const owner = createVideoSummaryOwner({
+    tabId: 22,
+    documentId: 'doc-youtube-upload',
+    platform: 'youtube',
+    videoId: 'youtube-upload',
+  })
+  const sourceSnapshot = createSourceSnapshot({ platform: owner.platform, videoId: owner.videoId })
+  const refreshedSnapshot = createSourceSnapshot({
+    platform: owner.platform,
+    videoId: owner.videoId,
+    mediaCandidates: [
+      createCandidate({
+        platform: owner.platform,
+        remoteCandidate: {
+          url: 'https://cdn.example.invalid/youtube-refreshed.m4s?expire=1790486500&sig=fresh',
+          expiresAt: 1_790_486_500_000,
+        },
+      }),
+    ],
+  })
+  const refreshCalls = []
+  const mounted = await harness.mountClient({
+    owner,
+    sourceSnapshot,
+    refreshSnapshot: async ({ expectedPlatform, expectedVideoId }) => {
+      refreshCalls.push({ expectedPlatform, expectedVideoId })
+      return refreshedSnapshot
+    },
+  })
+
+  await mounted.client.startTask({
+    sourceChoice: 'asr',
+    sourceSnapshot,
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
+  })
+
+  const resultEvent = await mounted.waitFor((event) => event.type === 'TASK_RESULT')
+  assert.equal(resultEvent.result.status, 'complete')
+  assert.deepEqual(refreshCalls, [{ expectedPlatform: 'youtube', expectedVideoId: owner.videoId }])
+  assert.deepEqual(
+    submitCalls.map((call) => call.audioUrl),
+    [
+      'https://cdn.example.invalid/audio.m4s?deadline=1790486400&token=secret',
+      'https://cdn.example.invalid/youtube-refreshed.m4s?expire=1790486500&sig=fresh',
+      'mediakit://file-99',
+    ],
+  )
+  assert.equal(uploadCalls.length, 1)
+  assert.equal(rootDirectory.files.size, 0)
+})
+
+test('YouTube task reattaches within grace and cancellation retains complete ownership', async () => {
+  const deferred = createDeferred()
+  const harness = createHarness({
+    mediaPipeline: createLongRunningPipeline(deferred),
+    modelGateway: createModelGateway(),
+  })
+  const owner = createVideoSummaryOwner({
+    tabId: 23,
+    documentId: 'doc-youtube-reattach',
+    platform: 'youtube',
+    videoId: 'youtube-reattach',
+  })
+  const sourceSnapshot = createSourceSnapshot({ platform: owner.platform, videoId: owner.videoId })
+  const firstMount = await harness.mountClient({ owner, sourceSnapshot })
+  const taskId = await firstMount.client.startTask({
+    sourceChoice: 'asr',
+    sourceSnapshot,
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
+  })
+  firstMount.client.dispose()
+
+  const secondMount = await harness.mountClient({ owner, sourceSnapshot })
+  await secondMount.client.attachTask({ taskId })
+  await secondMount.client.cancelTask()
+  await flushTasks()
+
+  assert.deepEqual(harness.emittedCommands.at(-1), {
+    type: 'CANCEL_TASK',
+    taskId,
+    platform: owner.platform,
+    videoId: owner.videoId,
+    owner,
+  })
+})
+
+test('YouTube expired media refresh preserves platform and video identity', async () => {
+  const refreshCalls = []
+  const mediaPipeline = {
+    async transcribeFromSource({ owner: refreshOwner, taskId, requestSourceRefresh }) {
+      const refreshed = await requestSourceRefresh({ owner: refreshOwner, taskId })
+      assert.equal(refreshed.platform, 'youtube')
+      return createTranscription(3, 'youtube-refreshed')
+    },
+  }
+  const harness = createHarness({ mediaPipeline, modelGateway: createModelGateway() })
+  const owner = createVideoSummaryOwner({
+    tabId: 24,
+    documentId: 'doc-youtube-expired',
+    platform: 'youtube',
+    videoId: 'youtube-expired',
+  })
+  const sourceSnapshot = createSourceSnapshot({ platform: owner.platform, videoId: owner.videoId })
+  const mounted = await harness.mountClient({
+    owner,
+    sourceSnapshot,
+    refreshSnapshot: async (expectedOwner) => {
+      refreshCalls.push(expectedOwner)
+      return createSourceSnapshot({ platform: owner.platform, videoId: owner.videoId })
+    },
+  })
+
+  await mounted.client.startTask({
+    sourceChoice: 'asr',
+    sourceSnapshot,
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
+  })
+
+  await mounted.waitFor((event) => event.type === 'TASK_RESULT')
+  assert.deepEqual(refreshCalls, [{ expectedPlatform: 'youtube', expectedVideoId: owner.videoId }])
+})
+
+test('YouTube summary failure retries from its transcript checkpoint without repeating ASR', async () => {
+  const submitCalls = []
+  const failRequestIds = new Set(['actionable:synthesis'])
+  const { pipeline } = createDirectPipeline({
+    transcription: createTranscription(4, 'youtube-checkpoint'),
+    submitCalls,
+  })
+  const harness = createHarness({
+    mediaPipeline: pipeline,
+    modelGateway: createModelGateway({ failRequestIds }),
+  })
+  const owner = createVideoSummaryOwner({
+    tabId: 25,
+    documentId: 'doc-youtube-checkpoint',
+    platform: 'youtube',
+    videoId: 'youtube-checkpoint',
+  })
+  const sourceSnapshot = createSourceSnapshot({ platform: owner.platform, videoId: owner.videoId })
+  const mounted = await harness.mountClient({ owner, sourceSnapshot })
+
+  await mounted.client.startTask({
+    sourceChoice: 'asr',
+    sourceSnapshot,
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
+  })
+
+  const failedEvent = await mounted.waitFor((event) => event.type === 'TASK_FAILED')
+  assert.equal(failedEvent.checkpointAvailable, true)
+  failRequestIds.delete('actionable:synthesis')
+  await mounted.client.retryTask({ fromStage: 'synthesis' })
+  const resultEvent = await mounted.waitFor((event) => event.type === 'TASK_RESULT')
+  assert.equal(resultEvent.result.status, 'complete')
+  assert.equal(submitCalls.length, 1)
+})
+
+test('equal task and video IDs stay isolated by platform through the router', async () => {
+  const harness = createHarness({ mediaPipeline: {}, modelGateway: createModelGateway() })
+  const sharedIdentity = { tabId: 26, documentId: 'doc-shared', videoId: 'same-video' }
+  const bilibiliOwner = createVideoSummaryOwner({ ...sharedIdentity, platform: 'bilibili' })
+  const youtubeOwner = createVideoSummaryOwner({ ...sharedIdentity, platform: 'youtube' })
+  const bilibiliMounted = await harness.mountClient({
+    owner: bilibiliOwner,
+    sourceSnapshot: createSourceSnapshot({ platform: 'bilibili', videoId: 'same-video' }),
+  })
+  const youtubeMounted = await harness.mountClient({
+    owner: youtubeOwner,
+    sourceSnapshot: createSourceSnapshot({ platform: 'youtube', videoId: 'same-video' }),
+  })
+  await bilibiliMounted.client.attachTask({ taskId: 'same-task' })
+  await youtubeMounted.client.attachTask({ taskId: 'same-task' })
+
+  harness.router.handleTaskEvent({
+    type: 'TASK_STATUS',
+    taskId: 'same-task',
+    owner: bilibiliOwner,
+    stage: 'bilibili-running',
+  })
+  harness.router.handleTaskEvent({
+    type: 'TASK_STATUS',
+    taskId: 'same-task',
+    owner: youtubeOwner,
+    stage: 'youtube-running',
+  })
+  await flushTasks()
+
+  const bilibiliEvents = bilibiliMounted.events
+  const youtubeEvents = youtubeMounted.events
+  assert.equal(
+    bilibiliEvents.some(({ owner }) => owner.platform === 'youtube'),
+    false,
+  )
+  assert.equal(
+    youtubeEvents.some(({ owner }) => owner.platform === 'bilibili'),
+    false,
+  )
+  assert.deepEqual(
+    bilibiliEvents.map((event) => event.stage),
+    ['bilibili-running'],
+  )
+  assert.deepEqual(
+    youtubeEvents.map((event) => event.stage),
+    ['youtube-running'],
+  )
+})
+
 test('native subtitle and ASR tasks traverse the real background-offscreen port boundary', async () => {
   const modelCalls = []
   const modelGateway = createModelGateway({ calls: modelCalls })
@@ -1282,7 +1600,7 @@ test('native subtitle and ASR tasks traverse the real background-offscreen port 
   })
 
   const { clientPort, backgroundPort } = createLinkedPortPair({
-    name: 'bilibili-video-summary',
+    name: VIDEO_SUMMARY_PORT_NAME,
     sender: {
       tab: { id: owner.tabId },
       documentId: owner.documentId,
@@ -1332,14 +1650,16 @@ test('native subtitle and ASR tasks traverse the real background-offscreen port 
 
   const events = []
   const mounted = createVideoSummaryPortClient({
+    platform: owner.platform,
     videoId: owner.videoId,
     pageBridge: {
       async getSnapshot() {
         return sourceSnapshot
       },
-      async refreshSnapshot({ expectedVideoId }) {
+      async refreshSnapshot({ expectedPlatform, expectedVideoId }) {
+        assert.equal(expectedPlatform, owner.platform)
         assert.equal(expectedVideoId, owner.videoId)
-        return createSourceSnapshot({ videoId: owner.videoId })
+        return createSourceSnapshot({ platform: owner.platform, videoId: owner.videoId })
       },
       seekTo() {},
     },

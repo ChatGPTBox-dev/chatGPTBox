@@ -1,5 +1,76 @@
-import { cropText } from '../../../utils'
+import Browser from 'webextension-polyfill'
+import { cropText, waitForSiteAdapterElement } from '../../../utils'
 import { config } from '../index.mjs'
+import {
+  isVideoSummaryEnabled,
+  isVideoSummaryRuntimeSupported,
+} from '../../../video-summary/capabilities.mjs'
+import { mountVideoSummaryHost } from '../../video-summary-host.mjs'
+import { getYouTubeWatchIdentity } from './media-source.mjs'
+import { createYouTubeVideoPageBridge } from './video-page-bridge.mjs'
+
+const SECONDARY_COLUMN_SELECTOR =
+  '#secondary:not([style*="display: none"]):not(.ytd-two-column-browse-results-renderer)'
+
+function getWatchIdentity() {
+  try {
+    return getYouTubeWatchIdentity(location.href)
+  } catch {
+    return { videoId: null, supported: false }
+  }
+}
+
+function isLiveWatchPage() {
+  const playerResponse = globalThis.ytInitialPlayerResponse
+  return Boolean(
+    document.querySelector('ytd-watch-flexy[is-live]') ||
+      playerResponse?.videoDetails?.isLiveContent === true ||
+      playerResponse?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails?.isLiveNow ===
+        true,
+  )
+}
+
+function unwrapPageDataResponse(response) {
+  if (response?.ok === true) return response.data
+  if (response?.ok !== false) return response
+
+  const error = new Error(
+    /^[A-Z][A-Z0-9_]+$/.test(response.errorCode || '')
+      ? response.errorCode
+      : 'YOUTUBE_PAGE_SCRIPT_EXECUTION_FAILED',
+  )
+  if (
+    /^(?:Error|EvalError|RangeError|ReferenceError|SyntaxError|TypeError|URIError|UnknownError)$/.test(
+      response.causeCode || '',
+    )
+  ) {
+    error.causeCode = response.causeCode
+  }
+  if (/^[a-z-]+$/.test(response.stage || '')) error.stage = response.stage
+  throw error
+}
+
+function isEnhancedModeAvailable(userConfig) {
+  if (
+    Array.isArray(userConfig?.activeSiteAdapters) &&
+    !userConfig.activeSiteAdapters.includes('youtube')
+  ) {
+    return false
+  }
+  if (!isVideoSummaryEnabled(userConfig)) return false
+
+  try {
+    const manifest = Browser.runtime.getManifest()
+    return isVideoSummaryRuntimeSupported({
+      manifestVersion: manifest.manifest_version,
+      hasOffscreenApi: manifest.permissions?.includes('offscreen') === true,
+      minChromeVersion: manifest.minimum_chrome_version,
+      userAgent: globalThis.navigator?.userAgent,
+    })
+  } catch {
+    return false
+  }
+}
 
 // This function was written by ChatGPT and modified by iamsirsammy
 function replaceHtmlEntities(htmlString) {
@@ -9,6 +80,92 @@ function replaceHtmlEntities(htmlString) {
 
 export default {
   init: async (hostname, userConfig, getInput, mountComponent) => {
+    const initialIdentity = getWatchIdentity()
+    if (initialIdentity.supported && !isLiveWatchPage() && isEnhancedModeAvailable(userConfig)) {
+      let host = null
+      let targetElement = null
+      let videoId = initialIdentity.videoId
+      let hostCreation = null
+
+      const createHost = () => {
+        const startingIdentity = getWatchIdentity()
+        if (!startingIdentity.supported || isLiveWatchPage()) {
+          host?.dispose()
+          host = null
+          targetElement = null
+          videoId = startingIdentity.videoId
+          return Promise.resolve()
+        }
+        if (hostCreation) return hostCreation
+        const operation = (async () => {
+          const nextTarget =
+            document.querySelector(SECONDARY_COLUMN_SELECTOR) ||
+            (await waitForSiteAdapterElement(SECONDARY_COLUMN_SELECTOR))
+          const identity = getWatchIdentity()
+          if (!nextTarget || !identity.supported || isLiveWatchPage()) {
+            host?.dispose()
+            host = null
+            targetElement = null
+            videoId = identity.videoId
+            return
+          }
+
+          host?.dispose()
+          targetElement = nextTarget
+          videoId = identity.videoId
+          host = mountVideoSummaryHost({
+            platform: 'youtube',
+            bridge: createYouTubeVideoPageBridge({
+              getLocationHref: () => location.href,
+              getPlayerResponse: async (expectedVideoId) =>
+                unwrapPageDataResponse(
+                  await Browser.runtime.sendMessage({
+                    type: 'YOUTUBE_PAGE_PLAYER_RESPONSE',
+                    data: { expectedVideoId },
+                  }),
+                ),
+              getPageHtml: () => document.documentElement?.outerHTML || '',
+              captureCaption: async ({ expectedVideoId, language, sourceKind, vssId, mode }) =>
+                unwrapPageDataResponse(
+                  await Browser.runtime.sendMessage({
+                    type: 'YOUTUBE_PAGE_CAPTURE_CAPTION',
+                    data: {
+                      expectedVideoId,
+                      language,
+                      sourceKind,
+                      vssId,
+                      mode,
+                    },
+                  }),
+                ),
+              getVideoElement: () => document.querySelector('video'),
+            }),
+            targetElement,
+          })
+        })()
+        hostCreation = operation
+        return operation.finally(() => {
+          if (hostCreation === operation) hostCreation = null
+        })
+      }
+
+      await createHost()
+      window.setInterval(() => {
+        const identity = getWatchIdentity()
+        const nextTarget = document.querySelector(SECONDARY_COLUMN_SELECTOR)
+        if (
+          identity.videoId === videoId &&
+          identity.supported &&
+          !isLiveWatchPage() &&
+          nextTarget === targetElement
+        ) {
+          return
+        }
+        void createHost()
+      }, 500)
+      return false
+    }
+
     try {
       let oldUrl = location.href
       const checkUrlChange = async () => {
@@ -18,7 +175,7 @@ export default {
         }
       }
       window.setInterval(checkUrlChange, 500)
-    } catch (e) {
+    } catch {
       /* empty */
     }
     return true
@@ -78,8 +235,8 @@ export default {
           `Video Title: "${title}"\n` +
           `Subtitle content:\n${subtitleContent}`,
       )
-    } catch (e) {
-      console.log(e)
+    } catch {
+      return
     }
   },
 }

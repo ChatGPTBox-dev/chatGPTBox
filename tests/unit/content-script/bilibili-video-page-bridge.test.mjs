@@ -386,18 +386,40 @@ test('bridge maps AI conclusion login-required without retrying or affecting aud
   assert.equal(snapshot.mediaCandidates.length, 1)
 })
 
-test('refreshSnapshot rejects a mismatched video identity', async () => {
+test('refreshSnapshot rejects a mismatched platform before network access', async () => {
+  let fetchCount = 0
   const bridge = createBilibiliVideoPageBridge({
-    getLocationHref: () => 'https://www.bilibili.com/video/BV1new',
+    getLocationHref: () => 'https://www.bilibili.com/video/BV1same',
     fetchImpl: async () => {
+      fetchCount += 1
       throw new Error('should not fetch on mismatch')
     },
     getVideoElement: () => ({ currentTime: 0, scrollIntoView: () => {} }),
   })
 
-  await assert.rejects(() => bridge.refreshSnapshot({ expectedVideoId: 'BV1old' }), {
-    message: 'BILIBILI_VIDEO_IDENTITY_CHANGED',
+  await assert.rejects(
+    () => bridge.refreshSnapshot({ expectedPlatform: 'youtube', expectedVideoId: 'BV1same' }),
+    { message: 'VIDEO_SOURCE_IDENTITY_CHANGED' },
+  )
+  assert.equal(fetchCount, 0)
+})
+
+test('refreshSnapshot rejects a mismatched video identity before network access', async () => {
+  let fetchCount = 0
+  const bridge = createBilibiliVideoPageBridge({
+    getLocationHref: () => 'https://www.bilibili.com/video/BV1new',
+    fetchImpl: async () => {
+      fetchCount += 1
+      throw new Error('should not fetch on mismatch')
+    },
+    getVideoElement: () => ({ currentTime: 0, scrollIntoView: () => {} }),
   })
+
+  await assert.rejects(
+    () => bridge.refreshSnapshot({ expectedPlatform: 'bilibili', expectedVideoId: 'BV1old' }),
+    { message: 'VIDEO_SOURCE_IDENTITY_CHANGED' },
+  )
+  assert.equal(fetchCount, 0)
 })
 
 test('refreshSnapshot works when called without a bound this', async () => {
@@ -449,8 +471,12 @@ test('refreshSnapshot works when called without a bound this', async () => {
   })
 
   const { refreshSnapshot } = bridge
-  const snapshot = await refreshSnapshot({ expectedVideoId: 'BV1unbound' })
+  const snapshot = await refreshSnapshot({
+    expectedPlatform: 'bilibili',
+    expectedVideoId: 'BV1unbound',
+  })
 
+  assert.equal(snapshot.platform, 'bilibili')
   assert.equal(snapshot.videoId, 'BV1unbound')
   assert.equal(snapshot.pageId, '99001')
   assert.equal(snapshot.mediaCandidates.length, 1)

@@ -43,7 +43,7 @@ test('accepts only dedicated proxy ports and valid correlated generate requests'
     },
   })
   const ordinary = createPort('chatgptbox')
-  const dedicated = createPort('bilibili-video-summary-chatgpt-proxy:req-1')
+  const dedicated = createPort('video-summary-chatgpt-proxy:req-1')
   onConnect.emit(ordinary)
   onConnect.emit(dedicated)
 
@@ -83,8 +83,8 @@ test('forwards cancellation and disconnect to only the request-local generation 
       localPorts.set(session.question, port)
     },
   })
-  const first = createPort('bilibili-video-summary-chatgpt-proxy:req-1')
-  const second = createPort('bilibili-video-summary-chatgpt-proxy:req-2')
+  const first = createPort('video-summary-chatgpt-proxy:req-1')
+  const second = createPort('video-summary-chatgpt-proxy:req-2')
   onConnect.emit(first)
   onConnect.emit(second)
   first.onMessage.emit({
@@ -124,7 +124,7 @@ test('does not start generation after disconnect during access-token lookup', as
       calls.push(args)
     },
   })
-  const port = createPort('bilibili-video-summary-chatgpt-proxy:req-1')
+  const port = createPort('video-summary-chatgpt-proxy:req-1')
   onConnect.emit(port)
   port.onMessage.emit({
     type: 'GENERATE_TEXT',
@@ -155,7 +155,7 @@ test('tags safe errors without logging request content', async () => {
     },
     logger,
   })
-  const port = createPort('bilibili-video-summary-chatgpt-proxy:req-1')
+  const port = createPort('video-summary-chatgpt-proxy:req-1')
   onConnect.emit(port)
   port.onMessage.emit({
     type: 'GENERATE_TEXT',

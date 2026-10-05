@@ -8,6 +8,7 @@ import CssMinimizerPlugin from 'css-minimizer-webpack-plugin'
 import MiniCssExtractPlugin from 'mini-css-extract-plugin'
 import { EsbuildPlugin } from 'esbuild-loader'
 import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer'
+import { excludeFromBabel } from './scripts/build-module-rules.mjs'
 
 const outdir = 'build'
 
@@ -216,7 +217,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
             Buffer: ['buffer', 'Buffer'],
           }),
       new webpack.DefinePlugin({
-        __ENABLE_BILIBILI_VIDEO_TRANSCRIPTION__: JSON.stringify(!minimal),
+        __ENABLE_VIDEO_SUMMARY__: JSON.stringify(!minimal),
       }),
       new ProgressBarPlugin({
         format: '  build [:bar] :percent (:elapsed seconds)',
@@ -260,7 +261,7 @@ async function runWebpack(isWithoutKatex, isWithoutTiktoken, minimal, sourceBuil
       rules: [
         {
           test: /\.m?jsx?$/,
-          exclude: /(node_modules)/,
+          exclude: excludeFromBabel,
           resolve: {
             fullySpecified: false,
           },

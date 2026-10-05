@@ -22,7 +22,12 @@ function createRequestIdFactory() {
 }
 
 test('START_TASK creates a runner command, TASK_EVENT returns to background, and CANCEL/RETRY dispatch correctly', async () => {
-  const owner = createVideoSummaryOwner({ tabId: 5, documentId: 'doc-5', videoId: 'BV5task' })
+  const owner = createVideoSummaryOwner({
+    tabId: 5,
+    documentId: 'doc-5',
+    platform: 'bilibili',
+    videoId: 'BV5task',
+  })
   const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
   const starts = []
   const cancels = []
@@ -55,6 +60,8 @@ test('START_TASK creates a runner command, TASK_EVENT returns to background, and
   port.emitMessage({
     type: 'START_TASK',
     taskId: 'task-5',
+    platform: owner.platform,
+    videoId: owner.videoId,
     owner,
     sourceChoice: 'native-subtitle',
     sourceSnapshot: { videoId: owner.videoId },
@@ -70,15 +77,25 @@ test('START_TASK creates a runner command, TASK_EVENT returns to background, and
     event: {
       type: 'TASK_STATUS',
       taskId: 'task-5',
+      platform: owner.platform,
+      videoId: owner.videoId,
       owner,
       stage: 'running',
     },
   })
 
-  port.emitMessage({ type: 'CANCEL_TASK', taskId: 'task-5', owner })
+  port.emitMessage({
+    type: 'CANCEL_TASK',
+    taskId: 'task-5',
+    platform: owner.platform,
+    videoId: owner.videoId,
+    owner,
+  })
   port.emitMessage({
     type: 'RETRY_TASK',
     taskId: 'task-5',
+    platform: owner.platform,
+    videoId: owner.videoId,
     owner,
     fromStage: 'summarizing',
     modelSnapshot: { provider: 'openai' },
@@ -92,6 +109,8 @@ test('START_TASK creates a runner command, TASK_EVENT returns to background, and
       command: {
         type: 'RETRY_TASK',
         taskId: 'task-5',
+        platform: owner.platform,
+        videoId: owner.videoId,
         owner,
         fromStage: 'summarizing',
         modelSnapshot: { provider: 'openai' },
@@ -100,8 +119,111 @@ test('START_TASK creates a runner command, TASK_EVENT returns to background, and
   ])
 })
 
+test('task commands and refresh results cannot cross platform owner bindings', async () => {
+  const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
+  const starts = []
+  const cancels = []
+  const retries = []
+  const bilibiliOwner = createVideoSummaryOwner({
+    tabId: 5,
+    documentId: 'doc-5',
+    platform: 'bilibili',
+    videoId: 'same-id',
+  })
+  const youtubeOwner = createVideoSummaryOwner({
+    tabId: 5,
+    documentId: 'doc-5',
+    platform: 'youtube',
+    videoId: 'same-id',
+  })
+  let refreshPromise
+
+  startVideoSummaryOffscreenRuntime({
+    port,
+    taskRunner: {
+      async start(command) {
+        starts.push(command)
+        refreshPromise = command.requestSourceRefresh({
+          owner: bilibiliOwner,
+          taskId: command.taskId,
+          expectedVideoId: command.owner.videoId,
+        })
+      },
+      cancel(taskId) {
+        cancels.push(taskId)
+      },
+      async retry(taskId) {
+        retries.push(taskId)
+      },
+    },
+    logger: createLogger(),
+    createRequestId: createRequestIdFactory(),
+  })
+
+  port.emitMessage({
+    type: 'START_TASK',
+    taskId: 'same-task',
+    platform: 'bilibili',
+    videoId: 'same-id',
+    owner: bilibiliOwner,
+  })
+  await Promise.resolve()
+  port.emitMessage({
+    type: 'START_TASK',
+    taskId: 'same-task',
+    platform: 'youtube',
+    videoId: 'same-id',
+    owner: youtubeOwner,
+  })
+  port.emitMessage({
+    type: 'RETRY_TASK',
+    taskId: 'same-task',
+    platform: 'youtube',
+    videoId: 'same-id',
+    owner: youtubeOwner,
+  })
+  port.emitMessage({
+    type: 'CANCEL_TASK',
+    taskId: 'same-task',
+    platform: 'youtube',
+    videoId: 'same-id',
+    owner: youtubeOwner,
+  })
+  port.emitMessage({
+    type: 'SOURCE_REFRESH_RESULT',
+    requestId: 'request-1',
+    taskId: 'same-task',
+    platform: 'youtube',
+    videoId: 'same-id',
+    owner: youtubeOwner,
+    sourceSnapshot: { platform: 'youtube', videoId: 'same-id' },
+  })
+  await Promise.resolve()
+
+  assert.equal(starts.length, 1)
+  assert.deepEqual(retries, [])
+  assert.deepEqual(cancels, [])
+  assert.equal(port.postedMessages[0].owner.platform, 'bilibili')
+
+  port.emitMessage({
+    type: 'SOURCE_REFRESH_RESULT',
+    requestId: 'request-1',
+    taskId: 'same-task',
+    platform: 'bilibili',
+    videoId: 'same-id',
+    owner: bilibiliOwner,
+    sourceSnapshot: { platform: 'bilibili', videoId: 'same-id' },
+  })
+  assert.deepEqual(await refreshPromise, { platform: 'bilibili', videoId: 'same-id' })
+})
+
 test('source refresh requests and gateway responses resolve and reject by request id', async () => {
-  const owner = createVideoSummaryOwner({ tabId: 6, documentId: 'doc-6', videoId: 'BV6task' })
+  const owner = createVideoSummaryOwner({
+    tabId: 6,
+    documentId: 'doc-6',
+    platform: 'bilibili',
+    videoId: 'BV6task',
+  })
   const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
   let startCommand = null
   const runtime = startVideoSummaryOffscreenRuntime({
@@ -120,6 +242,8 @@ test('source refresh requests and gateway responses resolve and reject by reques
   port.emitMessage({
     type: 'START_TASK',
     taskId: 'task-6',
+    platform: owner.platform,
+    videoId: owner.videoId,
     owner,
     sourceChoice: 'asr',
     sourceSnapshot: { videoId: owner.videoId },
@@ -151,6 +275,8 @@ test('source refresh requests and gateway responses resolve and reject by reques
       type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.sourceRefreshRequest,
       requestId: 'request-1',
       taskId: 'task-6',
+      platform: owner.platform,
+      videoId: owner.videoId,
       owner,
       expectedVideoId: owner.videoId,
       reason: 'DIRECT_DOWNLOAD_FAILED',
@@ -181,6 +307,8 @@ test('source refresh requests and gateway responses resolve and reject by reques
     type: 'SOURCE_REFRESH_RESULT',
     requestId: 'request-1',
     taskId: 'task-6',
+    platform: owner.platform,
+    videoId: owner.videoId,
     owner,
     sourceSnapshot: { videoId: owner.videoId, refreshed: true },
   })
@@ -251,7 +379,12 @@ test('model capability RPC sends the model snapshot without an extra wrapper', a
 })
 
 test('disconnect rejects every pending source refresh and gateway RPC', async () => {
-  const owner = createVideoSummaryOwner({ tabId: 9, documentId: 'doc-9', videoId: 'BV9task' })
+  const owner = createVideoSummaryOwner({
+    tabId: 9,
+    documentId: 'doc-9',
+    platform: 'bilibili',
+    videoId: 'BV9task',
+  })
   const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
   let startCommand = null
   const runtime = startVideoSummaryOffscreenRuntime({
@@ -270,6 +403,8 @@ test('disconnect rejects every pending source refresh and gateway RPC', async ()
   port.emitMessage({
     type: 'START_TASK',
     taskId: 'task-9',
+    platform: owner.platform,
+    videoId: owner.videoId,
     owner,
     sourceChoice: 'asr',
     sourceSnapshot: { videoId: owner.videoId },

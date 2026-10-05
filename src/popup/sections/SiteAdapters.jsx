@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { BilibiliVideoTranscriptionSettings } from './BilibiliVideoTranscriptionSettings.jsx'
+import { VideoSummarySettings } from './VideoSummarySettings.jsx'
 
 const siteDisplayNames = {
   bilibili: 'Bilibili',
@@ -39,11 +39,9 @@ export function SiteAdapters({ config, updateConfig }) {
             />
             {siteDisplayNames[key] || key}
           </label>
-          {key === 'bilibili' ? (
-            <BilibiliVideoTranscriptionSettings config={config} updateConfig={updateConfig} />
-          ) : null}
         </div>
       ))}
+      <VideoSummarySettings config={config} updateConfig={updateConfig} />
     </>
   )
 }

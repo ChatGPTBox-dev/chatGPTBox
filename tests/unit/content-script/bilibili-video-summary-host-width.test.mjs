@@ -5,7 +5,7 @@ import test from 'node:test'
 import {
   calculateVideoSummaryHostWidth,
   createVideoSummaryHostWidthController,
-} from '../../../src/content-script/site-adapters/bilibili/video-summary-host-width.mjs'
+} from '../../../src/content-script/video-summary-host-width.mjs'
 
 test('host width expands rightward within preferred, extra-width, and viewport limits', () => {
   assert.equal(
@@ -70,16 +70,16 @@ test('host width controller updates on resize and releases listeners on dispose'
     ResizeObserverImpl: FakeResizeObserver,
   })
 
-  assert.equal(styleValues.get('--bilibili-video-summary-width'), '560px')
+  assert.equal(styleValues.get('--video-summary-width'), '560px')
   assert.equal(observedTarget, targetElement)
 
   windowObject.innerWidth = 1870
   listeners.get('resize')()
-  assert.equal(styleValues.get('--bilibili-video-summary-width'), '446px')
+  assert.equal(styleValues.get('--video-summary-width'), '446px')
 
   windowObject.innerWidth = 1820
   observerCallback()
-  assert.equal(styleValues.get('--bilibili-video-summary-width'), '420px')
+  assert.equal(styleValues.get('--video-summary-width'), '420px')
 
   controller.dispose()
   assert.equal(observerDisconnected, true)
@@ -88,14 +88,11 @@ test('host width controller updates on resize and releases listeners on dispose'
 
 test('host styles unlock only the clipping Bilibili ancestors that contain the summary', () => {
   const styles = readFileSync(
-    new URL('../../../src/components/BilibiliVideoSummaryView/styles.scss', import.meta.url),
+    new URL('../../../src/components/VideoSummaryView/styles.scss', import.meta.url),
     'utf8',
   )
 
-  assert.equal(
-    styles.includes('.video-pod-above-modules__inner:has(.bilibili-video-summary-host)'),
-    true,
-  )
-  assert.equal(styles.includes('.video-pod-above-modules:has(.bilibili-video-summary-host)'), true)
+  assert.equal(styles.includes('.video-pod-above-modules__inner:has(.video-summary-host)'), true)
+  assert.equal(styles.includes('.video-pod-above-modules:has(.video-summary-host)'), true)
   assert.match(styles, /overflow:\s*visible\s*!important/)
 })

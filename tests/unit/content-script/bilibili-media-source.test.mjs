@@ -308,7 +308,7 @@ test('normalizes and orders player subtitle tracks by source kind', async () => 
       { id: '3', sourceKind: 'unknown' },
     ],
   )
-  assert.equal(selectPreferredBilibiliSubtitleTrack(tracks).id, '1')
+  assert.equal(selectPreferredBilibiliSubtitleTrack(tracks, 'zh-CN').id, '1')
 })
 
 test('skips a failing player subtitle body while retaining usable tracks', async () => {

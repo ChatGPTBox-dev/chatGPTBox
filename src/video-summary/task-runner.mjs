@@ -90,7 +90,7 @@ function createNativeSubtitleTranscription(sourceSnapshot, subtitleTrackId) {
   const normalizedTrackId = String(subtitleTrackId || '').trim()
   const track = tracks.find((item) => String(item?.id || '') === normalizedTrackId) || null
   const cues = Array.isArray(track?.cues) ? track.cues : []
-  if (!track || cues.length === 0) throw new Error('BILIBILI_SUBTITLE_TRACK_NOT_FOUND')
+  if (!track || cues.length === 0) throw new Error('VIDEO_NATIVE_SUBTITLES_NOT_FOUND')
 
   const segments = cues
     .map((cue, index) => ({
@@ -103,7 +103,7 @@ function createNativeSubtitleTranscription(sourceSnapshot, subtitleTrackId) {
     }))
     .filter((segment) => segment.text)
 
-  if (segments.length === 0) throw new Error('BILIBILI_SUBTITLE_TRACK_NOT_FOUND')
+  if (segments.length === 0) throw new Error('VIDEO_NATIVE_SUBTITLES_NOT_FOUND')
 
   return {
     durationMs: Math.max(...segments.map((segment) => segment.endMs), 0),

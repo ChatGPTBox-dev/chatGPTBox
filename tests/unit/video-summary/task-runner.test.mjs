@@ -614,7 +614,7 @@ test('Bilibili subtitle choice uses the requested track and never calls MediaKit
   assert.equal(result.transcriptSegments[0].id, 'native-1')
 })
 
-test('Bilibili subtitle choice rejects a missing requested track without MediaKit fallback', async () => {
+test('native subtitle choice rejects a missing requested track without MediaKit fallback', async () => {
   const mediaCalls = []
   const runner = createVideoTaskRunner({
     mediaPipeline: {
@@ -639,7 +639,7 @@ test('Bilibili subtitle choice rejects a missing requested track without MediaKi
         },
         () => {},
       ),
-    { message: 'BILIBILI_SUBTITLE_TRACK_NOT_FOUND' },
+    { message: 'VIDEO_NATIVE_SUBTITLES_NOT_FOUND' },
   )
   assert.equal(mediaCalls.length, 0)
 })

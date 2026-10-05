@@ -1,9 +1,7 @@
-/* global __ENABLE_BILIBILI_VIDEO_TRANSCRIPTION__ */
+/* global __ENABLE_VIDEO_SUMMARY__ */
 
 export function isVideoSummaryBuildEnabled() {
-  return typeof __ENABLE_BILIBILI_VIDEO_TRANSCRIPTION__ !== 'undefined'
-    ? __ENABLE_BILIBILI_VIDEO_TRANSCRIPTION__ === true
-    : false
+  return typeof __ENABLE_VIDEO_SUMMARY__ !== 'undefined' && __ENABLE_VIDEO_SUMMARY__ === true
 }
 
 export function isVideoSummaryRuntimeSupported({
@@ -20,6 +18,8 @@ export function isVideoSummaryRuntimeSupported({
   )
 }
 
-export function isBilibiliVideoTranscriptionEnabled(config) {
-  return isVideoSummaryBuildEnabled() && config?.bilibiliVideoTranscriptionEnabled === true
+export function isVideoSummaryEnabled(config) {
+  return isVideoSummaryBuildEnabled() && config?.videoTranscriptionEnabled === true
 }
+
+export const isBilibiliVideoTranscriptionEnabled = isVideoSummaryEnabled

@@ -28,7 +28,8 @@
     "webRequest",
     "declarativeNetRequestWithHostAccess",
     "sidePanel",
-    "offscreen"
+    "offscreen",
+    "scripting"
   ],
   "optional_permissions": [
     "background"
