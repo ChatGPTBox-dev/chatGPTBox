@@ -146,11 +146,33 @@ One entry per retained task generation:
   checkpointAvailable,
   replayEvent,
   expiresAt,
+  retryRecord: null | {
+    requestId,
+    requestHash,
+    state: 'pending' | 'started' | 'rejected',
+    response,
+  },
 }
 ```
 
-This record owns replay state. Offscreen owns the corresponding transcript checkpoint. A retained task
-may retry only when its `(tabId, platform)` execution slot is empty.
+This record owns replay state and at most one current retry mutation. Offscreen owns the corresponding
+transcript checkpoint. A retained task may retry only when its `(tabId, platform)` execution slot is
+empty.
+
+`requestHash` is a deterministic hash of normalized `fromStage` and validated model identity. Retry
+record rules are:
+
+- same request ID and different hash returns `VIDEO_SUMMARY_REQUEST_ID_CONFLICT`;
+- same request ID/hash while `pending` attaches to the same in-memory completion and receives its
+  eventual ACK; it does not allocate another attempt;
+- same request ID/hash after `started` or `rejected` returns the stored response;
+- a different request ID may replace a terminal retry record only when no active slot exists and the
+  retained task is still retryable; replacement begins the next explicit user retry;
+- a pending record is never replaced;
+- the retry record is deleted with the retained task.
+
+This preserves a lost retry ACK without introducing a general retry journal or preventing a later
+explicit retry.
 
 Terminal and retryable records expire 15 minutes after attempt terminal time, regardless of
 attachment. Expiry sends `DELETE_TASK`, which removes the Offscreen checkpoint. Explicit cancel,
@@ -186,13 +208,24 @@ For initial start, Background validates the content request, checks `(documentId
 requires an empty `(tabId, platform)` slot, allocates `generation` and `attempt = 1`, and creates the
 retained task shell and capability.
 
-For retry, Background validates the retained task and checkpoint, requires an empty execution slot,
-and allocates `attempt + 1` under the same generation. Offscreen never allocates a fence.
+For retry, Background validates the retained task and checkpoint, checks or creates its single
+`retryRecord`, requires an empty execution slot, and allocates `attempt + 1` under the same generation.
+The record becomes `started` with the returned response only after attempt authorization; rejection
+stores the rejected response. Offscreen never allocates a fence.
 
 ### 7.2 Start protocol
 
-Background reserves `activeSlots[(tabId, platform)]`, immediately writes synthetic `TASK_STARTED` to
-the retained task, installs the exact attempt model capability, and sends:
+For an initial start, Background performs one synchronous send-commit segment: it performs the final
+cancellation-marker check, reserves `activeSlots[(tabId, platform)]`, creates the retained shell and
+capability, writes synthetic `TASK_STARTED`, and calls `port.postMessage(START_ATTEMPT)` before yielding
+back to the event loop. For retry, the same segment checks `retryRecord`, clears expiry, reserves the
+slot, installs the next attempt capability, writes `TASK_STARTED`, and posts the command.
+
+If cancellation is already present before this segment, Background creates no fence state: it removes
+any provisional slot, retained shell, and capability locally, records `START_ACK(cancelled, null)`, and
+does not start a release watchdog because Offscreen never received an attempt.
+
+The posted command is:
 
 ```js
 {
@@ -246,8 +279,11 @@ Before receiving a fence, Content sends:
 
 Background resolves the target by `(documentId, taskId, targetStartRequestId)`:
 
-- while the start record is pending, it sets the cancellation marker; every start continuation checks
-  that marker before slot reservation, before `START_ATTEMPT`, and after `ATTEMPT_ACCEPTED`;
+- while the start record is pending and the synchronous send-commit segment has not begun, it sets the
+  cancellation marker; the send-commit segment performs the final check and rolls back locally when
+  marked;
+- once the send-commit segment posts `START_ATTEMPT`, the start record contains its fence and later
+  cancellation follows generation cancel/release;
 - when the start record already contains a started fence, it immediately executes generation cancel
   using that fence, even if Content has not received it yet;
 - a repeated `CANCEL_START` returns the recorded outcome for `cancelRequestId`.
