@@ -693,7 +693,7 @@ test('ensureVideoSummaryOffscreenDocument single-flights creation and reuses the
   assert.deepEqual(createCalls[0], {
     url: VIDEO_SUMMARY_OFFSCREEN_PATH,
     reasons: ['DOM_PARSER'],
-    justification: 'Run the Bilibili video summary offscreen task lifecycle.',
+    justification: 'Run the enhanced video summary task lifecycle.',
   })
 })
 
