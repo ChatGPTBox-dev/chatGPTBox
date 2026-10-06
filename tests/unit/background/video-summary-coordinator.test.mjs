@@ -450,7 +450,8 @@ test('terminal event is stored before delivery and release ACK retains checkpoin
   harness.release()
   assert.equal(harness.coordinator.debugState().activeSlots.length, 0)
   assert.equal(harness.coordinator.debugState().retainedTasks.length, 1)
-  assert.equal(harness.coordinator.debugState().capabilities.length, 0)
+  assert.equal(harness.coordinator.debugState().capabilities.length, 1)
+  assert.equal(harness.coordinator.debugState().capabilities[0].currentAttempt, null)
   assert.equal(harness.offscreenMessages.at(-1).type, 'EXECUTION_RELEASED_ACK')
   assert.equal(harness.coordinator.debugState().retainedTasks[0].expiresAt, 900_000)
 })
@@ -694,26 +695,6 @@ test('oversized replay is replaced and progress stores only one event', async ()
   assert.equal(retained.replayEvent.errorCode, 'VIDEO_SUMMARY_RESULT_TOO_LARGE')
 })
 
-test('more than 16 pending gateway RPCs for a fence is rejected', async () => {
-  const harness = createHarness()
-  await begin(harness)
-  harness.acceptAttempt()
-  const fence = harness.offscreenMessages[0].fence
-  for (let index = 0; index < 17; index += 1) {
-    harness.coordinator.handleOffscreenMessage({
-      type: 'GATEWAY_REQUEST',
-      requestId: `rpc-${index}`,
-      fence,
-      gateway: 'model',
-      operation: 'generateText',
-      args: {},
-    })
-  }
-  assert.equal(harness.offscreenMessages.at(-1).type, 'GATEWAY_RESPONSE')
-  assert.equal(harness.offscreenMessages.at(-1).error.code, 'VIDEO_SUMMARY_PROTOCOL_LIMIT_EXCEEDED')
-  assert.equal(harness.coordinator.debugState().capabilities[0].pendingRpcIds.length, 16)
-})
-
 test('nested owner maps keep delimiter-containing IDs distinct', async () => {
   const harness = createHarness()
   const firstContext = {
@@ -750,4 +731,274 @@ test('nested owner maps keep delimiter-containing IDs distinct', async () => {
     secondContext,
   )
   assert.equal(harness.coordinator.debugState().retainedTasks.length, 2)
+})
+
+function asrStart(overrides = {}) {
+  const command = {
+    ...start,
+    sourceChoice: 'asr',
+    sourceSnapshot: {
+      ...start.sourceSnapshot,
+      mediaCandidates: [
+        {
+          id: 'audio-1',
+          mediaMetadata: { durationMs: 10_000 },
+          remoteCandidate: { url: 'https://media.example/audio.m4a' },
+          localFetchRecipe: null,
+        },
+      ],
+    },
+    settingsSnapshot: { ...start.settingsSnapshot, asrConfirmed: true },
+    ...overrides,
+  }
+  delete command.subtitleTrackId
+  return command
+}
+
+async function authorizeStarted(harness, command = start) {
+  const attempt = await begin(harness, command)
+  harness.acceptAttempt(harness.offscreenMessages.indexOf(attempt))
+  return attempt.fence
+}
+
+function authorize(coordinator, fence, operation, args, gateway = 'mediakit') {
+  return coordinator.authorizeGatewayRequest({
+    fence,
+    requestId: `request-${operation}`,
+    gateway,
+    operation,
+    args,
+  })
+}
+
+test('gateway capabilities enforce exact source, candidate, provider task, upload target, and model', async () => {
+  const nativeHarness = createHarness()
+  const nativeFence = await authorizeStarted(nativeHarness)
+  assert.throws(
+    () =>
+      authorize(nativeHarness.coordinator, nativeFence, 'submitDirectAsr', {
+        audioUrl: 'https://media.example/audio.m4a',
+      }),
+    /VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED/,
+  )
+
+  const harness = createHarness()
+  const asrFence = await authorizeStarted(harness, asrStart())
+  const modelArgs = { modelSnapshot: structuredClone(start.modelSnapshot), messages: [] }
+  const cases = [
+    [
+      'different candidate cannot be substituted',
+      asrFence,
+      'mediakit',
+      'submitDirectAsr',
+      { audioUrl: 'https://evil.example/audio.m4a' },
+    ],
+    [
+      'different provider task cannot be queried',
+      asrFence,
+      'mediakit',
+      'queryTask',
+      { taskId: 'provider-task-other' },
+    ],
+    [
+      'different upload target cannot be submitted',
+      asrFence,
+      'mediakit',
+      'submitUploadedAsr',
+      { uploadTarget: { url: 'https://upload.example/wrong' } },
+    ],
+    [
+      'different model cannot be substituted',
+      asrFence,
+      'model',
+      'generateText',
+      { ...modelArgs, modelSnapshot: { modelName: 'different', apiMode: null } },
+    ],
+  ]
+  for (const [name, fence, gateway, operation, args] of cases) {
+    assert.throws(
+      () =>
+        harness.coordinator.authorizeGatewayRequest({
+          fence,
+          requestId: name,
+          gateway,
+          operation,
+          args,
+        }),
+      /VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED/,
+      name,
+    )
+  }
+})
+
+test('gateway submission and fallback reservations are single use and exact-bound', async () => {
+  const harness = createHarness()
+  const fence = await authorizeStarted(harness, asrStart())
+  const directArgs = { audioUrl: 'https://media.example/audio.m4a', confirmed: true }
+  const firstDirect = authorize(harness.coordinator, fence, 'submitDirectAsr', directArgs)
+  assert.equal(firstDirect.reservation.kind, 'direct-submit')
+  assert.throws(
+    () => authorize(harness.coordinator, fence, 'submitDirectAsr', directArgs),
+    /VIDEO_SUMMARY_SUBMISSION_ALREADY_CONSUMED/,
+  )
+  assert.throws(
+    () => authorize(harness.coordinator, fence, 'requestUploadTarget', {}),
+    /VIDEO_SUMMARY_FALLBACK_NOT_ELIGIBLE/,
+  )
+  harness.coordinator.completeGatewayRequest({
+    fence,
+    requestId: 'request-submitDirectAsr',
+    gateway: 'mediakit',
+    operation: 'submitDirectAsr',
+    outcome: { ok: true, result: { taskId: 'provider-task-1' } },
+  })
+  const transition = authorize(harness.coordinator, fence, 'markFallbackEligible', {
+    providerTaskId: 'provider-task-1',
+    providerCode: 'URL_DOWNLOAD_FAILED',
+  })
+  assert.equal(transition.reservation.kind, 'fallback-transition')
+  const upload = authorize(harness.coordinator, fence, 'requestUploadTarget', {})
+  assert.equal(upload.reservation.kind, 'upload-target')
+  assert.throws(
+    () => authorize(harness.coordinator, fence, 'requestUploadTarget', {}),
+    /VIDEO_SUMMARY_UPLOAD_TARGET_ALREADY_ISSUED/,
+  )
+  harness.coordinator.completeGatewayRequest({
+    fence,
+    requestId: 'request-requestUploadTarget',
+    gateway: 'mediakit',
+    operation: 'requestUploadTarget',
+    outcome: {
+      ok: true,
+      result: {
+        url: 'https://upload.example/audio',
+        method: 'PUT',
+        headers: { 'x-upload': 'value' },
+        fileReference: 'mediakit://file-1',
+      },
+    },
+  })
+  const fallback = authorize(harness.coordinator, fence, 'submitUploadedAsr', {
+    uploadTarget: {
+      url: 'https://upload.example/audio',
+      method: 'PUT',
+      headers: { 'x-upload': 'value' },
+      fileReference: 'mediakit://file-1',
+    },
+    audioUrl: 'mediakit://file-1',
+  })
+  assert.equal(fallback.reservation.kind, 'fallback-submit')
+  assert.throws(
+    () => authorize(harness.coordinator, fence, 'submitUploadedAsr', fallback.args),
+    /VIDEO_SUMMARY_SUBMISSION_ALREADY_CONSUMED/,
+  )
+})
+
+test('ambiguous completion preserves consumed reservation and only documented failure enables fallback', async () => {
+  const harness = createHarness()
+  const fence = await authorizeStarted(harness, asrStart())
+  authorize(harness.coordinator, fence, 'submitDirectAsr', {
+    audioUrl: 'https://media.example/audio.m4a',
+  })
+  harness.coordinator.completeGatewayRequest({
+    fence,
+    requestId: 'request-submitDirectAsr',
+    gateway: 'mediakit',
+    operation: 'submitDirectAsr',
+    outcome: { ok: false, error: { code: 'VIDEO_SUMMARY_SUBMISSION_UNKNOWN' } },
+  })
+  assert.throws(
+    () =>
+      authorize(harness.coordinator, fence, 'submitDirectAsr', {
+        audioUrl: 'https://media.example/audio.m4a',
+      }),
+    /VIDEO_SUMMARY_SUBMISSION_ALREADY_CONSUMED/,
+  )
+  for (const providerCode of ['PENDING', 'ACTIVE', 'COMPLETED', 'OTHER', 'UNKNOWN']) {
+    assert.throws(
+      () =>
+        authorize(harness.coordinator, fence, 'markFallbackEligible', {
+          providerTaskId: 'provider-task-1',
+          providerCode,
+        }),
+      /VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED/,
+    )
+  }
+})
+
+test('old attempt completion cannot mutate the current generation capability', async () => {
+  const harness = createHarness()
+  const firstFence = await authorizeStarted(harness, asrStart())
+  authorize(harness.coordinator, firstFence, 'submitDirectAsr', {
+    audioUrl: 'https://media.example/audio.m4a',
+  })
+  harness.event({ type: 'TASK_FAILED', checkpointAvailable: true, errorCode: 'MODEL_FAILED' })
+  harness.release()
+  const retryAttempt = await begin(harness, retry())
+  harness.acceptAttempt(harness.offscreenMessages.indexOf(retryAttempt))
+  harness.coordinator.completeGatewayRequest({
+    fence: firstFence,
+    requestId: 'late-direct',
+    gateway: 'mediakit',
+    operation: 'submitDirectAsr',
+    outcome: { ok: true, result: { taskId: 'late-provider-task' } },
+  })
+  assert.throws(
+    () =>
+      authorize(harness.coordinator, retryAttempt.fence, 'queryTask', {
+        taskId: 'late-provider-task',
+      }),
+    /VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED/,
+  )
+})
+
+test('terminal attempt clears model authority, retry binds only its new model, and deletion removes capability', async () => {
+  const harness = createHarness()
+  const firstFence = await authorizeStarted(harness)
+  const firstModel = { modelSnapshot: structuredClone(start.modelSnapshot), messages: [] }
+  assert.equal(
+    authorize(harness.coordinator, firstFence, 'generateText', firstModel, 'model').reservation,
+    null,
+  )
+  harness.event({ type: 'TASK_FAILED', checkpointAvailable: true, errorCode: 'MODEL_FAILED' })
+  assert.throws(
+    () => authorize(harness.coordinator, firstFence, 'generateText', firstModel, 'model'),
+    /VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED/,
+  )
+  harness.release()
+  assert.throws(
+    () => authorize(harness.coordinator, firstFence, 'generateText', firstModel, 'model'),
+    /VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED/,
+  )
+
+  const nextModel = { modelName: 'custom-next', apiMode: { providerId: 'next' } }
+  const retryAttempt = await begin(harness, retry({ modelSnapshot: nextModel }))
+  harness.acceptAttempt(harness.offscreenMessages.indexOf(retryAttempt))
+  assert.throws(
+    () => authorize(harness.coordinator, firstFence, 'generateText', firstModel, 'model'),
+    /VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED/,
+  )
+  assert.equal(
+    authorize(
+      harness.coordinator,
+      retryAttempt.fence,
+      'generateText',
+      { modelSnapshot: nextModel, messages: [] },
+      'model',
+    ).reservation,
+    null,
+  )
+  harness.event(
+    { type: 'TASK_COMPLETED', checkpointAvailable: true, result: { summary: 'ok' } },
+    harness.offscreenMessages.indexOf(retryAttempt),
+  )
+  harness.release(harness.offscreenMessages.indexOf(retryAttempt))
+  await harness.coordinator.handleContentCommand({
+    context,
+    port: harness.port,
+    command: { type: 'CANCEL_TASK', taskId: 'task-1', generation: 1, pageIdentity: identity },
+  })
+  const deletion = harness.offscreenMessages.at(-1)
+  harness.coordinator.handleOffscreenMessage({ ...deletion, type: 'TASK_DELETED' })
+  assert.equal(harness.coordinator.debugState().capabilities.length, 0)
 })

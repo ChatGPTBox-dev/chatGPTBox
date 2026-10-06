@@ -4,8 +4,14 @@ export const VIDEO_SUMMARY_PLATFORMS = Object.freeze(['bilibili', 'youtube'])
 export const VIDEO_SUMMARY_OFFSCREEN_PATH = 'VideoSummaryOffscreen.html'
 export const VIDEO_SUMMARY_STORAGE_KEY = 'mediaKitApiKey'
 export const VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS = Object.freeze({
-  mediakit: Object.freeze(['submitDirectAsr', 'requestUploadTarget', 'queryTask']),
-  model: Object.freeze(['describeCapabilities', 'generateText', 'cancel']),
+  mediakit: Object.freeze([
+    'submitDirectAsr',
+    'markFallbackEligible',
+    'requestUploadTarget',
+    'submitUploadedAsr',
+    'queryTask',
+  ]),
+  model: Object.freeze(['describeCapabilities', 'generateText']),
 })
 
 export function assertVideoSummaryPlatform(platform) {

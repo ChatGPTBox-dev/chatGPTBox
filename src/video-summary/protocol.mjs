@@ -1,3 +1,5 @@
+import { VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS } from './contracts.mjs'
+
 const MiB = 1024 * 1024
 
 export const VIDEO_SUMMARY_PROTOCOL_LIMITS = Object.freeze({
@@ -656,9 +658,12 @@ function parseGatewayRequest(value) {
     type: value.type,
     requestId: text(value.requestId),
     fence: parseFence(value.fence),
-    gateway: text(value.gateway),
+    gateway: oneOf(value.gateway, Object.keys(VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS)),
     operation: text(value.operation),
     args: validateLoosePlainObject(value.args),
+  }
+  if (!VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS[parsed.gateway].includes(parsed.operation)) {
+    fail('VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED')
   }
   inspectHeaders(parsed.args)
   return parsed

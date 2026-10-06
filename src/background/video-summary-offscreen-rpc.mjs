@@ -50,48 +50,58 @@ export function createVideoSummaryOffscreenRpc({
   }
 
   async function dispatchGateway(message) {
-    if (coordinator.handleOffscreenMessage(message) !== true) return
-    const gateway = gateways[message.gateway]
-    const allowed = VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS[message.gateway] || []
     let response
-    if (
-      !gateway ||
-      !allowed.includes(message.operation) ||
-      typeof gateway[message.operation] !== 'function'
-    ) {
+    let outcome
+    let authorizedRequest = false
+    try {
+      const authorized = coordinator.authorizeGatewayRequest({
+        fence: message.fence,
+        requestId: message.requestId,
+        gateway: message.gateway,
+        operation: message.operation,
+        args: message.args,
+      })
+      authorizedRequest = true
+      const gateway = gateways[message.gateway]
+      const allowed = VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS[message.gateway] || []
+      if (!allowed.includes(message.operation)) {
+        throw new Error('VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED')
+      }
+      const result =
+        message.operation === 'markFallbackEligible'
+          ? {}
+          : await gateway?.[message.operation]?.(structuredClone(authorized.args))
+      if (
+        message.operation !== 'markFallbackEligible' &&
+        typeof gateway?.[message.operation] !== 'function'
+      ) {
+        throw new Error('VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED')
+      }
+      outcome = { ok: true, result: serializeResult(result, message.operation) }
       response = {
         type: 'GATEWAY_RESPONSE',
         requestId: message.requestId,
         fence: message.fence,
-        ok: false,
-        error: serializeError(
-          { code: 'VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED' },
-          message.operation,
-        ),
+        ...outcome,
       }
-    } else {
-      try {
-        response = {
-          type: 'GATEWAY_RESPONSE',
-          requestId: message.requestId,
-          fence: message.fence,
-          ok: true,
-          result: serializeResult(
-            await gateway[message.operation](message.args),
-            message.operation,
-          ),
-        }
-      } catch (error) {
-        response = {
-          type: 'GATEWAY_RESPONSE',
-          requestId: message.requestId,
-          fence: message.fence,
-          ok: false,
-          error: serializeError(error, message.operation),
-        }
+    } catch (error) {
+      outcome = { ok: false, error: serializeError(error, message.operation) }
+      response = {
+        type: 'GATEWAY_RESPONSE',
+        requestId: message.requestId,
+        fence: message.fence,
+        ...outcome,
       }
     }
-    coordinator.completeGatewayRequest(message.fence, message.requestId)
+    if (authorizedRequest) {
+      coordinator.completeGatewayRequest({
+        fence: message.fence,
+        requestId: message.requestId,
+        gateway: message.gateway,
+        operation: message.operation,
+        outcome,
+      })
+    }
     postCommand(response)
   }
 

@@ -164,6 +164,10 @@ const videoSummaryClock = {
   setTimeout: globalThis.setTimeout.bind(globalThis),
   clearTimeout: globalThis.clearTimeout.bind(globalThis),
 }
+const videoSummaryMediaKitGateway = {
+  ...mediaKitGateway,
+  submitUploadedAsr: (args) => mediaKitGateway.submitDirectAsr(args),
+}
 const videoSummaryOffscreenState = { port: null }
 let videoSummaryOffscreenRpc
 
@@ -213,7 +217,7 @@ const videoSummaryCoordinator = createVideoSummaryCoordinator({
   },
 })
 videoSummaryOffscreenRpc = createVideoSummaryOffscreenRpc({
-  mediaKitGateway,
+  mediaKitGateway: videoSummaryMediaKitGateway,
   modelGateway,
   coordinator: videoSummaryCoordinator,
   logger: videoSummaryLogger,

@@ -1,5 +1,4 @@
 import {
-  VIDEO_SUMMARY_PROTOCOL_LIMITS,
   fencesEqual,
   hashRetryRequest,
   hashStartRequest,
@@ -71,8 +70,22 @@ function retainedKeys(owner, taskId, generation) {
   return [...ownerKeys(owner), taskId, generation]
 }
 
-function capabilityKeys(fence) {
-  return [...retainedKeys(fence.owner, fence.taskId, fence.generation), fence.attempt]
+function capabilityKeys({ owner, taskId, generation }) {
+  return retainedKeys(owner, taskId, generation)
+}
+
+function fail(code) {
+  throw new Error(code)
+}
+
+function boundedId(value) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 128) {
+    fail('VIDEO_SUMMARY_PROTOCOL_FIELD_INVALID')
+  }
+}
+
+function valuesEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function isTerminalEvent(event) {
@@ -183,11 +196,149 @@ export function createVideoSummaryCoordinator({
   }
 
   function setCapability(capability) {
-    setNested(capabilities, capabilityKeys(capability.fence), capability)
+    setNested(capabilities, capabilityKeys(capability), capability)
   }
 
   function deleteCapability(fence) {
     deleteNested(capabilities, capabilityKeys(fence))
+  }
+
+  function revokeGenerationCapability({ owner, taskId, generation }) {
+    const capability = getNested(capabilities, retainedKeys(owner, taskId, generation))
+    if (capability) capability.revoked = true
+  }
+
+  function revokeAttemptModelCapability(fence) {
+    const capability = getCapability(fence)
+    if (capability?.currentAttempt?.attempt === fence.attempt) capability.currentAttempt = null
+  }
+
+  function requireExecutableCapability(fence) {
+    const capability = getCapability(fence)
+    const slot = getSlot(fence.owner)
+    if (
+      !capability ||
+      capability.revoked ||
+      !slot ||
+      slot.state !== 'running' ||
+      !fencesEqual(slot.fence, fence) ||
+      capability.currentAttempt?.attempt !== fence.attempt ||
+      !ownersEqual(capability.owner, fence.owner) ||
+      capability.taskId !== fence.taskId ||
+      capability.generation !== fence.generation
+    ) {
+      fail('VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED')
+    }
+    return capability
+  }
+
+  function requireAsrCapability(capability) {
+    if (capability.sourceChoice !== 'asr' || !capability.asrConfirmed) {
+      fail('VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED')
+    }
+  }
+
+  function requireCurrentAttemptModel(capability, args) {
+    const modelIdentity = args?.modelSnapshot ?? args
+    const normalizedIdentity = { ...modelIdentity }
+    delete normalizedIdentity.taskId
+    if (!valuesEqual(capability.currentAttempt.modelIdentity, normalizedIdentity)) {
+      fail('VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED')
+    }
+  }
+
+  function authorizeGatewayRequest({ fence, requestId, gateway, operation, args }) {
+    const capability = requireExecutableCapability(fence)
+    boundedId(requestId)
+    const authorizedArgs = clone(args)
+
+    if (gateway === 'model') {
+      if (!['describeCapabilities', 'generateText'].includes(operation)) {
+        fail('VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED')
+      }
+      requireCurrentAttemptModel(capability, authorizedArgs)
+      return { args: authorizedArgs, reservation: null }
+    }
+    if (gateway !== 'mediakit') fail('VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED')
+
+    requireAsrCapability(capability)
+    if (operation === 'submitDirectAsr') {
+      if (!capability.candidateUrls.includes(authorizedArgs.audioUrl)) {
+        fail('VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED')
+      }
+      if (capability.directSubmission !== 'available') {
+        fail('VIDEO_SUMMARY_SUBMISSION_ALREADY_CONSUMED')
+      }
+      capability.directSubmission = 'consumed'
+      return { args: authorizedArgs, reservation: { kind: 'direct-submit' } }
+    }
+    if (operation === 'markFallbackEligible') {
+      if (
+        capability.directSubmission !== 'consumed' ||
+        capability.providerTaskId !== authorizedArgs.providerTaskId ||
+        !['URL_DOWNLOAD_FAILED', 'AUDIO_URL_DOWNLOAD_FAILED'].includes(authorizedArgs.providerCode)
+      ) {
+        fail('VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED')
+      }
+      capability.directSubmission = 'fallback-eligible'
+      return { args: authorizedArgs, reservation: { kind: 'fallback-transition' } }
+    }
+    if (operation === 'requestUploadTarget') {
+      if (capability.directSubmission !== 'fallback-eligible') {
+        fail('VIDEO_SUMMARY_FALLBACK_NOT_ELIGIBLE')
+      }
+      if (capability.fallbackSubmission !== 'unavailable') {
+        fail('VIDEO_SUMMARY_UPLOAD_TARGET_ALREADY_ISSUED')
+      }
+      capability.fallbackSubmission = 'target-issued'
+      return { args: authorizedArgs, reservation: { kind: 'upload-target' } }
+    }
+    if (operation === 'submitUploadedAsr') {
+      if (capability.fallbackSubmission !== 'target-issued') {
+        if (capability.fallbackSubmission === 'consumed') {
+          fail('VIDEO_SUMMARY_SUBMISSION_ALREADY_CONSUMED')
+        }
+        fail('VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED')
+      }
+      const submittedTarget = authorizedArgs.uploadTarget ?? {
+        url: authorizedArgs.url,
+        method: authorizedArgs.method,
+        headers: authorizedArgs.headers,
+        fileReference: authorizedArgs.audioUrl,
+      }
+      if (!capability.uploadTarget || !valuesEqual(capability.uploadTarget, submittedTarget)) {
+        fail('VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED')
+      }
+      capability.fallbackSubmission = 'consumed'
+      return { args: authorizedArgs, reservation: { kind: 'fallback-submit' } }
+    }
+    if (operation === 'queryTask') {
+      if (!capability.providerTaskId || capability.providerTaskId !== authorizedArgs.taskId) {
+        fail('VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED')
+      }
+      return { args: authorizedArgs, reservation: null }
+    }
+    fail('VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED')
+  }
+
+  function completeGatewayRequest({ fence, gateway, operation, outcome }) {
+    const capability = getCapability(fence)
+    if (
+      !capability ||
+      capability.revoked ||
+      capability.currentAttempt?.attempt !== fence.attempt ||
+      gateway !== 'mediakit' ||
+      !outcome?.ok
+    ) {
+      return
+    }
+    if (operation === 'requestUploadTarget') {
+      capability.uploadTarget = clone(outcome.result)
+    } else if (operation === 'submitDirectAsr' || operation === 'submitUploadedAsr') {
+      if (typeof outcome.result?.taskId === 'string' && outcome.result.taskId) {
+        capability.providerTaskId = outcome.result.taskId
+      }
+    }
   }
 
   function latestFence(record) {
@@ -227,15 +378,11 @@ export function createVideoSummaryCoordinator({
     clearTimer(record, 'deleteTimerId')
     clearTimer(record, 'disconnectTimerId')
     deleteNested(retainedTasks, retainedKeys(record.owner, record.taskId, record.generation))
-    for (const capability of valuesNested(capabilities, 7)) {
-      if (
-        ownersEqual(capability.fence.owner, record.owner) &&
-        capability.fence.taskId === record.taskId &&
-        capability.fence.generation === record.generation
-      ) {
-        deleteCapability(capability.fence)
-      }
-    }
+    const capability = getNested(
+      capabilities,
+      retainedKeys(record.owner, record.taskId, record.generation),
+    )
+    if (capability) deleteCapability(capability)
   }
 
   function markRuntimeRestart(record) {
@@ -318,8 +465,7 @@ export function createVideoSummaryCoordinator({
   }
 
   function cancelActive(slot, deleteAfterRelease = false) {
-    const capability = getCapability(slot.fence)
-    if (capability) capability.revoked = true
+    revokeGenerationCapability(slot.fence)
     slot.state = 'cancelling'
     slot.deleteAfterRelease ||= deleteAfterRelease
     clearTimer(slot, 'acceptTimerId')
@@ -347,16 +493,20 @@ export function createVideoSummaryCoordinator({
 
   function createCapability(fence, command) {
     return {
-      fence: clone(fence),
+      owner: clone(fence.owner),
+      taskId: fence.taskId,
+      generation: fence.generation,
       sourceChoice: command.sourceChoice ?? null,
       asrConfirmed: Boolean(command.settingsSnapshot?.asrConfirmed),
       candidateUrls: (command.sourceSnapshot?.mediaCandidates ?? [])
         .map((candidate) => candidate.remoteCandidate?.url)
         .filter(Boolean),
-      modelIdentity: clone(command.modelSnapshot),
-      executable: false,
+      directSubmission: command.sourceChoice === 'asr' ? 'available' : 'consumed',
+      fallbackSubmission: 'unavailable',
+      uploadTarget: null,
+      providerTaskId: null,
+      currentAttempt: { attempt: fence.attempt, modelIdentity: clone(command.modelSnapshot) },
       revoked: false,
-      pendingRpcIds: new Set(),
     }
   }
 
@@ -402,7 +552,19 @@ export function createVideoSummaryCoordinator({
       releaseTimerId: null,
     }
     setSlot(fence.owner, slot)
-    setCapability(createCapability(fence, command))
+    if (mode === 'initial') setCapability(createCapability(fence, command))
+    else {
+      const capability = getCapability(fence)
+      if (!capability || capability.revoked) {
+        rejectPending(record, 'VIDEO_SUMMARY_GATEWAY_CAPABILITY_DENIED')
+        deleteSlot(fence.owner)
+        return false
+      }
+      capability.currentAttempt = {
+        attempt: fence.attempt,
+        modelIdentity: clone(command.modelSnapshot),
+      }
+    }
     retained.port = port
     storeReplay(retained, { type: 'TASK_STARTED', checkpointAvailable: true })
     record.fence = clone(fence)
@@ -706,7 +868,6 @@ export function createVideoSummaryCoordinator({
       cancelActive(slot)
       return
     }
-    capability.executable = true
     slot.state = 'running'
     const response = {
       type: record.kind === 'start' ? 'START_ACK' : 'RETRY_ACK',
@@ -731,7 +892,7 @@ export function createVideoSummaryCoordinator({
     clearTimer(slot, 'acceptTimerId')
     clearTimer(slot, 'releaseTimerId')
     deleteSlot(message.fence.owner)
-    deleteCapability(message.fence)
+    revokeAttemptModelCapability(message.fence)
     const retained = getRetained(
       message.fence.owner,
       message.fence.taskId,
@@ -761,8 +922,7 @@ export function createVideoSummaryCoordinator({
     if (!retained) return
     const event = storeReplay(retained, message.event)
     if (isTerminalEvent(event)) {
-      const capability = getCapability(message.fence)
-      if (capability) capability.executable = false
+      revokeAttemptModelCapability(message.fence)
       startReleaseWatchdog(slot)
     }
     if (retained.port) {
@@ -780,7 +940,7 @@ export function createVideoSummaryCoordinator({
     clearTimer(slot, 'acceptTimerId')
     clearTimer(slot, 'releaseTimerId')
     deleteSlot(message.fence.owner)
-    deleteCapability(message.fence)
+    revokeAttemptModelCapability(message.fence)
     sendOffscreen({ type: 'EXECUTION_RELEASED_ACK', fence: clone(message.fence) })
     const retained = getRetained(
       message.fence.owner,
@@ -798,26 +958,6 @@ export function createVideoSummaryCoordinator({
     clearRetained(retained)
   }
 
-  function gatewayRequest(message) {
-    const capability = getCapability(message.fence)
-    if (!capability || !capability.executable || capability.revoked) return false
-    if (
-      capability.pendingRpcIds.size >= VIDEO_SUMMARY_PROTOCOL_LIMITS.pendingRpcsPerTask &&
-      !capability.pendingRpcIds.has(message.requestId)
-    ) {
-      sendOffscreen({
-        type: 'GATEWAY_RESPONSE',
-        requestId: message.requestId,
-        fence: clone(message.fence),
-        ok: false,
-        error: { code: 'VIDEO_SUMMARY_PROTOCOL_LIMIT_EXCEEDED' },
-      })
-      return false
-    }
-    capability.pendingRpcIds.add(message.requestId)
-    return true
-  }
-
   function handleOffscreenMessage(value) {
     let message
     try {
@@ -830,7 +970,6 @@ export function createVideoSummaryCoordinator({
     else if (message.type === 'TASK_EVENT') taskEvent(message)
     else if (message.type === 'EXECUTION_RELEASED') executionReleased(message)
     else if (message.type === 'TASK_DELETED') taskDeleted(message)
-    else if (message.type === 'GATEWAY_REQUEST') return gatewayRequest(message)
     else if (message.type === 'SOURCE_REFRESH_REQUEST') {
       const retained = getRetained(
         message.fence.owner,
@@ -838,15 +977,20 @@ export function createVideoSummaryCoordinator({
         message.fence.generation,
       )
       const capability = getCapability(message.fence)
-      if (!retained?.port || !capability?.executable || capability.revoked) return false
+      const slot = getSlot(message.fence.owner)
+      if (
+        !retained?.port ||
+        !capability ||
+        capability.revoked ||
+        !slot ||
+        !fencesEqual(slot.fence, message.fence)
+      ) {
+        return false
+      }
       sendContent(retained.port, clone(message))
       return true
     }
     return true
-  }
-
-  function completeGatewayRequest(fence, requestId) {
-    getCapability(fence)?.pendingRpcIds.delete(requestId)
   }
 
   function scheduleDisconnect(record) {
@@ -944,18 +1088,9 @@ export function createVideoSummaryCoordinator({
       .sort((left, right) =>
         `${left.documentId}\0${left.taskId}`.localeCompare(`${right.documentId}\0${right.taskId}`),
       )
-    const capabilityList = valuesNested(capabilities, 7)
-      .map((capability) => ({
-        fence: clone(capability.fence),
-        sourceChoice: capability.sourceChoice,
-        asrConfirmed: capability.asrConfirmed,
-        candidateUrls: clone(capability.candidateUrls),
-        modelIdentity: clone(capability.modelIdentity),
-        executable: capability.executable,
-        revoked: capability.revoked,
-        pendingRpcIds: [...capability.pendingRpcIds].sort(),
-      }))
-      .sort((left, right) => left.fence.generation - right.fence.generation)
+    const capabilityList = valuesNested(capabilities, 6)
+      .map((capability) => clone(capability))
+      .sort((left, right) => left.generation - right.generation)
     return clone({
       activeSlots: slots,
       retainedTasks: retained,
@@ -971,7 +1106,10 @@ export function createVideoSummaryCoordinator({
     handleContentDisconnect,
     handleTabRemoved,
     handleOffscreenDisconnect,
+    authorizeGatewayRequest,
     completeGatewayRequest,
+    revokeGenerationCapability,
+    revokeAttemptModelCapability,
     debugState,
   }
 }
