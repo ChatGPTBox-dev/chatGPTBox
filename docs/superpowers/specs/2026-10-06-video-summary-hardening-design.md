@@ -39,31 +39,20 @@ Each adapter returns one nested `PageIdentity`:
 
 ```js
 // Bilibili
-{
-  platform: 'bilibili',
-  videoId: 'BV...',
-  mediaScope: 'BV...:cid:<cid>',
-  pageNumber: 2,
-  pageId: '<cid>',
-}
+{ platform: 'bilibili', videoId: 'BV...', mediaId: '<cid>' }
 
 // YouTube
-{
-  platform: 'youtube',
-  videoId: '<video-id>',
-  mediaScope: '<video-id>',
-  pageNumber: null,
-  pageId: '<video-id>',
-}
+{ platform: 'youtube', videoId: '<video-id>', mediaId: '<video-id>' }
 ```
 
-Bilibili CID distinguishes multipart media. Source snapshots carry an exactly equal copy. Messages do
+Bilibili CID distinguishes multipart media. `pageNumber` may remain adapter-local display metadata but
+is not part of protocol identity. Source snapshots carry an exactly equal identity copy. Messages do
 not duplicate identity fields at the top level.
 
 Background derives the owner from browser sender metadata and validated page identity:
 
 ```js
-{ tabId, documentId, platform, mediaScope }
+{ tabId, documentId, platform, mediaId }
 ```
 
 The task fence is:
@@ -94,13 +83,9 @@ Invalid ports are disconnected before Offscreen creation.
 
 ### 4.2 Offscreen
 
-Background authenticates Offscreen using browser-provided context identity:
-
-1. query `runtime.getContexts()` for `OFFSCREEN_DOCUMENT` and the exact extension URL;
-2. require same extension ID, no sender tab, exact URL, and sender document ID matching that context.
-
-Port name alone is insufficient. No nonce challenge is added because browser context type, exact URL,
-extension ID, and document ID form the trust root.
+Background accepts the dedicated Offscreen port only when `sender.id === runtime.id`, the sender has
+no tab, and sender URL exactly equals `runtime.getURL(VIDEO_SUMMARY_OFFSCREEN_PATH)`. Port name alone
+is insufficient. No nonce or `runtime.getContexts()` document cross-match is added.
 
 On Background initialization, any existing video-summary Offscreen document is closed before new
 video-summary ports are accepted. A fresh Offscreen is created on demand. If the authenticated
@@ -109,8 +94,8 @@ Offscreen disconnects, Background revokes capabilities, fails current executions
 
 ## 5. Message Validation
 
-Every message has an explicit schema and field allowlist. Reject non-plain data, unknown enums,
-invalid IDs, functions, DOM objects, signals, credentials, arbitrary headers, or mismatched identity.
+Every message has an explicit plain-object schema, field allowlist, type checks, identity checks, and
+size limits. Credentials and caller-defined arbitrary headers are not protocol fields.
 
 | Limit | Value |
 | --- | ---: |
@@ -159,8 +144,7 @@ One entry per retained task generation:
   pageIdentity,
   state: 'retained' | 'deleting',
   checkpointAvailable,
-  latestEvent,
-  terminalEvent,
+  replayEvent,
   expiresAt,
 }
 ```
@@ -228,9 +212,14 @@ Offscreen performs only local registration:
 4. reply `ATTEMPT_ACCEPTED { requestId, fence }` without starting provider work;
 5. wait for `ATTEMPT_AUTHORIZED { requestId, fence }`.
 
-Background accepts the ACK only if the same slot/fence is still starting and not cancelled. It then
-marks the slot running, marks the exact-fence capability executable, sends `ATTEMPT_AUTHORIZED`, and
-returns `START_ACK` or `RETRY_ACK` to Content. `ATTEMPT_AUTHORIZED` and all later gateway RPCs use the
+Background handles `ATTEMPT_ACCEPTED` in one synchronous critical section. For an initial start it
+checks the same starting slot/fence and the start record's cancellation marker, then atomically writes
+`started(fence)` to that record. For retry it checks the corresponding retained task and request
+record. Only the branch that wins this check marks the slot running and exact-fence capability
+executable. It then sends `ATTEMPT_AUTHORIZED` and returns `START_ACK` or `RETRY_ACK` to Content.
+`CANCEL_START` uses the same synchronous record mutation: if it writes the marker first, acceptance
+enters cancellation; if `started(fence)` was written first, cancellation immediately targets that
+generation. `ATTEMPT_AUTHORIZED` and all later gateway RPCs use the
 same authenticated Background↔Offscreen port; port FIFO guarantees authorization arrives before the
 first RPC.
 
@@ -255,9 +244,18 @@ Before receiving a fence, Content sends:
 }
 ```
 
-Background records cancellation in the matching `(documentId, taskId)` start record. Every initial
-start continuation checks that marker before slot reservation, before `START_ATTEMPT`, and after
-`ATTEMPT_ACCEPTED`.
+Background resolves the target by `(documentId, taskId, targetStartRequestId)`:
+
+- while the start record is pending, it sets the cancellation marker; every start continuation checks
+  that marker before slot reservation, before `START_ATTEMPT`, and after `ATTEMPT_ACCEPTED`;
+- when the start record already contains a started fence, it immediately executes generation cancel
+  using that fence, even if Content has not received it yet;
+- a repeated `CANCEL_START` returns the recorded outcome for `cancelRequestId`.
+
+The cancel response is `CANCEL_START_ACK { cancelRequestId, targetStartRequestId, status, fence }`.
+`status` is `cancelled` when no attempt started or `cancelling` when a generation fence exists. The
+target start record is correspondingly replayed as `START_ACK(cancelled, null)` or
+`START_ACK(cancelling, fence)`; it never replays `started` after cancellation won.
 
 Background always settles the target start with one of:
 
@@ -308,19 +306,19 @@ If explicit cancellation finds no active execution, Background atomically marks 
 `deleting` before sending `DELETE_TASK`; deleting tasks reject attach retry/start-from-checkpoint. The
 retained record is removed only after `TASK_DELETED` or Offscreen reset.
 
-Task deletion emits:
+Task deletion uses:
 
 ```text
 DELETE_TASK(owner, taskId, generation)
 TASK_DELETED(owner, taskId, generation)
-TASK_DELETED_ACK(owner, taskId, generation)
 ```
 
 `DELETE_TASK` instructs Offscreen to remove the checkpoint and generation resources. It does not
-remove Background's retained record. Offscreen returns `TASK_DELETED` after local deletion; Background
-then removes the matching `deleting` retained record and replies `TASK_DELETED_ACK`. Release and
-deletion handlers are statelessly idempotent: missing Offscreen resources are treated as already
-deleted, and a missing Background retained record still receives the same ACK.
+remove Background's retained record. Offscreen returns `TASK_DELETED` after local deletion; duplicate
+`DELETE_TASK` treats missing resources as already deleted and returns `TASK_DELETED` again. Background
+then removes the matching `deleting` retained record. Every delete starts a 10-second ACK timeout;
+timeout closes and recreates Offscreen and removes the retained record through runtime-reset cleanup.
+No third acknowledgement is required.
 
 If active execution does not release within 10 seconds after cancellation, Background closes and
 recreates Offscreen, clears active slots and retained checkpoint claims, and reports runtime restart.
@@ -329,16 +327,21 @@ It does not start a second local execution while release is unknown.
 ## 10. Attempt Completion and Retry
 
 Offscreen emits the terminal task event, then releases attempt resources with `EXECUTION_RELEASED`.
-Background stores the bounded event in `retainedTasks` before delivering it and frees the active slot
-on release.
+Background stores the bounded event in `retainedTasks` before delivering it and starts the same
+10-second execution-release watchdog used by cancellation. `EXECUTION_RELEASED` frees the active slot
+and stops the watchdog. Timeout closes and recreates Offscreen, clears the slot, and marks the retained
+checkpoint unavailable; a normal completed/failed event can never leave the slot occupied forever.
 
 - success retains result plus checkpoint for optional summary retry;
 - failure with checkpoint retains retryable state;
 - failure without checkpoint retains terminal error for replay but has no retry action;
 - explicit cancel deletes the retained task after execution release.
 
-A retry reuses section 7: Background allocates the next attempt, occupies the empty active slot,
-installs only the next attempt's model capability, and sends `START_ATTEMPT`. There is no
+A retry reuses section 7. While reserving the empty active slot, Background atomically clears the
+retained task's existing `expiresAt`, allocates the next attempt, installs only that attempt's model
+capability, and sends `START_ATTEMPT`. An expiry callback deletes only when the retained generation
+still has no active slot and its current `expiresAt` equals the callback's captured deadline. The new
+attempt terminal event assigns a fresh 15-minute expiry. There is no
 `RETRY_ACCEPTED → RETRY_AUTHORIZED` fence transfer; `ATTEMPT_ACCEPTED → ATTEMPT_AUTHORIZED` is the
 single start barrier for every attempt.
 
@@ -377,7 +380,8 @@ A same-document/same-media disconnect gets a 15-second grace period. Grace expir
 Navigation to another document, video, or Bilibili CID follows the same cancellation/deletion path.
 A new video cannot start in the tab-platform slot until active execution is released.
 
-At most 32 retained tasks or 16 MiB of serialized replay state are kept. Oversized terminal output is
+At most 32 retained tasks or 16 MiB of serialized replay state are kept. Each task stores one
+`replayEvent`, replaced by progress or terminal state. Oversized terminal output is
 replaced with `VIDEO_SUMMARY_RESULT_TOO_LARGE`. Capacity occupied by live retained tasks rejects new
 work rather than evicting active state.
 
@@ -399,12 +403,12 @@ Rules:
 
 - native-subtitle tasks cannot call ASR operations;
 - direct ASR submission reserves the generation's direct-submit slot before network I/O;
-- when query returns the documented terminal direct-download failure, Gateway may issue one opaque,
-  random fallback permit bound to the generation and provider task ID; this is the only provider-code
-  interpretation retained at the privileged boundary;
-- pipeline decides whether to use that permit; upload-target creation validates but does not consume
-  it, while fallback submission validates and consumes it; upload-target creation and fallback
-  submission also have separate single-use reservations;
+- Gateway maintains only the safety reservation states
+  `direct-submitted -> fallback-eligible -> target-issued -> fallback-submitted`;
+- pipeline interprets provider results and may request the `fallback-eligible` transition only with the
+  matching generation, recorded provider task ID, and documented terminal direct-download error code;
+- upload-target creation requires `fallback-eligible` and advances to `target-issued`; fallback
+  submission requires `target-issued` and advances to `fallback-submitted`;
 - ambiguous, pending, active, completed, or non-download-failure submissions cannot be repeated;
 - upload uses only the exact Background-issued HTTPS target, `PUT`, allowlisted headers,
   `credentials: 'omit'`, and `redirect: 'error'`;
