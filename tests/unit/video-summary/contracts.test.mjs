@@ -21,8 +21,14 @@ test('video-summary contracts contain only stable configuration constants', () =
   assert.equal(VIDEO_SUMMARY_OFFSCREEN_PORT_NAME, 'video-summary-offscreen')
   assert.equal(VIDEO_SUMMARY_STORAGE_KEY, 'mediaKitApiKey')
   assert.deepEqual(VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS, {
-    mediakit: ['submitDirectAsr', 'requestUploadTarget', 'queryTask'],
-    model: ['describeCapabilities', 'generateText', 'cancel'],
+    mediakit: [
+      'submitDirectAsr',
+      'markFallbackEligible',
+      'requestUploadTarget',
+      'submitUploadedAsr',
+      'queryTask',
+    ],
+    model: ['describeCapabilities', 'generateText'],
   })
 })
 
