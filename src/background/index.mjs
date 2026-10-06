@@ -166,7 +166,7 @@ const videoSummaryClock = {
 }
 const videoSummaryMediaKitGateway = {
   ...mediaKitGateway,
-  submitUploadedAsr: (args) => mediaKitGateway.submitDirectAsr(args),
+  submitUploadedAsr: (args, options) => mediaKitGateway.submitDirectAsr(args, options),
 }
 const videoSummaryOffscreenState = { port: null }
 let videoSummaryOffscreenRpc
@@ -203,6 +203,7 @@ const videoSummaryCoordinator = createVideoSummaryCoordinator({
   clock: videoSummaryClock,
   ensureOffscreen: ensureVideoSummaryOffscreen,
   sendOffscreen(command) {
+    if (command.type === 'CANCEL_TASK') videoSummaryOffscreenRpc.cancelGeneration(command.fence)
     videoSummaryOffscreenRpc.postCommand(command)
   },
   sendContent(port, message) {

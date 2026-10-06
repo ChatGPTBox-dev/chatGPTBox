@@ -52,6 +52,7 @@ export const VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES = Object.freeze([
   'TASK_DELETED',
   'SOURCE_REFRESH_REQUEST',
   'GATEWAY_REQUEST',
+  'CANCEL_GATEWAY_REQUEST',
 ])
 
 const platforms = new Set(['bilibili', 'youtube'])
@@ -651,6 +652,16 @@ export function parseOffscreenCommand(value) {
   return clone(parsed)
 }
 
+function parseGatewayCancellation(value) {
+  exact(value, ['type', 'requestId', 'fence'])
+  required(value, ['type', 'requestId', 'fence'])
+  return {
+    type: value.type,
+    requestId: text(value.requestId),
+    fence: parseFence(value.fence),
+  }
+}
+
 function parseGatewayRequest(value) {
   exact(value, ['type', 'requestId', 'fence', 'gateway', 'operation', 'args'])
   required(value, ['type', 'requestId', 'fence', 'gateway', 'operation', 'args'])
@@ -700,6 +711,7 @@ export function parseOffscreenMessage(value) {
     parsed = { type: value.type, fence: parseFence(value.fence) }
   } else if (value.type === 'TASK_DELETED') parsed = parseDelete(value)
   else if (value.type === 'SOURCE_REFRESH_REQUEST') parsed = parseSourceRefreshRequest(value)
+  else if (value.type === 'CANCEL_GATEWAY_REQUEST') parsed = parseGatewayCancellation(value)
   else parsed = parseGatewayRequest(value)
   return clone(parsed)
 }

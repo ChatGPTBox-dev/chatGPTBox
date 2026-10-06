@@ -10,6 +10,10 @@ const SAFE_CAPABILITY_CONDITIONS = new Set([
   'temporary',
 ])
 
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
+}
+
 function cloneSerializable(value, fallback) {
   if (value === undefined) return fallback
   try {
@@ -85,23 +89,32 @@ export function createModelGateway({
   const controllers = new Map()
 
   return {
-    async describeCapabilities(modelIdentity) {
+    async describeCapabilities(modelIdentity, { signal } = {}) {
+      throwIfAborted(signal)
       const immutableIdentity = cloneSerializable(modelIdentity, {})
       try {
         const config = cloneSerializable(await getUserConfig(), {})
-        const support = await describeModelTextSupport(config, immutableIdentity)
+        throwIfAborted(signal)
+        const support = await describeModelTextSupport(config, immutableIdentity, { signal })
+        throwIfAborted(signal)
         return createCapabilityDescriptor(support || {})
       } catch (error) {
+        if (error?.name === 'AbortError') throw error
         return capabilityFromError(error)
       }
     },
-    async generateText({ requestId, taskId, modelSnapshot, messages, maxOutputTokens }) {
+    async generateText(
+      { requestId, taskId, modelSnapshot, messages, maxOutputTokens },
+      { signal } = {},
+    ) {
+      throwIfAborted(signal)
       const key = `${taskId}:${requestId}`
-      const controller = new AbortController()
+      const controller = signal ? null : new AbortController()
+      const requestSignal = signal || controller.signal
       const immutableSnapshot = cloneSerializable(modelSnapshot, {})
       const immutableMessages = cloneSerializable(Array.isArray(messages) ? messages : [], [])
       const boundedOutputTokens = normalizeMaxOutputTokens(maxOutputTokens)
-      controllers.set(key, controller)
+      if (controller) controllers.set(key, controller)
 
       try {
         logger?.info?.(
@@ -117,8 +130,9 @@ export function createModelGateway({
           modelSnapshot: immutableSnapshot,
           messages: immutableMessages,
           maxOutputTokens: boundedOutputTokens,
-          signal: controller.signal,
+          signal: requestSignal,
         })
+        throwIfAborted(requestSignal)
         const result = {
           text: typeof response?.text === 'string' ? response.text : '',
           finishReason: response?.finishReason ?? null,
@@ -147,7 +161,7 @@ export function createModelGateway({
         )
         throw error
       } finally {
-        controllers.delete(key)
+        if (controller && controllers.get(key) === controller) controllers.delete(key)
       }
     },
     cancel({ requestId, taskId }) {

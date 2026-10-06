@@ -153,3 +153,114 @@ test('generation cancel and idempotent delete use fenced runner interfaces', () 
     2,
   )
 })
+
+test('gateway requests are limited to sixteen unsettled calls per generation', async () => {
+  const port = createFakePort({ name: 'video-summary-offscreen' })
+  let registered
+  const runtime = startVideoSummaryOffscreenRuntime({
+    port,
+    taskRunner: {
+      registerAttempt(value) {
+        registered = value
+      },
+      authorizeAttempt() {
+        return new Promise(() => {})
+      },
+      cancelGeneration() {},
+      releaseAttempt() {},
+      deleteTask() {},
+    },
+    logger: {},
+    createRequestId: (() => {
+      let request = 0
+      return () => `gateway-${++request}`
+    })(),
+  })
+  port.emitMessage({ type: 'START_ATTEMPT', requestId: 'start-1', fence, mode: 'initial', payload })
+  port.emitMessage({ type: 'ATTEMPT_AUTHORIZED', requestId: 'start-1', fence })
+
+  const pending = Array.from({ length: 16 }, () =>
+    runtime.modelGateway.generateText({ taskId: fence.taskId }),
+  )
+  assert.equal(port.postedMessages.filter(({ type }) => type === 'GATEWAY_REQUEST').length, 16)
+  await assert.rejects(
+    runtime.modelGateway.generateText({ taskId: fence.taskId }),
+    /VIDEO_SUMMARY_PROTOCOL_LIMIT_EXCEEDED/,
+  )
+  assert.equal(port.postedMessages.filter(({ type }) => type === 'GATEWAY_REQUEST').length, 16)
+
+  port.emitMessage({
+    type: 'GATEWAY_RESPONSE',
+    requestId: 'gateway-1',
+    fence,
+    ok: true,
+    result: {},
+  })
+  await pending[0]
+  void runtime.modelGateway.generateText({ taskId: fence.taskId })
+  assert.equal(port.postedMessages.filter(({ type }) => type === 'GATEWAY_REQUEST').length, 17)
+
+  const nextGeneration = { ...fence, generation: 2 }
+  for (let index = 0; index < 16; index += 1) {
+    void runtime.requestGateway({
+      fence: nextGeneration,
+      gateway: 'model',
+      operation: 'generateText',
+      args: {},
+    })
+  }
+  assert.equal(
+    port.postedMessages.filter(
+      (message) => message.type === 'GATEWAY_REQUEST' && message.fence.generation === 2,
+    ).length,
+    16,
+  )
+  assert.equal(typeof registered.payload.requestSourceRefresh, 'function')
+})
+
+test('task abort cancels every pending gateway request and source refresh', async () => {
+  const port = createFakePort({ name: 'video-summary-offscreen' })
+  let registered
+  const runtime = startVideoSummaryOffscreenRuntime({
+    port,
+    taskRunner: {
+      registerAttempt(value) {
+        registered = value
+      },
+      authorizeAttempt() {
+        return new Promise(() => {})
+      },
+      cancelGeneration() {},
+      releaseAttempt() {},
+      deleteTask() {},
+    },
+    logger: {},
+    createRequestId: (() => {
+      let request = 0
+      return () => `request-${++request}`
+    })(),
+  })
+  port.emitMessage({ type: 'START_ATTEMPT', requestId: 'start-1', fence, mode: 'initial', payload })
+  port.emitMessage({ type: 'ATTEMPT_AUTHORIZED', requestId: 'start-1', fence })
+  const controller = new AbortController()
+  const gatewayPromise = runtime.modelGateway.generateText(
+    { taskId: fence.taskId },
+    { signal: controller.signal },
+  )
+  const refreshPromise = registered.payload.requestSourceRefresh(
+    {
+      owner,
+      taskId: fence.taskId,
+      reason: 'SIGNED_URL_EXPIRED',
+    },
+    { signal: controller.signal },
+  )
+
+  controller.abort()
+  await assert.rejects(gatewayPromise, { name: 'AbortError' })
+  await assert.rejects(refreshPromise, { name: 'AbortError' })
+  assert.deepEqual(
+    port.postedMessages.filter(({ type }) => type === 'CANCEL_GATEWAY_REQUEST'),
+    [{ type: 'CANCEL_GATEWAY_REQUEST', requestId: 'request-1', fence }],
+  )
+})

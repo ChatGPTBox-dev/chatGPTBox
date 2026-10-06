@@ -1101,6 +1101,42 @@ test('pre-transcription failures and cancellation release all retry state', asyn
   rejectTranscription?.(new Error('unused'))
 })
 
+test('cancellation while awaiting model capabilities does not start generation', async () => {
+  let resolveCapabilities
+  const generated = []
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {},
+    modelGateway: {
+      describeCapabilities(modelSnapshot, { signal }) {
+        return new Promise((resolve, reject) => {
+          resolveCapabilities = resolve
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+      },
+      async generateText(args) {
+        generated.push(args)
+        return { text: '', finishReason: 'stop' }
+      },
+    },
+    logger: createLogger(),
+    clock: { now: () => 0 },
+  })
+  const currentFence = createFence()
+  runner.registerAttempt({
+    requestId: 'start-waiting',
+    fence: currentFence,
+    mode: 'initial',
+    payload: createInitialPayload(),
+    emit: () => {},
+  })
+  const pending = runner.authorizeAttempt({ requestId: 'start-waiting', fence: currentFence })
+  await Promise.resolve()
+  runner.cancelGeneration(currentFence)
+  await assert.rejects(pending, { name: 'AbortError' })
+  assert.deepEqual(generated, [])
+  resolveCapabilities?.({ supported: true })
+})
+
 test('unsupported source choice cannot fall through to paid ASR', async () => {
   const mediaCalls = []
   const runner = createVideoTaskRunner({

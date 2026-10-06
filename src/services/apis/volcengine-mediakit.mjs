@@ -17,8 +17,15 @@ function authorization(apiKey) {
   return { Authorization: `Bearer ${apiKey}` }
 }
 
-async function readJson(response) {
-  return response.json().catch(() => ({}))
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
+}
+
+async function readJson(response, signal) {
+  throwIfAborted(signal)
+  const data = await response.json().catch(() => ({}))
+  throwIfAborted(signal)
+  return data
 }
 
 function requestIdOf(response, data) {
@@ -97,13 +104,15 @@ export function sanitizeMediaUrl(input) {
   }
 }
 
-export async function requestMediaUploadTarget({ apiKey, fetchImpl = fetch }) {
+export async function requestMediaUploadTarget({ apiKey, fetchImpl = fetch, signal }) {
+  throwIfAborted(signal)
   const response = await fetchImpl(`${BASE_URL}${UPLOAD_TARGET_PATH}`, {
     method: 'POST',
     headers: { ...authorization(apiKey), 'Content-Type': 'application/json' },
     body: '{}',
+    signal,
   })
-  const data = await readJson(response)
+  const data = await readJson(response, signal)
   assertSuccess('request-upload-target', response, data)
   const result = data.result || {}
   const rawFileId = String(result.file_id || '')
@@ -123,12 +132,15 @@ export async function requestMediaUploadTarget({ apiKey, fetchImpl = fetch }) {
   }
 }
 
-export async function uploadMediaBlob({ target, blob, fetchImpl = fetch }) {
+export async function uploadMediaBlob({ target, blob, fetchImpl = fetch, signal }) {
+  throwIfAborted(signal)
   const response = await fetchImpl(target.uploadUrl, {
     method: target.method,
     headers: target.headers,
     body: blob,
+    signal,
   })
+  throwIfAborted(signal)
   if (!response.ok) {
     throw new MediaKitError(`${response.status} ${response.statusText}`, {
       operation: 'upload-media',
@@ -145,7 +157,9 @@ export async function submitMediaKitAsr({
   speakerIdentification = true,
   confirmed,
   fetchImpl = fetch,
+  signal,
 }) {
+  throwIfAborted(signal)
   if (confirmed !== true) throw new MediaKitError('PAID_REQUEST_NOT_CONFIRMED')
   if (!clientToken) throw new MediaKitError('CLIENT_TOKEN_REQUIRED')
   const response = await fetchImpl(`${BASE_URL}${ASR_PATH}`, {
@@ -158,8 +172,9 @@ export async function submitMediaKitAsr({
       enable_confidence: true,
       client_token: clientToken,
     }),
+    signal,
   })
-  const data = await readJson(response)
+  const data = await readJson(response, signal)
   assertSuccess('submit-asr', response, data)
   if (!data.task_id) {
     throw new MediaKitError('MISSING_MEDIAKIT_TASK_ID', {
@@ -170,11 +185,13 @@ export async function submitMediaKitAsr({
   return { taskId: data.task_id, requestId: requestIdOf(response, data) }
 }
 
-export async function queryMediaKitTask({ apiKey, taskId, fetchImpl = fetch }) {
+export async function queryMediaKitTask({ apiKey, taskId, fetchImpl = fetch, signal }) {
+  throwIfAborted(signal)
   const response = await fetchImpl(`${BASE_URL}${TASK_PATH_PREFIX}${encodeURIComponent(taskId)}`, {
     headers: authorization(apiKey),
+    signal,
   })
-  const data = await readJson(response)
+  const data = await readJson(response, signal)
   assertSuccess('query-asr', response, data)
   return data
 }

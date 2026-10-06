@@ -43,8 +43,14 @@ function serializeError(error) {
   }
 }
 
-async function requireMediaKitKey(storageArea) {
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
+}
+
+async function requireMediaKitKey(storageArea, signal) {
+  throwIfAborted(signal)
   const payload = await storageArea.get(VIDEO_SUMMARY_STORAGE_KEY)
+  throwIfAborted(signal)
   const apiKey = String(payload?.[VIDEO_SUMMARY_STORAGE_KEY] || '').trim()
   if (!apiKey) throw new MediaKitError('MEDIAKIT_API_KEY_REQUIRED')
   return apiKey
@@ -65,7 +71,10 @@ export function createMediaKitGateway({ storageArea, fetchImpl = fetch, logger }
       await storageArea.remove(VIDEO_SUMMARY_STORAGE_KEY)
     },
 
-    async submitDirectAsr({ audioUrl, clientToken, speakerIdentification, confirmed }) {
+    async submitDirectAsr(
+      { audioUrl, clientToken, speakerIdentification, confirmed },
+      { signal } = {},
+    ) {
       const logContext = {
         event: 'video-summary-mediakit.submit-direct-asr',
         audioSource: sanitizeAudioReference(audioUrl),
@@ -75,7 +84,7 @@ export function createMediaKitGateway({ storageArea, fetchImpl = fetch, logger }
       }
 
       try {
-        const apiKey = await requireMediaKitKey(storageArea)
+        const apiKey = await requireMediaKitKey(storageArea, signal)
         const result = await submitMediaKitAsr({
           apiKey,
           audioUrl,
@@ -83,6 +92,7 @@ export function createMediaKitGateway({ storageArea, fetchImpl = fetch, logger }
           speakerIdentification,
           confirmed,
           fetchImpl,
+          signal,
         })
         logGatewayEvent(logger, 'info', {
           ...logContext,
@@ -101,12 +111,13 @@ export function createMediaKitGateway({ storageArea, fetchImpl = fetch, logger }
       }
     },
 
-    async requestUploadTarget() {
+    async requestUploadTarget(args = {}, { signal } = {}) {
+      void args
       const logContext = { event: 'video-summary-mediakit.request-upload-target' }
 
       try {
-        const apiKey = await requireMediaKitKey(storageArea)
-        const result = await requestMediaUploadTarget({ apiKey, fetchImpl })
+        const apiKey = await requireMediaKitKey(storageArea, signal)
+        const result = await requestMediaUploadTarget({ apiKey, fetchImpl, signal })
         logGatewayEvent(logger, 'info', {
           ...logContext,
           status: 'passed',
@@ -125,15 +136,15 @@ export function createMediaKitGateway({ storageArea, fetchImpl = fetch, logger }
       }
     },
 
-    async queryTask({ taskId }) {
+    async queryTask({ taskId }, { signal } = {}) {
       const logContext = {
         event: 'video-summary-mediakit.query-task',
         taskIdPresent: Boolean(taskId),
       }
 
       try {
-        const apiKey = await requireMediaKitKey(storageArea)
-        const result = await queryMediaKitTask({ apiKey, taskId, fetchImpl })
+        const apiKey = await requireMediaKitKey(storageArea, signal)
+        const result = await queryMediaKitTask({ apiKey, taskId, fetchImpl, signal })
         logGatewayEvent(logger, 'info', {
           ...logContext,
           status: 'passed',

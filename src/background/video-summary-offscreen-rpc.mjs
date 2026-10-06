@@ -3,6 +3,28 @@ import { parseOffscreenCommand, parseOffscreenMessage } from '../video-summary/p
 
 const SAFE_GATEWAY_CONDITIONS = new Set(['login-required', 'provider-page-required', 'temporary'])
 
+function ownerPath(owner) {
+  return [owner.tabId, owner.documentId, owner.platform, owner.mediaId]
+}
+
+function getNestedMap(root, keys, create = false) {
+  let current = root
+  for (const key of keys) {
+    let next = current.get(key)
+    if (!next && create) {
+      next = new Map()
+      current.set(key, next)
+    }
+    if (!next) return null
+    current = next
+  }
+  return current
+}
+
+function createAbortError() {
+  return new DOMException('Aborted', 'AbortError')
+}
+
 function safeCode(value, fallback) {
   return typeof value === 'string' && /^[A-Z0-9_:-]+$/.test(value) ? value : fallback
 }
@@ -41,6 +63,7 @@ export function createVideoSummaryOffscreenRpc({
   onDisconnect = () => {},
 }) {
   const gateways = { mediakit: mediaKitGateway, model: modelGateway }
+  const controllers = new Map()
   let attachedPort = null
   let listeners = null
 
@@ -49,10 +72,70 @@ export function createVideoSummaryOffscreenRpc({
     attachedPort.postMessage(parseOffscreenCommand(value))
   }
 
+  function getRequests(fence, create = false) {
+    const taskMap = getNestedMap(controllers, ownerPath(fence.owner), create)
+    if (!taskMap) return null
+    let generationMap = taskMap.get(fence.taskId)
+    if (!generationMap && create) {
+      generationMap = new Map()
+      taskMap.set(fence.taskId, generationMap)
+    }
+    if (!generationMap) return null
+    let attemptMap = generationMap.get(fence.generation)
+    if (!attemptMap && create) {
+      attemptMap = new Map()
+      generationMap.set(fence.generation, attemptMap)
+    }
+    if (!attemptMap) return null
+    let requests = attemptMap.get(fence.attempt)
+    if (!requests && create) {
+      requests = new Map()
+      attemptMap.set(fence.attempt, requests)
+    }
+    return requests || null
+  }
+
+  function removeController(fence, requestId, controller) {
+    const taskMap = getNestedMap(controllers, ownerPath(fence.owner))
+    const generationMap = taskMap?.get(fence.taskId)
+    const attemptMap = generationMap?.get(fence.generation)
+    const requests = attemptMap?.get(fence.attempt)
+    if (requests?.get(requestId) !== controller) return
+    requests.delete(requestId)
+    if (requests.size === 0) attemptMap.delete(fence.attempt)
+    if (attemptMap.size === 0) generationMap.delete(fence.generation)
+    if (generationMap.size === 0) taskMap.delete(fence.taskId)
+  }
+
+  function cancelRequest({ fence, requestId }) {
+    getRequests(fence)?.get(requestId)?.abort(createAbortError())
+  }
+
+  function cancelGeneration({ owner, taskId, generation }) {
+    const taskMap = getNestedMap(controllers, ownerPath(owner))
+    const attemptMap = taskMap?.get(taskId)?.get(generation)
+    if (!attemptMap) return
+    for (const requests of attemptMap.values()) {
+      for (const controller of requests.values()) controller.abort(createAbortError())
+    }
+  }
+
+  function cancelAll() {
+    for (const tabMap of controllers.values())
+      for (const documentMap of tabMap.values())
+        for (const platformMap of documentMap.values())
+          for (const taskMap of platformMap.values())
+            for (const generationMap of taskMap.values())
+              for (const attemptMap of generationMap.values())
+                for (const requests of attemptMap.values())
+                  for (const controller of requests.values()) controller.abort(createAbortError())
+  }
+
   async function dispatchGateway(message) {
     let response
     let outcome
     let authorizedRequest = false
+    let controller
     try {
       const authorized = coordinator.authorizeGatewayRequest({
         fence: message.fence,
@@ -62,6 +145,9 @@ export function createVideoSummaryOffscreenRpc({
         args: message.args,
       })
       authorizedRequest = true
+      const requests = getRequests(message.fence, true)
+      controller = new AbortController()
+      requests.set(message.requestId, controller)
       const gateway = gateways[message.gateway]
       const allowed = VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS[message.gateway] || []
       if (!allowed.includes(message.operation)) {
@@ -70,7 +156,9 @@ export function createVideoSummaryOffscreenRpc({
       const result =
         message.operation === 'markFallbackEligible'
           ? {}
-          : await gateway?.[message.operation]?.(structuredClone(authorized.args))
+          : await gateway?.[message.operation]?.(structuredClone(authorized.args), {
+              signal: controller.signal,
+            })
       if (
         message.operation !== 'markFallbackEligible' &&
         typeof gateway?.[message.operation] !== 'function'
@@ -92,6 +180,8 @@ export function createVideoSummaryOffscreenRpc({
         fence: message.fence,
         ...outcome,
       }
+    } finally {
+      if (controller) removeController(message.fence, message.requestId, controller)
     }
     if (authorizedRequest) {
       coordinator.completeGatewayRequest({
@@ -102,7 +192,7 @@ export function createVideoSummaryOffscreenRpc({
         outcome,
       })
     }
-    postCommand(response)
+    if (attachedPort) postCommand(response)
   }
 
   function detach(port = attachedPort) {
@@ -128,9 +218,11 @@ export function createVideoSummaryOffscreenRpc({
           return
         }
         if (parsed.type === 'GATEWAY_REQUEST') void dispatchGateway(parsed)
+        else if (parsed.type === 'CANCEL_GATEWAY_REQUEST') cancelRequest(parsed)
         else coordinator.handleOffscreenMessage(parsed)
       }
       const disconnect = () => {
+        cancelAll()
         detach(port)
         coordinator.handleOffscreenDisconnect()
         onDisconnect(port)
@@ -142,6 +234,7 @@ export function createVideoSummaryOffscreenRpc({
       return true
     },
     postCommand,
+    cancelGeneration,
     detachPort: detach,
   }
 }

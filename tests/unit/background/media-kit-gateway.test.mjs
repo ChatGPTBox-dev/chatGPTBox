@@ -133,6 +133,60 @@ test('gateway redacts request details before logging', async () => {
   assert.equal(serializedEntries.includes('"queryKeys":["deadline","token"]'), true)
 })
 
+test('gateway forwards cancellation through key lookup and every MediaKit request', async () => {
+  const { storageArea } = createStorageArea('mk-live-test')
+  const seenSignals = []
+  const gateway = createMediaKitGateway({
+    storageArea,
+    fetchImpl: async (url, init) => {
+      seenSignals.push(init.signal)
+      if (url.includes('request-media-upload-url')) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            result: {
+              file_id: 'file-1',
+              method: 'PUT',
+              upload_url: 'https://upload.example.invalid/file',
+              upload_headers: [],
+            },
+          }),
+        )
+      }
+      if (url.includes('asr-subtitles')) {
+        return new Response(JSON.stringify({ success: true, task_id: 'provider-task' }))
+      }
+      return new Response(JSON.stringify({ success: true, status: 'completed' }))
+    },
+    logger: { info() {}, warn() {}, error() {} },
+  })
+  const controller = new AbortController()
+  const options = { signal: controller.signal }
+  await gateway.requestUploadTarget({}, options)
+  await gateway.submitDirectAsr(
+    {
+      audioUrl: 'https://cdn.example.invalid/audio',
+      clientToken: 'task-1',
+      confirmed: true,
+    },
+    options,
+  )
+  await gateway.queryTask({ taskId: 'provider-task' }, options)
+  assert.deepEqual(seenSignals, [controller.signal, controller.signal, controller.signal])
+
+  controller.abort()
+  let fetchCount = 0
+  const abortedGateway = createMediaKitGateway({
+    storageArea,
+    fetchImpl: async () => {
+      fetchCount += 1
+    },
+    logger: {},
+  })
+  await assert.rejects(abortedGateway.requestUploadTarget({}, options), { name: 'AbortError' })
+  assert.equal(fetchCount, 0)
+})
+
 test('gateway rejects requests when the standalone MediaKit key is absent', async () => {
   const { storageArea } = createStorageArea()
   const gateway = createMediaKitGateway({

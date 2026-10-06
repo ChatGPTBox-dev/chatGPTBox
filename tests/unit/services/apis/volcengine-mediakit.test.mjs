@@ -3,8 +3,10 @@ import { mock, test } from 'node:test'
 import {
   MediaKitError,
   normalizeMediaKitTranscription,
+  queryMediaKitTask,
   requestMediaUploadTarget,
   submitMediaKitAsr,
+  uploadMediaBlob,
 } from '../../../../src/services/apis/volcengine-mediakit.mjs'
 
 const jsonResponse = (body, init = {}) =>
@@ -146,6 +148,75 @@ test('submitMediaKitAsr rejects missing apiKey', async () => {
       }),
     { message: 'MEDIAKIT_API_KEY_REQUIRED' },
   )
+})
+
+test('MediaKit requests forward signal and stop before parsing an aborted response', async () => {
+  const controller = new AbortController()
+  const signals = []
+  let jsonCalls = 0
+  const fetchImpl = mock.fn(async (url, init) => {
+    signals.push(init.signal)
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      async json() {
+        jsonCalls += 1
+        controller.abort()
+        return {
+          success: true,
+          result: {
+            file_id: 'file-1',
+            method: 'PUT',
+            upload_url: 'https://upload.example.invalid/file',
+            upload_headers: [],
+          },
+        }
+      },
+    }
+  })
+
+  await assert.rejects(
+    requestMediaUploadTarget({ apiKey: 'secret', fetchImpl, signal: controller.signal }),
+    { name: 'AbortError' },
+  )
+  assert.equal(signals[0], controller.signal)
+  assert.equal(jsonCalls, 1)
+})
+
+test('MediaKit upload, submission, and query all forward the caller signal', async () => {
+  const controller = new AbortController()
+  const seenSignals = []
+  const fetchImpl = mock.fn(async (url, init) => {
+    seenSignals.push(init.signal)
+    if (url.includes('/tasks/')) return jsonResponse({ success: true, status: 'completed' })
+    if (url.includes('/asr-subtitles')) {
+      return jsonResponse({ success: true, task_id: 'provider-task' })
+    }
+    return new Response('', { status: 200 })
+  })
+  await uploadMediaBlob({
+    target: { uploadUrl: 'https://upload.example.invalid/file', method: 'PUT', headers: {} },
+    blob: new Blob(['audio']),
+    fetchImpl,
+    signal: controller.signal,
+  })
+  await submitMediaKitAsr({
+    apiKey: 'secret',
+    audioUrl: 'mediakit://file-1',
+    clientToken: 'task-1',
+    confirmed: true,
+    fetchImpl,
+    signal: controller.signal,
+  })
+  await queryMediaKitTask({
+    apiKey: 'secret',
+    taskId: 'provider-task',
+    fetchImpl,
+    signal: controller.signal,
+  })
+  assert.deepEqual(seenSignals, [controller.signal, controller.signal, controller.signal])
 })
 
 test('requestMediaUploadTarget surfaces provider errors as MediaKitError', async () => {

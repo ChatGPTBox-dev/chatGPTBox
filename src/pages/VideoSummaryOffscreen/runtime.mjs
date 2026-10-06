@@ -1,6 +1,11 @@
 import { createMediaPipeline } from '../../video-summary/media-pipeline.mjs'
 import { createTaskOpfsStore } from '../../video-summary/opfs.mjs'
-import { fencesEqual, ownersEqual, parseOffscreenCommand } from '../../video-summary/protocol.mjs'
+import {
+  fencesEqual,
+  ownersEqual,
+  parseOffscreenCommand,
+  VIDEO_SUMMARY_PROTOCOL_LIMITS,
+} from '../../video-summary/protocol.mjs'
 import { createVideoTaskRunner } from '../../video-summary/task-runner.mjs'
 
 const AUTHORIZATION_TIMEOUT_MS = 10_000
@@ -17,6 +22,32 @@ function fenceKey(fence) {
 
 function generationKey({ owner, taskId, generation }) {
   return { owner, taskId, generation }
+}
+
+function ownerPath(owner) {
+  return [owner.tabId, owner.documentId, owner.platform, owner.mediaId]
+}
+
+function getNestedMap(root, keys, create = false) {
+  let current = root
+  for (const key of keys) {
+    let next = current.get(key)
+    if (!next && create) {
+      next = new Map()
+      current.set(key, next)
+    }
+    if (!next) return null
+    current = next
+  }
+  return current
+}
+
+function createAbortError(signal) {
+  return signal?.reason || new DOMException('Aborted', 'AbortError')
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw createAbortError(signal)
 }
 
 function createRpcError(value) {
@@ -61,49 +92,130 @@ export function startVideoSummaryOffscreenRuntime({
     return taskFences.get(taskId) ?? null
   }
 
-  function requestGateway({ gateway, operation, args }) {
-    const fence = currentFence(args?.taskId)
+  function getGenerationPending(fence, create = false) {
+    const taskMap = getNestedMap(pendingGatewayRequests, ownerPath(fence.owner), create)
+    if (!taskMap) return null
+    let generationMap = taskMap.get(fence.taskId)
+    if (!generationMap && create) {
+      generationMap = new Map()
+      taskMap.set(fence.taskId, generationMap)
+    }
+    if (!generationMap) return null
+    let attemptsMap = generationMap.get(fence.generation)
+    if (!attemptsMap && create) {
+      attemptsMap = new Map()
+      generationMap.set(fence.generation, attemptsMap)
+    }
+    return attemptsMap || null
+  }
+
+  function countGenerationRequests(attemptsMap) {
+    let count = 0
+    for (const requests of attemptsMap.values()) count += requests.size
+    return count
+  }
+
+  function removePendingRequest(fence, requestId) {
+    const taskMap = getNestedMap(pendingGatewayRequests, ownerPath(fence.owner))
+    const generationMap = taskMap?.get(fence.taskId)
+    const attemptsMap = generationMap?.get(fence.generation)
+    const requests = attemptsMap?.get(fence.attempt)
+    const pending = requests?.get(requestId)
+    if (!pending) return null
+    requests.delete(requestId)
+    pending.signal?.removeEventListener?.('abort', pending.onAbort)
+    if (requests.size === 0) attemptsMap.delete(fence.attempt)
+    if (attemptsMap.size === 0) generationMap.delete(fence.generation)
+    if (generationMap.size === 0) taskMap.delete(fence.taskId)
+    return pending
+  }
+
+  function requestGateway({ fence: suppliedFence, gateway, operation, args, signal }) {
+    try {
+      throwIfAborted(signal)
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    const fence = suppliedFence || currentFence(args?.taskId)
     if (!fence) return Promise.reject(new Error('VIDEO_SUMMARY_ATTEMPT_NOT_AUTHORIZED'))
+    const attemptsMap = getGenerationPending(fence, true)
+    if (countGenerationRequests(attemptsMap) >= VIDEO_SUMMARY_PROTOCOL_LIMITS.pendingRpcsPerTask) {
+      return Promise.reject(new Error('VIDEO_SUMMARY_PROTOCOL_LIMIT_EXCEEDED'))
+    }
+    let requests = attemptsMap.get(fence.attempt)
+    if (!requests) {
+      requests = new Map()
+      attemptsMap.set(fence.attempt, requests)
+    }
     const requestId = createRequestId()
     return new Promise((resolve, reject) => {
-      pendingGatewayRequests.set(requestId, { resolve, reject, fence })
-      post({
-        type: 'GATEWAY_REQUEST',
-        requestId,
-        fence,
-        gateway,
-        operation,
-        args: sanitizeArgs(args),
-      })
+      const onAbort = () => {
+        post({ type: 'CANCEL_GATEWAY_REQUEST', requestId, fence })
+        removePendingRequest(fence, requestId)?.reject(createAbortError(signal))
+      }
+      requests.set(requestId, { resolve, reject, fence, signal, onAbort })
+      signal?.addEventListener('abort', onAbort, { once: true })
+      try {
+        post({
+          type: 'GATEWAY_REQUEST',
+          requestId,
+          fence,
+          gateway,
+          operation,
+          args: sanitizeArgs(args),
+        })
+      } catch (error) {
+        removePendingRequest(fence, requestId)?.reject(error)
+      }
     })
   }
 
   const runtimeModelGateway = modelGateway || {
-    describeCapabilities(modelSnapshot) {
+    describeCapabilities(modelSnapshot, options = {}) {
       const attempt = [...attempts.values()].find(
         (candidate) =>
           JSON.stringify(candidate.modelSnapshot) === JSON.stringify(modelSnapshot) &&
           fencesEqual(taskFences.get(candidate.fence.taskId), candidate.fence),
       )
       return requestGateway({
+        fence: attempt?.fence,
         gateway: 'model',
         operation: 'describeCapabilities',
         args: { ...modelSnapshot, taskId: attempt?.fence.taskId },
+        signal: options.signal,
       })
     },
-    generateText(args) {
-      return requestGateway({ gateway: 'model', operation: 'generateText', args })
-    },
-    cancel(args) {
-      return requestGateway({ gateway: 'model', operation: 'cancel', args }).catch(() => {})
+    generateText(args, options = {}) {
+      return requestGateway({
+        gateway: 'model',
+        operation: 'generateText',
+        args,
+        signal: options.signal,
+      })
     },
   }
   const mediaKitGateway = {
-    submitDirectAsr: (args) =>
-      requestGateway({ gateway: 'mediakit', operation: 'submitDirectAsr', args }),
-    requestUploadTarget: (args = {}) =>
-      requestGateway({ gateway: 'mediakit', operation: 'requestUploadTarget', args }),
-    queryTask: (args) => requestGateway({ gateway: 'mediakit', operation: 'queryTask', args }),
+    submitDirectAsr: (args, options = {}) =>
+      requestGateway({
+        gateway: 'mediakit',
+        operation: 'submitDirectAsr',
+        args,
+        signal: options.signal || args?.signal,
+      }),
+    requestUploadTarget: (args = {}, options = {}) =>
+      requestGateway({
+        gateway: 'mediakit',
+        operation: 'requestUploadTarget',
+        args,
+        signal: options.signal || args?.signal,
+      }),
+    queryTask: (args, options = {}) =>
+      requestGateway({
+        gateway: 'mediakit',
+        operation: 'queryTask',
+        args,
+        signal: options.signal || args?.signal,
+      }),
   }
   const runtimeMediaPipeline =
     mediaPipeline ||
@@ -167,22 +279,41 @@ export function startVideoSummaryOffscreenRuntime({
     sendRelease(fence)
   }
 
-  function requestSourceRefresh({ owner, taskId, reason }) {
+  function requestSourceRefresh({ owner, taskId, reason }, { signal } = {}) {
     const fence = currentFence(taskId)
     const attempt = fence && attempts.get(fenceKey(fence))
     if (!fence || !attempt || !ownersEqual(fence.owner, owner)) {
       return Promise.reject(new Error('VIDEO_SUMMARY_OWNER_MISMATCH'))
     }
+    try {
+      throwIfAborted(signal)
+    } catch (error) {
+      return Promise.reject(error)
+    }
     const requestId = createRequestId()
     return new Promise((resolve, reject) => {
-      pendingSourceRefreshes.set(requestId, { resolve, reject, fence })
-      post({
-        type: 'SOURCE_REFRESH_REQUEST',
-        requestId,
-        fence,
-        expectedPageIdentity: attempt.pageIdentity,
-        reason,
-      })
+      const onAbort = () => {
+        const pending = pendingSourceRefreshes.get(requestId)
+        if (pending !== record) return
+        pendingSourceRefreshes.delete(requestId)
+        reject(createAbortError(signal))
+      }
+      const record = { resolve, reject, fence, signal, onAbort }
+      pendingSourceRefreshes.set(requestId, record)
+      signal?.addEventListener('abort', onAbort, { once: true })
+      try {
+        post({
+          type: 'SOURCE_REFRESH_REQUEST',
+          requestId,
+          fence,
+          expectedPageIdentity: attempt.pageIdentity,
+          reason,
+        })
+      } catch (error) {
+        signal?.removeEventListener?.('abort', onAbort)
+        pendingSourceRefreshes.delete(requestId)
+        reject(error)
+      }
     })
   }
 
@@ -235,17 +366,31 @@ export function startVideoSummaryOffscreenRuntime({
   }
 
   function handleGatewayResponse(command) {
-    const pending = pendingGatewayRequests.get(command.requestId)
+    const attemptsMap = getGenerationPending(command.fence)
+    const pending = attemptsMap?.get(command.fence.attempt)?.get(command.requestId)
     if (!pending || !fencesEqual(pending.fence, command.fence)) return
-    pendingGatewayRequests.delete(command.requestId)
+    removePendingRequest(command.fence, command.requestId)
     if (command.ok) pending.resolve(command.result)
     else pending.reject(createRpcError(command.error))
+  }
+
+  function cancelPendingGatewayRequests(key) {
+    const taskMap = getNestedMap(pendingGatewayRequests, ownerPath(key.owner))
+    const attemptsMap = taskMap?.get(key.taskId)?.get(key.generation)
+    if (!attemptsMap) return
+    for (const requests of [...attemptsMap.values()]) {
+      for (const [requestId, pending] of [...requests]) {
+        post({ type: 'CANCEL_GATEWAY_REQUEST', requestId, fence: pending.fence })
+        removePendingRequest(pending.fence, requestId)?.reject(createAbortError())
+      }
+    }
   }
 
   function handleRefreshResult(command) {
     const pending = pendingSourceRefreshes.get(command.requestId)
     if (!pending || !fencesEqual(pending.fence, currentFence(command.taskId))) return
     pendingSourceRefreshes.delete(command.requestId)
+    pending.signal?.removeEventListener?.('abort', pending.onAbort)
     if (command.errorCode) pending.reject(new Error(command.errorCode))
     else pending.resolve(command.sourceSnapshot)
   }
@@ -259,8 +404,11 @@ export function startVideoSummaryOffscreenRuntime({
     }
     if (command.type === 'START_ATTEMPT') register(command)
     else if (command.type === 'ATTEMPT_AUTHORIZED') authorize(command)
-    else if (command.type === 'CANCEL_TASK') runner.cancelGeneration(generationKey(command.fence))
-    else if (command.type === 'EXECUTION_RELEASED_ACK') {
+    else if (command.type === 'CANCEL_TASK') {
+      const key = generationKey(command.fence)
+      cancelPendingGatewayRequests(key)
+      runner.cancelGeneration(key)
+    } else if (command.type === 'EXECUTION_RELEASED_ACK') {
       const record = pendingExecutionReleases.get(fenceKey(command.fence))
       if (record) clearTimer(record.timerId)
       pendingExecutionReleases.delete(fenceKey(command.fence))
@@ -281,10 +429,19 @@ export function startVideoSummaryOffscreenRuntime({
     for (const record of attempts.values()) clearTimer(record.authorizationTimerId)
     for (const record of pendingExecutionReleases.values()) clearTimer(record.timerId)
     const error = new Error('VIDEO_SUMMARY_OFFSCREEN_DISCONNECTED')
-    for (const pending of [
-      ...pendingGatewayRequests.values(),
-      ...pendingSourceRefreshes.values(),
-    ]) {
+    for (const tabMap of pendingGatewayRequests.values())
+      for (const documentMap of tabMap.values())
+        for (const platformMap of documentMap.values())
+          for (const taskMap of platformMap.values())
+            for (const generationMap of taskMap.values())
+              for (const attemptsMap of generationMap.values())
+                for (const requests of attemptsMap.values())
+                  for (const pending of requests.values()) {
+                    pending.signal?.removeEventListener?.('abort', pending.onAbort)
+                    pending.reject(error)
+                  }
+    for (const pending of pendingSourceRefreshes.values()) {
+      pending.signal?.removeEventListener?.('abort', pending.onAbort)
       pending.reject(error)
     }
     pendingGatewayRequests.clear()
@@ -294,5 +451,10 @@ export function startVideoSummaryOffscreenRuntime({
   }
   port.onMessage.addListener(handleCommand)
   port.onDisconnect.addListener(onDisconnect)
-  return { mediaKitGateway, modelGateway: runtimeModelGateway }
+  return {
+    mediaKitGateway,
+    modelGateway: runtimeModelGateway,
+    requestGateway,
+    cancelPendingGatewayRequests,
+  }
 }

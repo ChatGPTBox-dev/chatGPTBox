@@ -194,6 +194,40 @@ test('generateText logs safe metadata when generation fails', async () => {
   assert.equal(logs.includes('provider response'), false)
 })
 
+test('model operations use the caller signal and check it before work', async () => {
+  const signals = []
+  let configCalls = 0
+  const gateway = createGateway({
+    getUserConfig: async () => {
+      configCalls += 1
+      return {}
+    },
+    generateTextWithModel: async ({ signal }) => {
+      signals.push(signal)
+      return { text: 'ok', finishReason: 'stop' }
+    },
+  })
+  const controller = new AbortController()
+  await gateway.describeCapabilities({ modelName: 'test' }, { signal: controller.signal })
+  await gateway.generateText(
+    {
+      requestId: 'request-1',
+      taskId: 'task-1',
+      modelSnapshot: { modelName: 'test' },
+      messages: [],
+    },
+    { signal: controller.signal },
+  )
+  assert.equal(signals[0], controller.signal)
+
+  controller.abort()
+  await assert.rejects(
+    gateway.describeCapabilities({ modelName: 'test' }, { signal: controller.signal }),
+    { name: 'AbortError' },
+  )
+  assert.equal(configCalls, 1)
+})
+
 test('cancel aborts only the matching in-flight generateText request', async () => {
   const signals = []
   const gateway = createGateway({

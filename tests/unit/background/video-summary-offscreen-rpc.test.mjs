@@ -133,6 +133,183 @@ test('authorization runs before dispatch and gateway receives only cloned author
   assert.deepEqual(fixture.gatewayCalls, [{ taskId: 'provider-task-1' }])
 })
 
+test('exact-fence cancellation aborts the matching request only', async () => {
+  const signals = []
+  const fixture = createFixture()
+  fixture.rpc.detachPort()
+  const port = createFakePort({ name: 'video-summary-offscreen' })
+  const rpc = createVideoSummaryOffscreenRpc({
+    mediaKitGateway: {
+      queryTask(args, { signal }) {
+        signals.push(signal)
+        return new Promise((resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+      },
+    },
+    modelGateway: {},
+    coordinator: {
+      authorizeGatewayRequest: ({ args }) => ({ args, reservation: null }),
+      completeGatewayRequest() {},
+      handleOffscreenMessage() {},
+      handleOffscreenDisconnect() {},
+    },
+    logger: {},
+  })
+  rpc.attachPort(port)
+  port.emitMessage({
+    type: 'GATEWAY_REQUEST',
+    requestId: 'shared-request',
+    fence,
+    gateway: 'mediakit',
+    operation: 'queryTask',
+    args: { taskId: 'provider-task' },
+  })
+  await Promise.resolve()
+  port.emitMessage({
+    type: 'CANCEL_GATEWAY_REQUEST',
+    requestId: 'shared-request',
+    fence: { ...fence, attempt: 2 },
+  })
+  assert.equal(signals[0].aborted, false)
+  port.emitMessage({ type: 'CANCEL_GATEWAY_REQUEST', requestId: 'shared-request', fence })
+  assert.equal(signals[0].aborted, true)
+})
+
+test('cancellation reaches every gateway network boundary', async () => {
+  const signals = new Map()
+  const port = createFakePort({ name: 'video-summary-offscreen' })
+  const hold =
+    (operation) =>
+    (args, { signal }) => {
+      signals.set(operation, signal)
+      return new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      })
+    }
+  const rpc = createVideoSummaryOffscreenRpc({
+    mediaKitGateway: {
+      submitDirectAsr: hold('submitDirectAsr'),
+      requestUploadTarget: hold('requestUploadTarget'),
+      submitUploadedAsr: hold('submitUploadedAsr'),
+      queryTask: hold('queryTask'),
+    },
+    modelGateway: { generateText: hold('generateText') },
+    coordinator: {
+      authorizeGatewayRequest: ({ args }) => ({ args, reservation: null }),
+      completeGatewayRequest() {},
+      handleOffscreenMessage() {},
+      handleOffscreenDisconnect() {},
+    },
+    logger: {},
+  })
+  rpc.attachPort(port)
+  const operations = [
+    ['mediakit', 'submitDirectAsr'],
+    ['mediakit', 'requestUploadTarget'],
+    ['mediakit', 'submitUploadedAsr'],
+    ['mediakit', 'queryTask'],
+    ['model', 'generateText'],
+  ]
+  for (const [gateway, operation] of operations) {
+    port.emitMessage({
+      type: 'GATEWAY_REQUEST',
+      requestId: `request-${operation}`,
+      fence,
+      gateway,
+      operation,
+      args: {},
+    })
+  }
+  await Promise.resolve()
+  for (const [, operation] of operations) {
+    port.emitMessage({
+      type: 'CANCEL_GATEWAY_REQUEST',
+      requestId: `request-${operation}`,
+      fence,
+    })
+  }
+  assert.deepEqual(
+    [...signals.entries()].map(([operation, signal]) => [operation, signal.aborted]),
+    operations.map(([, operation]) => [operation, true]),
+  )
+})
+
+test('generation cancellation aborts all matching controllers', async () => {
+  const signals = []
+  const port = createFakePort({ name: 'video-summary-offscreen' })
+  const rpc = createVideoSummaryOffscreenRpc({
+    mediaKitGateway: {},
+    modelGateway: {
+      generateText(args, { signal }) {
+        signals.push(signal)
+        return new Promise((resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+      },
+    },
+    coordinator: {
+      authorizeGatewayRequest: ({ args }) => ({ args, reservation: null }),
+      completeGatewayRequest() {},
+      handleOffscreenMessage() {},
+      handleOffscreenDisconnect() {},
+    },
+    logger: {},
+  })
+  rpc.attachPort(port)
+  for (const requestId of ['request-1', 'request-2']) {
+    port.emitMessage({
+      type: 'GATEWAY_REQUEST',
+      requestId,
+      fence,
+      gateway: 'model',
+      operation: 'generateText',
+      args: {},
+    })
+  }
+  await Promise.resolve()
+  rpc.cancelGeneration(fence)
+  assert.deepEqual(
+    signals.map(({ aborted }) => aborted),
+    [true, true],
+  )
+})
+
+test('disconnect aborts all in-flight gateway controllers', async () => {
+  const signals = []
+  const port = createFakePort({ name: 'video-summary-offscreen' })
+  const rpc = createVideoSummaryOffscreenRpc({
+    mediaKitGateway: {},
+    modelGateway: {
+      generateText(args, { signal }) {
+        signals.push(signal)
+        return new Promise((resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+      },
+    },
+    coordinator: {
+      authorizeGatewayRequest: ({ args }) => ({ args, reservation: null }),
+      completeGatewayRequest() {},
+      handleOffscreenMessage() {},
+      handleOffscreenDisconnect() {},
+    },
+    logger: {},
+  })
+  rpc.attachPort(port)
+  port.emitMessage({
+    type: 'GATEWAY_REQUEST',
+    requestId: 'request-disconnect',
+    fence,
+    gateway: 'model',
+    operation: 'generateText',
+    args: {},
+  })
+  await Promise.resolve()
+  port.emitDisconnect()
+  assert.equal(signals[0].aborted, true)
+})
+
 test('outbound commands are parsed and disconnect resets coordinator state', () => {
   const fixture = createFixture()
   fixture.rpc.postCommand({ type: 'CANCEL_TASK', fence })

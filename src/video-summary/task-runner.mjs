@@ -169,11 +169,6 @@ async function generateTextOnce({
   signal,
 }) {
   assertNotAborted(signal)
-  const onAbort = () => {
-    modelGateway.cancel?.({ taskId, requestId })
-  }
-  signal?.addEventListener('abort', onAbort, { once: true })
-
   try {
     const generateText =
       typeof modelGateway.generateText === 'function'
@@ -181,20 +176,23 @@ async function generateTextOnce({
         : modelGateway.generate?.bind(modelGateway)
     if (typeof generateText !== 'function') throw new Error('MODEL_GATEWAY_TEXT_CALLER_MISSING')
 
-    const response = await generateText({
-      requestId,
-      taskId,
-      modelSnapshot,
-      messages: stripAssistantMessages(messages),
-      maxOutputTokens,
-    })
+    const response = await generateText(
+      {
+        requestId,
+        taskId,
+        modelSnapshot,
+        messages: stripAssistantMessages(messages),
+        maxOutputTokens,
+      },
+      { signal },
+    )
     assertNotAborted(signal)
     return {
       text: String(response?.text || ''),
       finishReason: typeof response?.finishReason === 'string' ? response.finishReason : null,
     }
   } finally {
-    signal?.removeEventListener?.('abort', onAbort)
+    assertNotAborted(signal)
   }
 }
 
@@ -324,7 +322,11 @@ async function summarizeChunks({
   controller,
   retryFailedRanges = false,
 }) {
-  const capabilities = await modelGateway.describeCapabilities(command.modelSnapshot)
+  assertNotAborted(controller.signal)
+  const capabilities = await modelGateway.describeCapabilities(command.modelSnapshot, {
+    signal: controller.signal,
+  })
+  assertNotAborted(controller.signal)
   if (!capabilities?.supported) {
     checkpoint.successfulChunkResults = []
     checkpoint.failedRanges = []
@@ -538,7 +540,11 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
     const { checkpoint, taskId } = state
     if (!checkpoint?.transcription) throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
 
-    const capabilities = await modelGateway.describeCapabilities(command.modelSnapshot)
+    assertNotAborted(controller.signal)
+    const capabilities = await modelGateway.describeCapabilities(command.modelSnapshot, {
+      signal: controller.signal,
+    })
+    assertNotAborted(controller.signal)
     if (!capabilities?.supported && isTemporaryOrUnavailableCapability(capabilities)) {
       throw createCapabilityError(capabilities, 'synthesizing-summary')
     }
@@ -613,7 +619,8 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
         owner: state.owner,
         sourceSnapshot: command.sourceSnapshot,
         settingsSnapshot: command.settingsSnapshot,
-        requestSourceRefresh: command.requestSourceRefresh,
+        requestSourceRefresh: (args) =>
+          command.requestSourceRefresh(args, { signal: controller.signal }),
         signal: controller.signal,
         onEvent(event) {
           emitEvent(emit, {
