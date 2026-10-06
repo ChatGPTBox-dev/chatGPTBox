@@ -1,3 +1,4 @@
+import { pageIdentitiesEqual } from '../../../video-summary/protocol.mjs'
 import {
   assertYouTubePlayability,
   assertYouTubePlayerResponseIdentity,
@@ -28,7 +29,7 @@ function readWatchIdentity(href) {
   try {
     return getYouTubeWatchIdentity(href)
   } catch {
-    return { videoId: null, supported: false }
+    return { supported: false, pageIdentity: null }
   }
 }
 
@@ -86,8 +87,9 @@ export async function resolveYouTubeSourceSnapshot({
 }) {
   const identity = readWatchIdentity(url)
   if (!identity.supported) throw new Error('YOUTUBE_WATCH_PAGE_UNSUPPORTED')
-  const snapshotVideoId = expectedVideoId || identity.videoId
-  if (identity.videoId !== snapshotVideoId) throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
+  const pageIdentity = identity.pageIdentity
+  const snapshotVideoId = expectedVideoId || pageIdentity.videoId
+  if (pageIdentity.videoId !== snapshotVideoId) throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
   const resolvedPlayerResponse = playerResponse || extractYouTubePlayerResponse(html)
   assertYouTubePlayerResponseIdentity(resolvedPlayerResponse, snapshotVideoId)
   assertIdentity(resolvedPlayerResponse)
@@ -96,7 +98,7 @@ export async function resolveYouTubeSourceSnapshot({
   const captionDescriptors = normalizeYouTubeCaptionTracks(resolvedPlayerResponse)
   const observedCaptionRequests = readObservedCaptionRequests(
     getPerformanceEntries(),
-    identity.videoId,
+    pageIdentity.videoId,
   )
   const nativeSubtitleTracks = []
   let unavailableTrackCount = 0
@@ -108,9 +110,10 @@ export async function resolveYouTubeSourceSnapshot({
       const cues = parseYouTubeTimedText(panel?.timedText || panel)
       if (cues.length > 0) {
         return {
-          platform: 'youtube',
-          videoId: snapshotVideoId,
-          pageId: snapshotVideoId,
+          pageIdentity,
+          platform: pageIdentity.platform,
+          videoId: pageIdentity.videoId,
+          pageId: pageIdentity.mediaId,
           title: String(resolvedPlayerResponse?.videoDetails?.title || ''),
           durationMs: normalizeDurationMs(resolvedPlayerResponse),
           nativeSubtitleTracks: [
@@ -226,9 +229,10 @@ export async function resolveYouTubeSourceSnapshot({
 
   assertIdentity(resolvedPlayerResponse)
   return {
-    platform: 'youtube',
-    videoId: snapshotVideoId,
-    pageId: snapshotVideoId,
+    pageIdentity,
+    platform: pageIdentity.platform,
+    videoId: pageIdentity.videoId,
+    pageId: pageIdentity.mediaId,
     title: String(resolvedPlayerResponse?.videoDetails?.title || ''),
     durationMs: normalizeDurationMs(resolvedPlayerResponse),
     nativeSubtitleTracks,
@@ -250,6 +254,8 @@ export function createYouTubeVideoPageBridge({
 }) {
   if (typeof getLocationHref !== 'function') throw new Error('YOUTUBE_LOCATION_PROVIDER_REQUIRED')
 
+  const getCurrentPageIdentity = () => readWatchIdentity(getLocationHref()).pageIdentity
+
   const segmentsToTimedText = (segments) => ({
     events: segments.map((segment) => ({
       tStartMs: segment.startMs,
@@ -269,7 +275,7 @@ export function createYouTubeVideoPageBridge({
     })
     if (
       captured?.videoId === expectedVideoId &&
-      readWatchIdentity(getLocationHref()).videoId === expectedVideoId &&
+      getCurrentPageIdentity()?.videoId === expectedVideoId &&
       String(captured.body || '').trim()
     ) {
       return captured.body
@@ -297,7 +303,7 @@ export function createYouTubeVideoPageBridge({
       const size = new TextEncoder().encode(payload).byteLength
       if (!payload.trim()) throw new Error('YOUTUBE_TIMED_TEXT_EMPTY')
       if (size > 5 * 1024 * 1024) throw new Error('YOUTUBE_TIMED_TEXT_RESPONSE_TOO_LARGE')
-      if (readWatchIdentity(getLocationHref()).videoId !== expectedVideoId) {
+      if (getCurrentPageIdentity()?.videoId !== expectedVideoId) {
         throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
       }
       return JSON.parse(payload)
@@ -311,7 +317,7 @@ export function createYouTubeVideoPageBridge({
     const captured = await captureCaption({ expectedVideoId, mode })
     if (
       captured?.videoId !== expectedVideoId ||
-      readWatchIdentity(getLocationHref()).videoId !== expectedVideoId ||
+      getCurrentPageIdentity()?.videoId !== expectedVideoId ||
       !Array.isArray(captured.segments) ||
       captured.segments.length === 0
     ) {
@@ -334,21 +340,28 @@ export function createYouTubeVideoPageBridge({
     const href = getLocationHref()
     const identity = readWatchIdentity(href)
     if (!identity.supported) throw new Error('YOUTUBE_WATCH_PAGE_UNSUPPORTED')
-    const expectedVideoId = identity.videoId
+    const expectedPageIdentity = identity.pageIdentity
+    const expectedVideoId = expectedPageIdentity.videoId
     const assertIdentity = (playerResponse) => {
-      if (readWatchIdentity(getLocationHref()).videoId !== expectedVideoId) {
+      if (!pageIdentitiesEqual(expectedPageIdentity, getCurrentPageIdentity())) {
         throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
       }
       assertYouTubePlayerResponseIdentity(playerResponse, expectedVideoId)
     }
     const pagePlayerResponse = await getPlayerResponse(expectedVideoId)
     if (pagePlayerResponse) assertIdentity(pagePlayerResponse)
+    else if (!pageIdentitiesEqual(expectedPageIdentity, getCurrentPageIdentity())) {
+      throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
+    }
     const pageHtml = pagePlayerResponse ? '' : String(await getPageHtml())
-    if (!pagePlayerResponse && readWatchIdentity(getLocationHref()).videoId !== expectedVideoId) {
+    if (
+      !pagePlayerResponse &&
+      !pageIdentitiesEqual(expectedPageIdentity, getCurrentPageIdentity())
+    ) {
       throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
     }
     const html = pagePlayerResponse ? undefined : pageHtml || (await loadHtml(href))
-    if (readWatchIdentity(getLocationHref()).videoId !== expectedVideoId) {
+    if (!pageIdentitiesEqual(expectedPageIdentity, getCurrentPageIdentity())) {
       throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
     }
     return resolveYouTubeSourceSnapshot({
@@ -367,18 +380,28 @@ export function createYouTubeVideoPageBridge({
 
   return {
     getSnapshot,
-    async refreshSnapshot({ expectedPlatform, expectedVideoId }) {
-      const identity = readWatchIdentity(getLocationHref())
-      if (
+    async refreshSnapshot(options) {
+      const { expectedPageIdentity, pageGeneration, expectedPlatform, expectedVideoId } = options
+      const currentPageIdentity = getCurrentPageIdentity()
+      if (expectedPageIdentity) {
+        if (!pageIdentitiesEqual(expectedPageIdentity, currentPageIdentity)) {
+          throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
+        }
+      } else if (
         expectedPlatform !== 'youtube' ||
-        !identity.supported ||
-        identity.videoId !== expectedVideoId
+        currentPageIdentity?.videoId !== expectedVideoId
       ) {
         throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
       }
       const snapshot = await getSnapshot()
-      if (snapshot.videoId !== expectedVideoId) throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
-      return snapshot
+      if (
+        expectedPageIdentity
+          ? !pageIdentitiesEqual(expectedPageIdentity, snapshot.pageIdentity)
+          : snapshot.videoId !== expectedVideoId
+      ) {
+        throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
+      }
+      return pageGeneration === undefined ? snapshot : { ...snapshot, pageGeneration }
     },
     seekTo(startMs) {
       const video = getVideoElement?.()
@@ -386,8 +409,9 @@ export function createYouTubeVideoPageBridge({
       video.currentTime = Math.max(0, Number(startMs) / 1000 || 0)
       video.scrollIntoView({ block: 'center', behavior: 'smooth' })
     },
+    getCurrentPageIdentity,
     getCurrentVideoId() {
-      return readWatchIdentity(getLocationHref()).videoId
+      return getCurrentPageIdentity()?.videoId || null
     },
     subscribeToVideoChanges(listener) {
       if (
@@ -402,12 +426,12 @@ export function createYouTubeVideoPageBridge({
         const identity = readWatchIdentity(getLocationHref())
         if (
           identity.supported === lastIdentity.supported &&
-          identity.videoId === lastIdentity.videoId
+          pageIdentitiesEqual(identity.pageIdentity, lastIdentity.pageIdentity)
         ) {
           return
         }
         lastIdentity = identity
-        listener(identity)
+        listener(identity.pageIdentity)
       }, 250)
       return () => clearIntervalImpl(timer)
     },

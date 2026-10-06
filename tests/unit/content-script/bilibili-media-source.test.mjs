@@ -195,6 +195,23 @@ test('handles snake_case response fields', () => {
   assert.equal(candidate.localFetchRecipe.primaryUrl, primaryUrl)
 })
 
+test('Bilibili P1 and P2 share BVID but have distinct canonical media identity', () => {
+  const p1 = resolveBilibiliSelectedPageMetadata({ url: videoUrl, initialState })
+  const p2 = resolveBilibiliSelectedPageMetadata({ url: multipartVideoUrl, initialState })
+
+  assert.deepEqual(p1.pageIdentity, {
+    platform: 'bilibili',
+    videoId: 'BVTESTCASE01',
+    mediaId: '111001',
+  })
+  assert.deepEqual(p2.pageIdentity, {
+    platform: 'bilibili',
+    videoId: 'BVTESTCASE01',
+    mediaId: '222002',
+  })
+  assert.notDeepEqual(p1.pageIdentity, p2.pageIdentity)
+})
+
 test('resolveBilibiliSelectedPageMetadata uses the selected multipart page cid and duration', () => {
   assert.deepEqual(
     resolveBilibiliSelectedPageMetadata({
@@ -202,6 +219,11 @@ test('resolveBilibiliSelectedPageMetadata uses the selected multipart page cid a
       initialState,
     }),
     {
+      pageIdentity: {
+        platform: 'bilibili',
+        videoId: 'BVTESTCASE01',
+        mediaId: '222002',
+      },
       videoId: 'BVTESTCASE01',
       pageNumber: 2,
       bvid: 'BVTESTCASE01',
@@ -219,6 +241,11 @@ test('resolveBilibiliSelectedPageMetadata returns uploader mid when available', 
       initialState,
     }),
     {
+      pageIdentity: {
+        platform: 'bilibili',
+        videoId: 'BVTESTCASE01',
+        mediaId: '111001',
+      },
       videoId: 'BVTESTCASE01',
       pageNumber: 1,
       bvid: 'BVTESTCASE01',
@@ -374,6 +401,14 @@ test('source snapshot skips AI conclusion when a player subtitle is usable', asy
     },
   })
 
+  assert.deepEqual(snapshot.pageIdentity, {
+    platform: 'bilibili',
+    videoId: 'BVTESTCASE01',
+    mediaId: '111001',
+  })
+  assert.equal(snapshot.platform, 'bilibili')
+  assert.equal(snapshot.videoId, 'BVTESTCASE01')
+  assert.equal(snapshot.pageId, '111001')
   assert.equal(conclusionCalls, 0)
   assert.equal(snapshot.subtitleDiscovery.conclusionStatus, 'not-needed')
   assert.equal(snapshot.nativeSubtitleTracks[0].sourceKind, 'author')

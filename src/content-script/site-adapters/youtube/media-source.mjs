@@ -1,12 +1,17 @@
+import { createPageIdentity } from '../../../video-summary/protocol.mjs'
+
 const PLAYER_RESPONSE_MARKER = /(?:var\s+)?ytInitialPlayerResponse\s*=\s*/g
 const YOUTUBE_ORIGIN = 'https://www.youtube.com/'
 
 export function getYouTubeWatchIdentity(input) {
   const url = input instanceof URL ? input : new URL(String(input))
-  if (url.pathname !== '/watch') return { videoId: null, supported: false }
+  if (url.pathname !== '/watch') return { supported: false, pageIdentity: null }
   const videoId = url.searchParams.get('v') || ''
-  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return { videoId: null, supported: false }
-  return { videoId, supported: true }
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return { supported: false, pageIdentity: null }
+  return {
+    supported: true,
+    pageIdentity: createPageIdentity({ platform: 'youtube', videoId, mediaId: videoId }),
+  }
 }
 
 function extractBalancedObject(source, start, end) {

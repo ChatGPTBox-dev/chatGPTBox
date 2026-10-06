@@ -18,13 +18,18 @@ const loadText = (name) => readFile(fixtureUrl(name), 'utf8')
 const validVideoId = 'SYNTHVID001'
 
 test('accepts only exact watch paths with bounded YouTube video IDs', () => {
-  assert.deepEqual(getYouTubeWatchIdentity(`https://www.youtube.com/watch?v=${validVideoId}`), {
+  const pageIdentity = {
+    platform: 'youtube',
     videoId: validVideoId,
+    mediaId: validVideoId,
+  }
+  assert.deepEqual(getYouTubeWatchIdentity(`https://www.youtube.com/watch?v=${validVideoId}`), {
     supported: true,
+    pageIdentity,
   })
   assert.deepEqual(
     getYouTubeWatchIdentity(new URL(`https://www.youtube.com/watch?v=${validVideoId}&t=2`)),
-    { videoId: validVideoId, supported: true },
+    { supported: true, pageIdentity },
   )
 
   for (const input of [
@@ -37,7 +42,7 @@ test('accepts only exact watch paths with bounded YouTube video IDs', () => {
     'https://www.youtube.com/watch?v=SYNTHVID!01',
     'https://www.youtube.com/watch',
   ]) {
-    assert.deepEqual(getYouTubeWatchIdentity(input), { videoId: null, supported: false })
+    assert.deepEqual(getYouTubeWatchIdentity(input), { supported: false, pageIdentity: null })
   }
 })
 

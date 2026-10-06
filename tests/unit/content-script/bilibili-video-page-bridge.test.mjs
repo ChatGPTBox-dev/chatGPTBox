@@ -386,6 +386,58 @@ test('bridge maps AI conclusion login-required without retrying or affecting aud
   assert.equal(snapshot.mediaCandidates.length, 1)
 })
 
+test('multipart navigation changes canonical identity and fences stale extraction', async () => {
+  let currentUrl = 'https://www.bilibili.com/video/BV1multi?p=1'
+  let releasePlayurl
+  const playurlReady = new Promise((resolve) => {
+    releasePlayurl = resolve
+  })
+  const html = `<script>window.__INITIAL_STATE__=${JSON.stringify({
+    videoData: {
+      bvid: 'BV1multi',
+      owner: { mid: 7 },
+      pages: [
+        { page: 1, cid: 101, duration: 10 },
+        { page: 2, cid: 202, duration: 20 },
+      ],
+    },
+  })}</script>`
+  const bridge = createBilibiliVideoPageBridge({
+    getLocationHref: () => currentUrl,
+    fetchImpl: async (url) => {
+      const href = String(url)
+      if (href.startsWith('https://www.bilibili.com/video/')) {
+        return new Response(html, { status: 200 })
+      }
+      if (href.includes('/x/player/playurl')) {
+        await playurlReady
+        return new Response(
+          JSON.stringify(createAudioOnlyPlayurl({ bvid: 'BV1multi', cid: 101, duration: 10 })),
+          { status: 200 },
+        )
+      }
+      throw new Error(`unexpected fetch ${href}`)
+    },
+  })
+
+  const pendingSnapshot = bridge.getSnapshot()
+  await nextTask()
+  assert.deepEqual(bridge.getCurrentPageIdentity(), {
+    platform: 'bilibili',
+    videoId: 'BV1multi',
+    mediaId: '101',
+  })
+  currentUrl = 'https://www.bilibili.com/video/BV1multi?p=2'
+  assert.deepEqual(bridge.getCurrentPageIdentity(), {
+    platform: 'bilibili',
+    videoId: 'BV1multi',
+    mediaId: '202',
+  })
+  releasePlayurl()
+
+  await assert.rejects(() => pendingSnapshot, { message: 'VIDEO_SOURCE_IDENTITY_CHANGED' })
+})
+
 test('refreshSnapshot rejects a mismatched platform before network access', async () => {
   let fetchCount = 0
   const bridge = createBilibiliVideoPageBridge({
@@ -522,5 +574,5 @@ test('subscribeToVideoChanges fires when pathname or p changes', async () => {
   unsubscribe()
 
   assert.equal(events.length >= 1, true)
-  assert.deepEqual(events[events.length - 1], { videoId: 'BV1sub', pageNumber: 2 })
+  assert.equal(events[events.length - 1], null)
 })

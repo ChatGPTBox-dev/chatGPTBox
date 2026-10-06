@@ -1,3 +1,4 @@
+import { pageIdentitiesEqual } from '../../../video-summary/protocol.mjs'
 import {
   assertBilibiliPlayurlResponse,
   extractBilibiliInitialState,
@@ -41,28 +42,42 @@ export async function resolveBilibiliSourceSnapshot({
   loadPlayerInfo,
   loadSubtitleBody,
   loadAiConclusion,
+  assertIdentity = () => {},
 }) {
   const initialState = extractBilibiliInitialState(html)
   const pageMetadata = resolveBilibiliSelectedPageMetadata({ url, initialState })
+  const { pageIdentity } = pageMetadata
+  assertIdentity(pageIdentity)
   const playInfo = await loadPlayurl(pageMetadata)
+  assertIdentity(pageIdentity)
   assertBilibiliPlayurlResponse({ playInfo, pageMetadata })
   const mediaCandidates = normalizeBilibiliAudioCandidates(playInfo)
   if (mediaCandidates.length === 0) throw new Error('BILIBILI_PLAYURL_AUDIO_NOT_FOUND')
   const playerInfo =
     typeof loadPlayerInfo === 'function' ? await loadPlayerInfo(pageMetadata) : playInfo
-  const playerSubtitleTracks = await normalizeSubtitleTracks(playerInfo, loadSubtitleBody)
+  assertIdentity(pageIdentity)
+  const playerSubtitleTracks = await normalizeSubtitleTracks(playerInfo, async (subtitleUrl) => {
+    const result = await loadSubtitleBody(subtitleUrl, pageIdentity)
+    assertIdentity(pageIdentity)
+    return result
+  })
+  assertIdentity(pageIdentity)
   let conclusionResult = { status: 'not-needed', tracks: [] }
   if (playerSubtitleTracks.length === 0 && typeof loadAiConclusion === 'function') {
-    conclusionResult = await loadAiConclusion(pageMetadata).catch(() => ({
-      status: 'unavailable',
-      tracks: [],
-    }))
+    try {
+      conclusionResult = await loadAiConclusion(pageMetadata)
+      assertIdentity(pageIdentity)
+    } catch (error) {
+      if (error?.message === 'VIDEO_SOURCE_IDENTITY_CHANGED') throw error
+      conclusionResult = { status: 'unavailable', tracks: [] }
+    }
   }
 
   return {
-    platform: 'bilibili',
-    videoId: pageMetadata.videoId,
-    pageId: String(pageMetadata.cid),
+    pageIdentity,
+    platform: pageIdentity.platform,
+    videoId: pageIdentity.videoId,
+    pageId: pageIdentity.mediaId,
     title: String(initialState?.videoData?.title || ''),
     durationMs: pageMetadata.durationMs,
     nativeSubtitleTracks:
@@ -91,6 +106,7 @@ export function createBilibiliVideoPageBridge({
   }
 
   let cachedWbiMixinKey = null
+  let cachedInitialState = null
 
   const scheduleInterval =
     typeof globalThis?.setInterval === 'function'
@@ -101,34 +117,69 @@ export function createBilibiliVideoPageBridge({
       ? globalThis.clearInterval.bind(globalThis)
       : (id) => clearInterval(id)
 
-  const loadHtml = async (href) => {
-    const response = await fetchImpl(href, { credentials: 'include' })
-    if (!response?.ok) throw new Error('BILIBILI_PAGE_LOAD_FAILED')
-    return response.text()
+  const getCurrentPageIdentity = () => {
+    if (!cachedInitialState) return null
+    try {
+      return resolveBilibiliSelectedPageMetadata({
+        url: getLocationHref(),
+        initialState: cachedInitialState,
+      }).pageIdentity
+    } catch {
+      return null
+    }
   }
 
-  const loadPlayurl = async ({ bvid, cid }) => {
+  const assertCurrentPageIdentity = (expectedPageIdentity) => {
+    if (!pageIdentitiesEqual(expectedPageIdentity, getCurrentPageIdentity())) {
+      throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
+    }
+  }
+
+  const loadHtml = async (href) => {
+    const expectedPageKey = readPageKey(href)
+    const response = await fetchImpl(href, { credentials: 'include' })
+    if (readPageKey(getLocationHref()) !== expectedPageKey) {
+      throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
+    }
+    if (!response?.ok) throw new Error('BILIBILI_PAGE_LOAD_FAILED')
+    const html = await response.text()
+    if (readPageKey(getLocationHref()) !== expectedPageKey) {
+      throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
+    }
+    cachedInitialState = extractBilibiliInitialState(html)
+    return html
+  }
+
+  const loadPlayurl = async ({ bvid, cid, pageIdentity }) => {
     const response = await fetchImpl(createPlayurlEndpoint({ bvid, cid }), {
       credentials: 'include',
     })
+    assertCurrentPageIdentity(pageIdentity)
     if (!response?.ok) throw new Error('BILIBILI_PLAYURL_HTTP_ERROR')
-    return response.json()
+    const playInfo = await response.json()
+    assertCurrentPageIdentity(pageIdentity)
+    return playInfo
   }
 
-  const loadPlayerInfo = async ({ bvid, cid }) => {
+  const loadPlayerInfo = async ({ bvid, cid, pageIdentity }) => {
     const response = await fetchImpl(createPlayerInfoEndpoint({ bvid, cid }), {
       credentials: 'include',
     })
+    assertCurrentPageIdentity(pageIdentity)
     if (!response?.ok) throw new Error('BILIBILI_PLAYER_INFO_HTTP_ERROR')
     const playerInfo = await response.json()
+    assertCurrentPageIdentity(pageIdentity)
     if (Number(playerInfo?.code) !== 0) throw new Error('BILIBILI_PLAYER_INFO_API_ERROR')
     return playerInfo
   }
 
-  const loadSubtitleBody = async (subtitleUrl) => {
+  const loadSubtitleBody = async (subtitleUrl, pageIdentity) => {
     const response = await fetchImpl(subtitleUrl, { credentials: 'omit' })
+    assertCurrentPageIdentity(pageIdentity)
     if (!response?.ok) throw new Error('BILIBILI_SUBTITLE_HTTP_ERROR')
-    return response.json()
+    const body = await response.json()
+    assertCurrentPageIdentity(pageIdentity)
+    return body
   }
 
   const loadWbiMixinKey = async ({ refresh = false } = {}) => {
@@ -141,10 +192,11 @@ export function createBilibiliVideoPageBridge({
     return cachedWbiMixinKey
   }
 
-  const loadAiConclusion = async ({ bvid, cid, upMid }) => {
+  const loadAiConclusion = async ({ bvid, cid, upMid, pageIdentity }) => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const mixinKey = await loadWbiMixinKey({ refresh: attempt > 0 })
+        assertCurrentPageIdentity(pageIdentity)
         const query = signBilibiliWbiParams({
           params: {
             bvid,
@@ -157,8 +209,10 @@ export function createBilibiliVideoPageBridge({
         const response = await fetchImpl(createConclusionEndpoint(query), {
           credentials: 'include',
         })
+        assertCurrentPageIdentity(pageIdentity)
         if (!response?.ok) return { status: 'unavailable', tracks: [] }
         const body = await response.json()
+        assertCurrentPageIdentity(pageIdentity)
         if (Number(body?.code) === -101) return { status: 'login-required', tracks: [] }
         if (Number(body?.code) === -403 && attempt === 0) {
           cachedWbiMixinKey = null
@@ -167,7 +221,8 @@ export function createBilibiliVideoPageBridge({
         if (Number(body?.code) !== 0) return { status: 'unavailable', tracks: [] }
         const tracks = normalizeBilibiliAiConclusion(body)
         return { status: tracks.length > 0 ? 'available' : 'not-found', tracks }
-      } catch {
+      } catch (error) {
+        if (error?.message === 'VIDEO_SOURCE_IDENTITY_CHANGED') throw error
         return { status: 'unavailable', tracks: [] }
       }
     }
@@ -177,25 +232,49 @@ export function createBilibiliVideoPageBridge({
   const getSnapshot = async () => {
     const href = getLocationHref()
     const html = await loadHtml(href)
-    return resolveBilibiliSourceSnapshot({
+    const pageMetadata = resolveBilibiliSelectedPageMetadata({
+      url: href,
+      initialState: cachedInitialState,
+    })
+    const expectedPageIdentity = pageMetadata.pageIdentity
+    assertCurrentPageIdentity(expectedPageIdentity)
+    const snapshot = await resolveBilibiliSourceSnapshot({
       url: href,
       html,
       loadPlayurl,
       loadPlayerInfo,
       loadSubtitleBody,
       loadAiConclusion,
+      assertIdentity: assertCurrentPageIdentity,
     })
+    assertCurrentPageIdentity(expectedPageIdentity)
+    return snapshot
   }
 
   return {
     getSnapshot,
-    async refreshSnapshot({ expectedPlatform, expectedVideoId }) {
-      if (expectedPlatform !== 'bilibili') throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
-      const currentVideoId = getBilibiliVideoIdentity(getLocationHref()).videoId
-      if (expectedVideoId && currentVideoId !== expectedVideoId) {
+    async refreshSnapshot(options) {
+      const { expectedPageIdentity, pageGeneration, expectedPlatform, expectedVideoId } = options
+      const currentPageIdentity = getCurrentPageIdentity()
+      if (expectedPageIdentity) {
+        if (!pageIdentitiesEqual(expectedPageIdentity, currentPageIdentity)) {
+          throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
+        }
+      } else {
+        const currentVideoId = getBilibiliVideoIdentity(getLocationHref()).videoId
+        if (expectedPlatform !== 'bilibili' || currentVideoId !== expectedVideoId) {
+          throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
+        }
+      }
+      const snapshot = await getSnapshot()
+      if (
+        expectedPageIdentity
+          ? !pageIdentitiesEqual(expectedPageIdentity, snapshot.pageIdentity)
+          : snapshot.videoId !== expectedVideoId
+      ) {
         throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
       }
-      return getSnapshot()
+      return pageGeneration === undefined ? snapshot : { ...snapshot, pageGeneration }
     },
     seekTo(startMs) {
       const video = getVideoElement?.()
@@ -203,6 +282,7 @@ export function createBilibiliVideoPageBridge({
       video.currentTime = Math.max(0, startMs / 1000)
       video.scrollIntoView({ block: 'center', behavior: 'smooth' })
     },
+    getCurrentPageIdentity,
     getCurrentVideoId() {
       return getBilibiliVideoIdentity(getLocationHref()).videoId
     },
@@ -213,8 +293,7 @@ export function createBilibiliVideoPageBridge({
         const currentKey = readPageKey(getLocationHref())
         if (currentKey === lastKey) return
         lastKey = currentKey
-        const { videoId, pageNumber } = getBilibiliVideoIdentity(getLocationHref())
-        listener({ videoId, pageNumber })
+        listener(getCurrentPageIdentity())
       }, 250)
 
       return () => cancelInterval(timer)

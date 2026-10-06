@@ -1,3 +1,4 @@
+import { createPageIdentity } from '../../../video-summary/protocol.mjs'
 import { orderSubtitleTracks } from '../../../video-summary/subtitle-tracks.mjs'
 
 export function getBilibiliVideoIdentity(input) {
@@ -151,8 +152,16 @@ export function resolveBilibiliSelectedPageMetadata({ url, initialState }) {
   const cid = parsePositiveInteger(selectedPage?.cid ?? videoData.cid)
   if (!cid) throw new Error('BILIBILI_INITIAL_STATE_VIDEO_DATA_INVALID')
 
+  const videoId = identity.videoId || bvid
+  const pageIdentity = createPageIdentity({
+    platform: 'bilibili',
+    videoId,
+    mediaId: String(cid),
+  })
+
   return {
-    videoId: identity.videoId || bvid,
+    pageIdentity,
+    videoId,
     pageNumber: identity.pageNumber,
     bvid,
     cid,

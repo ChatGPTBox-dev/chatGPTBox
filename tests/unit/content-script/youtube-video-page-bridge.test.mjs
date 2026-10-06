@@ -10,7 +10,16 @@ const fixtureUrl = (name) => new URL(`../../fixtures/youtube/${name}`, import.me
 const loadJson = async (name) => JSON.parse(await readFile(fixtureUrl(name), 'utf8'))
 const loadText = (name) => readFile(fixtureUrl(name), 'utf8')
 const videoId = 'SYNTHVID001'
+const otherVideoId = 'lmnopqrstuv'
 const pageUrl = `https://www.youtube.com/watch?v=${videoId}`
+
+function createDeferred() {
+  let resolve
+  const promise = new Promise((next) => {
+    resolve = next
+  })
+  return { promise, resolve }
+}
 
 function integrityEntries(pot = 'observed-integrity') {
   return [
@@ -34,6 +43,11 @@ test('resolves page player data and preserves caption query while reusing observ
     },
   })
 
+  assert.deepEqual(snapshot.pageIdentity, {
+    platform: 'youtube',
+    videoId,
+    mediaId: videoId,
+  })
   assert.equal(snapshot.platform, 'youtube')
   assert.equal(snapshot.videoId, videoId)
   assert.equal(snapshot.pageId, videoId)
@@ -328,6 +342,73 @@ test('pins snapshot identity before async caption work and rejects an A to B nav
   assert.deepEqual(requestedVideoIds, [videoId])
 })
 
+test('every asynchronous source boundary rejects stale YouTube identity', async (t) => {
+  const playerResponse = await loadJson('player-response-authored-auto.json')
+  const timedText = await loadJson('timed-text-events.json')
+
+  for (const boundary of [
+    'getPlayerResponse',
+    'getPageHtml',
+    'captureCaption',
+    'panelTranscript',
+    'innertubeTranscript',
+    'replayFetch',
+  ]) {
+    await t.test(boundary, async () => {
+      let currentUrl = pageUrl
+      const deferred = createDeferred()
+      const entered = createDeferred()
+      const pause = async () => {
+        entered.resolve()
+        await deferred.promise
+      }
+      const bridge = createYouTubeVideoPageBridge({
+        getLocationHref: () => currentUrl,
+        getPlayerResponse: async () => {
+          if (boundary === 'getPageHtml') return null
+          if (boundary === 'getPlayerResponse') await pause()
+          return playerResponse
+        },
+        getPageHtml: async () => {
+          if (boundary === 'getPageHtml') await pause()
+          return `<script>var ytInitialPlayerResponse = ${JSON.stringify(playerResponse)};</script>`
+        },
+        captureCaption: async ({ mode }) => {
+          if (boundary === 'captureCaption' && mode === 'nativeOnly') {
+            await pause()
+            return { videoId, body: JSON.stringify(timedText) }
+          }
+          if (boundary === 'panelTranscript' && mode === 'panelOnly') {
+            await pause()
+            return {
+              videoId,
+              segments: [{ startMs: 0, endMs: 1_000, text: 'panel' }],
+            }
+          }
+          if (boundary === 'innertubeTranscript' && mode === 'innertubeOnly') {
+            await pause()
+            return {
+              videoId,
+              segments: [{ startMs: 0, endMs: 1_000, text: 'innertube' }],
+            }
+          }
+          return null
+        },
+        fetchImpl: async () => {
+          if (boundary === 'replayFetch') await pause()
+          return { ok: true, text: async () => JSON.stringify(timedText) }
+        },
+      })
+
+      const pending = bridge.getSnapshot()
+      await entered.promise
+      currentUrl = `https://www.youtube.com/watch?v=${otherVideoId}`
+      deferred.resolve()
+      await assert.rejects(() => pending, { message: 'VIDEO_SOURCE_IDENTITY_CHANGED' })
+    })
+  }
+})
+
 test('loads signed caption URLs without requiring observed integrity data', async () => {
   const playerResponse = await loadJson('player-response-authored-auto.json')
   const timedText = await loadJson('timed-text-events.json')
@@ -401,8 +482,17 @@ test('refresh validates full identity before loading and supports unbound invoca
   )
   assert.equal(playerLoads, 0)
   currentUrl = pageUrl
-  const snapshot = await refreshSnapshot({ expectedPlatform: 'youtube', expectedVideoId: videoId })
-  assert.equal(snapshot.videoId, videoId)
+  const expectedPageIdentity = {
+    platform: 'youtube',
+    videoId,
+    mediaId: videoId,
+  }
+  assert.deepEqual(bridge.getCurrentPageIdentity(), expectedPageIdentity)
+  const snapshot = await refreshSnapshot({ expectedPageIdentity, pageGeneration: 7 })
+  assert.deepEqual(snapshot.pageIdentity, expectedPageIdentity)
+  assert.equal(snapshot.pageGeneration, 7)
+  const ordinarySnapshot = await bridge.getSnapshot()
+  assert.equal('pageGeneration' in ordinarySnapshot, false)
 })
 
 test('seek updates currentTime and scrolls the active video into view', () => {
@@ -440,10 +530,14 @@ test('navigation emits only normalized watch identity changes and stops after di
   assert.deepEqual(events, [])
   currentUrl = 'https://www.youtube.com/'
   tick()
-  assert.deepEqual(events, [{ supported: false, videoId: null }])
-  currentUrl = 'https://www.youtube.com/watch?v=OTHERID0001'
+  assert.deepEqual(events, [null])
+  currentUrl = `https://www.youtube.com/watch?v=${otherVideoId}`
   tick()
-  assert.deepEqual(events[1], { supported: true, videoId: 'OTHERID0001' })
+  assert.deepEqual(events[1], {
+    platform: 'youtube',
+    videoId: otherVideoId,
+    mediaId: otherVideoId,
+  })
   dispose()
   assert.equal(cleared, 42)
 })
