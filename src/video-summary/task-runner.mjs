@@ -70,12 +70,8 @@ function createTranscriptOnlyResult(transcription, reason) {
   }
 }
 
-function createRunnerLogger(logger) {
-  return {
-    info: typeof logger?.info === 'function' ? logger.info.bind(logger) : () => {},
-    warn: typeof logger?.warn === 'function' ? logger.warn.bind(logger) : () => {},
-    error: typeof logger?.error === 'function' ? logger.error.bind(logger) : () => {},
-  }
+function createInfoLogger(logger) {
+  return typeof logger?.info === 'function' ? logger.info.bind(logger) : () => {}
 }
 
 function toFiniteMs(value) {
@@ -172,14 +168,12 @@ async function generateTextOnce({
   signal,
 }) {
   assertNotAborted(signal)
-  let activeRequestId = requestId
   const onAbort = () => {
-    modelGateway.cancel?.({ taskId, requestId: activeRequestId })
+    modelGateway.cancel?.({ taskId, requestId })
   }
   signal?.addEventListener('abort', onAbort, { once: true })
 
   try {
-    activeRequestId = requestId
     const generateText =
       typeof modelGateway.generateText === 'function'
         ? modelGateway.generateText.bind(modelGateway)
@@ -333,7 +327,6 @@ async function summarizeChunks({
   if (!capabilities?.supported) {
     checkpoint.successfulChunkResults = []
     checkpoint.failedRanges = []
-    checkpoint.synthesisResult = null
     if (isTemporaryOrUnavailableCapability(capabilities)) {
       throw createCapabilityError(capabilities, 'summarizing-chunks')
     }
@@ -445,8 +438,6 @@ async function summarizeChunks({
     synthesisResult = null
   }
 
-  checkpoint.synthesisResult = synthesisResult
-
   let result = buildStructuredSummaryResult({
     transcription,
     localChunkResults: sortedChunkResults,
@@ -473,7 +464,7 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
   const controllers = new Map()
   const emits = new Map()
   const commands = new Map()
-  const logs = createRunnerLogger(logger)
+  const logInfo = createInfoLogger(logger)
 
   function releaseTask(taskId) {
     controllers.get(taskId)?.abort()
@@ -526,7 +517,6 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
       }
     }
 
-    checkpoint.synthesisResult = synthesisResult
     let result = buildStructuredSummaryResult({
       transcription: checkpoint.transcription,
       localChunkResults: checkpoint.successfulChunkResults,
@@ -569,7 +559,6 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
         transcription: null,
         successfulChunkResults: [],
         failedRanges: [],
-        synthesisResult: null,
       })
 
       emitEvent(emit, {
@@ -620,10 +609,9 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
           transcription,
           successfulChunkResults: [],
           failedRanges: [],
-          synthesisResult: null,
         })
 
-        logs.info({
+        logInfo({
           event: 'video-summary-task-runner.transcription-complete',
           taskId,
           atMs: clock?.now?.() ?? null,
@@ -649,10 +637,6 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
     },
 
     cancel(taskId) {
-      releaseTask(taskId)
-    },
-
-    release(taskId) {
       releaseTask(taskId)
     },
 

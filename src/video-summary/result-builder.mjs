@@ -292,13 +292,10 @@ export function buildStructuredSummaryResult({
         segments,
       )
   const coveredDurationMs = indexesToDuration(coveredIndexes, segments)
-  const hasLocalSummaries = (Array.isArray(localChunkResults) ? localChunkResults.length : 0) > 0
   const status = synthesisResult
     ? normalizedFailedRanges.length > 0
       ? 'partial'
       : 'complete'
-    : hasLocalSummaries
-    ? 'degraded'
     : 'degraded'
   const keyMoments = buildKeyMoments({
     localChunkResults,

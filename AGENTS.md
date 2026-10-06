@@ -45,8 +45,8 @@ This branch contains a second, explicitly gated pipeline in addition to the lega
 
 1. `site-adapters/bilibili/video-page-bridge.mjs` reads the current Bilibili SSR/API state, native
    subtitles, and HTTPS DASH audio candidates, and owns local timestamp seeking.
-2. `video-summary-host.mjs` renders `BilibiliVideoSummaryView` and sends structured-clone-safe task
-   commands through a named port. No DOM object, callback, signal, or secret crosses that boundary.
+2. `video-summary-host.mjs` renders the shared `VideoSummaryView` and sends structured-clone-safe
+   task commands through a named port. No DOM object, callback, signal, or secret crosses that boundary.
 3. `background/video-summary-router.mjs` derives ownership from the port sender as
    `(tabId, documentId, videoId)`, routes task events, and provides a reattachment grace period.
 4. The Chromium offscreen runtime owns `video-summary/task-runner.mjs`, checkpoints, cancellation,

@@ -229,8 +229,6 @@ export function createVideoSummaryOffscreenRpc({
       return true
     },
 
-    detachPort,
-
     postCommand(command) {
       if (!command || typeof command !== 'object') return
 

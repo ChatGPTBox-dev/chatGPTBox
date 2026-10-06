@@ -158,10 +158,6 @@ export function createVideoSummaryPortClient({
       )
     },
 
-    getTaskId() {
-      return activeTaskId
-    },
-
     getDocumentId() {
       return portDocumentId
     },

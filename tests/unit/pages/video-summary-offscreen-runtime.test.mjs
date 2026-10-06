@@ -32,7 +32,6 @@ test('START_TASK emits events and validated cancellation releases its owner bind
   const starts = []
   const cancels = []
   const retries = []
-  const releases = []
   const taskRunner = {
     async start(command, emit) {
       starts.push(command)
@@ -45,9 +44,6 @@ test('START_TASK emits events and validated cancellation releases its owner bind
     },
     cancel(taskId) {
       cancels.push(taskId)
-    },
-    release(taskId) {
-      releases.push(taskId)
     },
     async retry(taskId, command) {
       retries.push({ taskId, command })
@@ -107,7 +103,6 @@ test('START_TASK emits events and validated cancellation releases its owner bind
   await Promise.resolve()
 
   assert.deepEqual(cancels, ['task-5'])
-  assert.deepEqual(releases, [])
   assert.deepEqual(retries, [])
 })
 
@@ -126,7 +121,6 @@ test('owner binding follows result and failure retention semantics without new p
       starts.push({ command, emit })
     },
     cancel() {},
-    release() {},
     async retry(taskId) {
       retries.push(taskId)
     },

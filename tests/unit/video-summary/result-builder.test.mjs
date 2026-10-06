@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildStructuredSummaryResult } from '../../../src/video-summary/result-builder.mjs'
-import { formatShanghaiTimestamp, formatVideoOffset } from '../../../src/video-summary/time.mjs'
+import { formatVideoOffset } from '../../../src/video-summary/time.mjs'
 
 function createTranscription() {
   return {
@@ -269,11 +269,6 @@ test('result builder emits partial output with deterministic chapters and failed
     { segmentId: 's1', startMs: 0, point: 'opening moment' },
     { segmentId: 's4', startMs: 3000, point: 'ending moment' },
   ])
-})
-
-test('wall-clock timestamps still render in Asia/Shanghai', () => {
-  assert.equal(formatShanghaiTimestamp(0), '1970-01-01 08:00:00 Asia/Shanghai')
-  assert.equal(formatShanghaiTimestamp(null), null)
 })
 
 test('video offsets render deterministic elapsed labels', () => {

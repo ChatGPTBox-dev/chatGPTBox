@@ -25,7 +25,3 @@ export function isVideoSummaryAvailable(config, runtimeFacts) {
     isVideoSummaryRuntimeSupported(runtimeFacts)
   )
 }
-
-export function isVideoSummaryEnabled(config) {
-  return isVideoSummaryBuildEnabled() && config?.videoTranscriptionEnabled === true
-}

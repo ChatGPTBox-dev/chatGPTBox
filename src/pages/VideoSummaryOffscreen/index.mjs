@@ -13,7 +13,7 @@ async function deleteDirectoryChildren(directoryHandle) {
   }
 }
 
-export async function cleanupVideoSummaryTaskArtifacts({
+async function cleanupVideoSummaryTaskArtifacts({
   getDirectory = globalThis.navigator?.storage?.getDirectory?.bind(globalThis.navigator?.storage),
 } = {}) {
   if (typeof getDirectory !== 'function') return false
@@ -29,11 +29,10 @@ export async function cleanupVideoSummaryTaskArtifacts({
   }
 }
 
-export async function bootstrapVideoSummaryOffscreen({ runtime = Browser.runtime } = {}) {
+async function bootstrapVideoSummaryOffscreen({ runtime = Browser.runtime } = {}) {
   await cleanupVideoSummaryTaskArtifacts()
   const port = runtime.connect({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
-  const offscreenRuntime = startVideoSummaryOffscreenRuntime({ port })
-  return { port, offscreenRuntime }
+  startVideoSummaryOffscreenRuntime({ port })
 }
 
 bootstrapVideoSummaryOffscreen().catch((error) => {

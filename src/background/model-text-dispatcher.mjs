@@ -240,9 +240,6 @@ function createTerminalTracker({ signal, modelName }) {
     get settled() {
       return settled
     },
-    get latestText() {
-      return latestText
-    },
     promise: terminalPromise,
     handlePortMessage(message) {
       if (settled) return
@@ -579,10 +576,7 @@ export function createModelTextDispatcher(dependencies) {
           },
         )
 
-        const result = await Promise.race([
-          tracker.promise,
-          adapterPromise.then(() => tracker.promise),
-        ])
+        const result = await tracker.promise
         if (!signal?.aborted) await adapterPromise
         dependencies.logger?.info?.(
           buildLogContext({

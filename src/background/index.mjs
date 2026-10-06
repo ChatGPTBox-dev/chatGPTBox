@@ -149,7 +149,7 @@ function describeModelTextSupport(_config, modelIdentity) {
     ? { state: 'supported' }
     : { state: 'unsupported', reason: 'MODEL_GATEWAY_UNSUPPORTED' }
 }
-export const modelGateway = createModelGateway({
+const modelGateway = createModelGateway({
   getUserConfig,
   describeModelTextSupport,
   generateTextWithModel: (args) => modelTextDispatcher.generateText(args),

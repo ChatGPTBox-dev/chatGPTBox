@@ -389,17 +389,7 @@ export function startVideoSummaryOffscreenRuntime({
   port.onDisconnect.addListener(onDisconnect)
 
   return {
-    port,
-    mediaPipeline: runtimeMediaPipeline,
     mediaKitGateway: runtimeMediaKitGateway,
     modelGateway: runtimeModelGateway,
-    taskRunner: runtimeTaskRunner,
-    stop() {
-      if (stopped) return
-      stopped = true
-      port.onMessage.removeListener(onMessage)
-      port.onDisconnect.removeListener(onDisconnect)
-      rejectPendingRequests()
-    },
   }
 }

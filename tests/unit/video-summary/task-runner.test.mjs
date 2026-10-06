@@ -644,7 +644,7 @@ test('native subtitle choice rejects a missing requested track without MediaKit 
   assert.equal(mediaCalls.length, 0)
 })
 
-test('successful tasks retain only retry state until explicitly released', async () => {
+test('successful tasks retain retry state until cancelled', async () => {
   const runner = createVideoTaskRunner({
     mediaPipeline: {
       async transcribeFromSource() {
@@ -675,7 +675,7 @@ test('successful tasks retain only retry state until explicitly released', async
   await runner.retry('task-release-complete', { fromStage: 'summarizing' })
   assert.equal(emitted.filter((event) => event.type === 'TASK_RESULT').length, 2)
 
-  runner.release('task-release-complete')
+  runner.cancel('task-release-complete')
   await assert.rejects(
     () => runner.retry('task-release-complete', { fromStage: 'summarizing' }),
     /VIDEO_SUMMARY_TASK_NOT_FOUND/,
