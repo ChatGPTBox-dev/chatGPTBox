@@ -6,6 +6,7 @@ import {
   parseChunkSummaryMarkdown,
   parseFinalSummaryMarkdown,
 } from './summary-markdown.mjs'
+import { createTaskFence, fencesEqual } from './protocol.mjs'
 import { normalizeVideoSummaryMaxOutputTokens } from './settings.mjs'
 
 const CHUNK_MAX_OUTPUT_TOKENS = 1200
@@ -460,22 +461,68 @@ async function summarizeChunks({
 }
 
 export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clock }) {
-  const checkpoints = new Map()
-  const controllers = new Map()
-  const emits = new Map()
-  const commands = new Map()
+  const generations = new Map()
+  const legacyTasks = new Map()
   const logInfo = createInfoLogger(logger)
 
-  function releaseTask(taskId) {
-    controllers.get(taskId)?.abort()
-    controllers.delete(taskId)
-    checkpoints.delete(taskId)
-    commands.delete(taskId)
-    emits.delete(taskId)
+  function ownerPath(owner) {
+    return [owner.tabId, owner.documentId, owner.platform, owner.mediaId]
   }
 
-  async function runFromCheckpoint(taskId, command, emit, controller, options = {}) {
-    const checkpoint = checkpoints.get(taskId)
+  function getNestedMap(root, keys, create = false) {
+    let current = root
+    for (const key of keys) {
+      let next = current.get(key)
+      if (!next && create) {
+        next = new Map()
+        current.set(key, next)
+      }
+      if (!next) return null
+      current = next
+    }
+    return current
+  }
+
+  function getGeneration(key) {
+    const taskMap = getNestedMap(generations, ownerPath(key.owner))
+    return taskMap?.get(key.taskId)?.get(key.generation) || null
+  }
+
+  function setGeneration(state) {
+    const taskMap = getNestedMap(generations, ownerPath(state.owner), true)
+    let generationMap = taskMap.get(state.taskId)
+    if (!generationMap) {
+      generationMap = new Map()
+      taskMap.set(state.taskId, generationMap)
+    }
+    generationMap.set(state.generation, state)
+  }
+
+  function removeGeneration(key) {
+    const taskMap = getNestedMap(generations, ownerPath(key.owner))
+    const generationMap = taskMap?.get(key.taskId)
+    generationMap?.delete(key.generation)
+    if (generationMap?.size === 0) taskMap.delete(key.taskId)
+  }
+
+  function clonePayload(payload) {
+    const { requestSourceRefresh, ...cloneable } = payload || {}
+    return { payload: structuredClone(cloneable), requestSourceRefresh }
+  }
+
+  function commandFor(state, attempt) {
+    return {
+      ...state.basePayload,
+      ...attempt.payload,
+      ...attempt.transientPayload,
+      taskId: state.taskId,
+      owner: state.owner,
+      requestSourceRefresh: attempt.requestSourceRefresh,
+    }
+  }
+
+  async function runFromCheckpoint(state, command, emit, controller, options = {}) {
+    const { checkpoint } = state
     if (!checkpoint?.transcription) throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
     return summarizeChunks({
       transcription: checkpoint.transcription,
@@ -488,8 +535,8 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
     })
   }
 
-  async function runSynthesisFromCheckpoint(taskId, command, emit, controller) {
-    const checkpoint = checkpoints.get(taskId)
+  async function runSynthesisFromCheckpoint(state, command, emit, controller) {
+    const { checkpoint, taskId } = state
     if (!checkpoint?.transcription) throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
 
     const capabilities = await modelGateway.describeCapabilities(command.modelSnapshot)
@@ -536,154 +583,282 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
     return result
   }
 
-  return {
-    async start(command, emit) {
-      const controller = new AbortController()
-      const taskId = command?.taskId
+  async function runInitial(state, attempt) {
+    const command = commandFor(state, attempt)
+    const { controller, emit } = attempt
+    const { taskId } = state
+    emitEvent(emit, {
+      type: 'TASK_STATUS',
+      taskId,
+      owner: state.owner,
+      stage: 'resolving-source',
+      checkpointAvailable: false,
+    })
 
-      if (!taskId) throw new Error('VIDEO_SUMMARY_TASK_ID_REQUIRED')
-
-      controllers.get(taskId)?.abort()
-      controllers.set(taskId, controller)
-      emits.set(taskId, emit)
-      commands.set(
-        taskId,
-        structuredClone({
-          taskId,
-          owner: command.owner,
-          settingsSnapshot: command.settingsSnapshot,
-          modelSnapshot: command.modelSnapshot,
-        }),
-      )
-      checkpoints.set(taskId, {
-        transcription: null,
-        successfulChunkResults: [],
-        failedRanges: [],
-      })
-
+    let transcription
+    if (command.sourceChoice === 'native-subtitle') {
       emitEvent(emit, {
         type: 'TASK_STATUS',
         taskId,
-        owner: command.owner,
-        stage: 'resolving-source',
+        owner: state.owner,
+        stage: 'loading-native-subtitles',
         checkpointAvailable: false,
       })
-
-      try {
-        let transcription
-        if (command.sourceChoice === 'native-subtitle') {
+      transcription = createNativeSubtitleTranscription(
+        command.sourceSnapshot,
+        command.subtitleTrackId,
+      )
+    } else if (command.sourceChoice === 'asr') {
+      transcription = await mediaPipeline.transcribeFromSource({
+        taskId,
+        owner: state.owner,
+        sourceSnapshot: command.sourceSnapshot,
+        settingsSnapshot: command.settingsSnapshot,
+        requestSourceRefresh: command.requestSourceRefresh,
+        signal: controller.signal,
+        onEvent(event) {
           emitEvent(emit, {
             type: 'TASK_STATUS',
             taskId,
-            owner: command.owner,
-            stage: 'loading-native-subtitles',
+            owner: state.owner,
             checkpointAvailable: false,
+            ...event,
           })
-          transcription = createNativeSubtitleTranscription(
-            command.sourceSnapshot,
-            command.subtitleTrackId,
-          )
-        } else if (command.sourceChoice === 'asr') {
-          transcription = await mediaPipeline.transcribeFromSource({
-            taskId,
-            owner: command.owner,
-            sourceSnapshot: command.sourceSnapshot,
-            settingsSnapshot: command.settingsSnapshot,
-            requestSourceRefresh: command.requestSourceRefresh,
-            signal: controller.signal,
-            onEvent(event) {
-              emitEvent(emit, {
-                type: 'TASK_STATUS',
-                taskId,
-                owner: command.owner,
-                checkpointAvailable: false,
-                ...event,
-              })
-            },
-          })
-        } else {
-          throw new Error('VIDEO_SUMMARY_SOURCE_CHOICE_UNSUPPORTED')
-        }
+        },
+      })
+    } else {
+      throw new Error('VIDEO_SUMMARY_SOURCE_CHOICE_UNSUPPORTED')
+    }
 
-        checkpoints.set(taskId, {
-          transcription,
+    state.checkpoint = {
+      transcription,
+      successfulChunkResults: [],
+      failedRanges: [],
+    }
+    state.basePayload = structuredClone({
+      settingsSnapshot: command.settingsSnapshot,
+      modelSnapshot: command.modelSnapshot,
+    })
+    logInfo({
+      event: 'video-summary-task-runner.transcription-complete',
+      taskId,
+      atMs: clock?.now?.() ?? null,
+    })
+    return runFromCheckpoint(state, command, emit, controller)
+  }
+
+  function registerAttempt({
+    requestId,
+    fence: fenceValue,
+    mode,
+    payload,
+    emit,
+    transientPayload = null,
+  }) {
+    const fence = createTaskFence(fenceValue)
+    if (!['initial', 'retry-summary'].includes(mode)) {
+      throw new Error('VIDEO_SUMMARY_ATTEMPT_MODE_UNSUPPORTED')
+    }
+
+    let state = getGeneration(fence)
+    const existing = state?.attempts.get(fence.attempt)
+    if (existing) {
+      if (
+        existing.requestId === requestId &&
+        existing.mode === mode &&
+        fencesEqual(existing.fence, fence)
+      ) {
+        return { status: 'accepted', requestId, fence }
+      }
+      throw new Error('VIDEO_SUMMARY_ATTEMPT_CONFLICT')
+    }
+    if ([...(state?.attempts.values() || [])].some((attempt) => attempt.requestId === requestId)) {
+      throw new Error('VIDEO_SUMMARY_ATTEMPT_CONFLICT')
+    }
+    if (state?.cancelled) throw new Error('VIDEO_SUMMARY_GENERATION_CANCELLED')
+    if (mode === 'retry-summary' && !state?.checkpoint?.transcription) {
+      throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
+    }
+    if (!state) {
+      if (mode !== 'initial') throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
+      state = {
+        owner: fence.owner,
+        taskId: fence.taskId,
+        generation: fence.generation,
+        checkpoint: {
+          transcription: null,
           successfulChunkResults: [],
           failedRanges: [],
-        })
-
-        logInfo({
-          event: 'video-summary-task-runner.transcription-complete',
-          taskId,
-          atMs: clock?.now?.() ?? null,
-        })
-
-        return await runFromCheckpoint(taskId, command, emit, controller)
-      } catch (error) {
-        const checkpointAvailable = Boolean(checkpoints.get(taskId)?.transcription)
-        if (!isAbortError(error)) {
-          emitTaskFailure({
-            emit,
-            taskId,
-            owner: command.owner,
-            checkpointAvailable,
-            error,
-          })
-        }
-        if (!checkpointAvailable) releaseTask(taskId)
-        throw error
-      } finally {
-        if (controllers.get(taskId) === controller) controllers.delete(taskId)
+        },
+        basePayload: null,
+        cancelled: false,
+        attempts: new Map(),
       }
-    },
+      setGeneration(state)
+    }
 
-    cancel(taskId) {
-      releaseTask(taskId)
-    },
+    const cloned = clonePayload(payload)
+    state.attempts.set(fence.attempt, {
+      requestId,
+      fence,
+      mode,
+      payload: cloned.payload,
+      transientPayload,
+      requestSourceRefresh: cloned.requestSourceRefresh,
+      emit,
+      controller: new AbortController(),
+      state: 'registered',
+    })
+    return { status: 'accepted', requestId, fence }
+  }
 
-    async retry(taskId, { fromStage, ...overrides } = {}) {
-      if (!['summarizing', 'synthesis'].includes(fromStage)) {
+  async function authorizeAttempt({ requestId, fence: fenceValue }) {
+    const fence = createTaskFence(fenceValue)
+    const state = getGeneration(fence)
+    if (state?.cancelled) throw new Error('VIDEO_SUMMARY_GENERATION_CANCELLED')
+    const attempt = state?.attempts.get(fence.attempt)
+    if (!attempt || attempt.requestId !== requestId || !fencesEqual(attempt.fence, fence)) {
+      throw new Error('VIDEO_SUMMARY_ATTEMPT_NOT_REGISTERED')
+    }
+    if (attempt.state !== 'registered') throw new Error('VIDEO_SUMMARY_ATTEMPT_NOT_REGISTERED')
+    attempt.state = 'authorized'
+
+    const command = commandFor(state, attempt)
+    try {
+      if (attempt.mode === 'initial') return await runInitial(state, attempt)
+      if (!['summarizing', 'synthesis'].includes(command.fromStage)) {
         throw new Error('VIDEO_SUMMARY_RETRY_STAGE_UNSUPPORTED')
       }
-
-      const baseCommand = commands.get(taskId)
-      const emit = emits.get(taskId)
-      if (!baseCommand || typeof emit !== 'function') {
-        throw new Error('VIDEO_SUMMARY_TASK_NOT_FOUND')
+      if (command.fromStage === 'synthesis') {
+        return await runSynthesisFromCheckpoint(state, command, attempt.emit, attempt.controller)
       }
-
-      const command = {
-        ...baseCommand,
-        ...overrides,
-        taskId,
-      }
-      const controller = new AbortController()
-      controllers.get(taskId)?.abort()
-      controllers.set(taskId, controller)
-
-      try {
-        if (fromStage === 'synthesis') {
-          return await runSynthesisFromCheckpoint(taskId, command, emit, controller)
-        }
-
-        const checkpoint = checkpoints.get(taskId)
-        return await runFromCheckpoint(taskId, command, emit, controller, {
-          retryFailedRanges:
-            Array.isArray(checkpoint?.failedRanges) && checkpoint.failedRanges.length > 0,
+      return await runFromCheckpoint(state, command, attempt.emit, attempt.controller, {
+        retryFailedRanges: state.checkpoint.failedRanges.length > 0,
+      })
+    } catch (error) {
+      const checkpointAvailable = Boolean(state.checkpoint?.transcription)
+      if (!isAbortError(error)) {
+        emitTaskFailure({
+          emit: attempt.emit,
+          taskId: state.taskId,
+          owner: state.owner,
+          checkpointAvailable,
+          error,
         })
+      }
+      if (!checkpointAvailable && attempt.mode === 'initial') removeGeneration(state)
+      throw error
+    } finally {
+      attempt.state = 'finished'
+    }
+  }
+
+  function cancelGeneration(key) {
+    const state = getGeneration(key)
+    if (!state) return
+    state.cancelled = true
+    for (const attempt of state.attempts.values()) attempt.controller.abort()
+  }
+
+  function releaseAttempt(fenceValue) {
+    const fence = createTaskFence(fenceValue)
+    const state = getGeneration(fence)
+    const attempt = state?.attempts.get(fence.attempt)
+    if (attempt && fencesEqual(attempt.fence, fence)) state.attempts.delete(fence.attempt)
+  }
+
+  function deleteTask(key) {
+    const state = getGeneration(key)
+    if (!state) return
+    state.cancelled = true
+    for (const attempt of state.attempts.values()) attempt.controller.abort()
+    removeGeneration(key)
+  }
+
+  function hasCheckpoint(key) {
+    return Boolean(getGeneration(key)?.checkpoint?.transcription)
+  }
+
+  function legacyFence(command, generation = 1, attempt = 1) {
+    return {
+      owner: {
+        tabId: Number.isInteger(command.owner?.tabId) ? command.owner.tabId : 0,
+        documentId: String(command.owner?.documentId || 'legacy'),
+        platform: 'bilibili',
+        mediaId: String(command.owner?.videoId || command.taskId),
+      },
+      taskId: command.taskId,
+      generation,
+      attempt,
+    }
+  }
+
+  const runner = {
+    registerAttempt,
+    authorizeAttempt,
+    cancelGeneration,
+    releaseAttempt,
+    deleteTask,
+    hasCheckpoint,
+    debugState() {
+      const attempts = []
+      for (const tabMap of generations.values())
+        for (const documentMap of tabMap.values())
+          for (const platformMap of documentMap.values())
+            for (const taskMap of platformMap.values())
+              for (const generationMap of taskMap.values())
+                for (const state of generationMap.values())
+                  for (const attempt of state.attempts.values()) attempts.push(attempt)
+      return { attempts }
+    },
+    async start(command, emit) {
+      if (!command?.taskId) throw new Error('VIDEO_SUMMARY_TASK_ID_REQUIRED')
+      const previous = legacyTasks.get(command.taskId)
+      if (previous) deleteTask(previous.fence)
+      const fence = legacyFence(command)
+      const requestId = `legacy-start-${command.taskId}`
+      registerAttempt({
+        requestId,
+        fence,
+        mode: 'initial',
+        payload: {
+          sourceChoice: command.sourceChoice,
+          subtitleTrackId: command.subtitleTrackId,
+          settingsSnapshot: command.settingsSnapshot,
+          modelSnapshot: command.modelSnapshot,
+        },
+        transientPayload: { sourceSnapshot: command.sourceSnapshot },
+        emit,
+      })
+      legacyTasks.set(command.taskId, { fence, command, emit, nextAttempt: 2 })
+      try {
+        return await authorizeAttempt({ requestId, fence })
       } catch (error) {
-        if (!isAbortError(error)) {
-          emitTaskFailure({
-            emit,
-            taskId,
-            owner: command.owner,
-            checkpointAvailable: Boolean(checkpoints.get(taskId)?.transcription),
-            error,
-          })
-        }
+        if (!hasCheckpoint(fence)) legacyTasks.delete(command.taskId)
         throw error
-      } finally {
-        if (controllers.get(taskId) === controller) controllers.delete(taskId)
       }
     },
+    cancel(taskId) {
+      const legacy = legacyTasks.get(taskId)
+      if (!legacy) return
+      deleteTask(legacy.fence)
+      legacyTasks.delete(taskId)
+    },
+    async retry(taskId, { fromStage, ...overrides } = {}) {
+      const legacy = legacyTasks.get(taskId)
+      if (!legacy) throw new Error('VIDEO_SUMMARY_TASK_NOT_FOUND')
+      const fence = { ...legacy.fence, attempt: legacy.nextAttempt++ }
+      const requestId = `legacy-retry-${taskId}-${fence.attempt}`
+      registerAttempt({
+        requestId,
+        fence,
+        mode: 'retry-summary',
+        payload: { fromStage, ...overrides },
+        emit: legacy.emit,
+      })
+      return authorizeAttempt({ requestId, fence })
+    },
   }
+
+  return runner
 }

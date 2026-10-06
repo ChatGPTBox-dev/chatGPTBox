@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { fencesEqual } from '../../../src/video-summary/protocol.mjs'
 import { createVideoTaskRunner } from '../../../src/video-summary/task-runner.mjs'
 
 function createTranscription() {
@@ -30,6 +31,244 @@ function createUnsupportedModelGateway() {
     cancel() {},
   }
 }
+
+function createFence({ generation = 1, attempt = 1 } = {}) {
+  return {
+    owner: {
+      tabId: 1,
+      documentId: 'doc-1',
+      platform: 'youtube',
+      mediaId: 'abcdefghijk',
+    },
+    taskId: 'task-1',
+    generation,
+    attempt,
+  }
+}
+
+function createInitialPayload() {
+  return {
+    sourceChoice: 'native-subtitle',
+    subtitleTrackId: 'track-1',
+    sourceSnapshot: {
+      pageIdentity: {
+        platform: 'youtube',
+        videoId: 'abcdefghijk',
+        mediaId: 'abcdefghijk',
+      },
+      nativeSubtitleTracks: [
+        {
+          id: 'track-1',
+          language: 'en',
+          cues: [{ startMs: 0, endMs: 1000, text: 'hello' }],
+        },
+      ],
+      mediaCandidates: [],
+    },
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { modelName: 'customModel' },
+  }
+}
+
+function createRunnerFixture() {
+  const mediaCalls = []
+  const modelCalls = []
+  const events = []
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      async transcribeFromSource(args) {
+        mediaCalls.push(args)
+        return {
+          durationMs: 1000,
+          segments: [{ id: 's1', startMs: 0, endMs: 1000, text: 'hello' }],
+        }
+      },
+    },
+    modelGateway: {
+      async describeCapabilities() {
+        return { supported: false, reason: 'MODEL_GATEWAY_UNSUPPORTED' }
+      },
+      async generateText(args) {
+        modelCalls.push(args)
+        return { text: '', finishReason: null }
+      },
+      cancel() {},
+    },
+    logger: createLogger(),
+    clock: { now: () => 0 },
+  })
+  return { runner, mediaCalls, modelCalls, events }
+}
+
+test('registerAttempt accepts locally without beginning provider work', () => {
+  const fixture = createRunnerFixture()
+  const fence = createFence()
+  const accepted = fixture.runner.registerAttempt({
+    requestId: 'start-1',
+    fence,
+    mode: 'initial',
+    payload: createInitialPayload(),
+    emit: (event) => fixture.events.push(event),
+  })
+
+  assert.deepEqual(accepted, { status: 'accepted', requestId: 'start-1', fence })
+  assert.deepEqual(fixture.mediaCalls, [])
+  assert.deepEqual(fixture.modelCalls, [])
+})
+
+test('only exact authorization begins the registered attempt', async () => {
+  const fixture = createRunnerFixture()
+  const fence = createFence()
+  fixture.runner.registerAttempt({
+    requestId: 'start-1',
+    fence,
+    mode: 'initial',
+    payload: createInitialPayload(),
+    emit: (event) => fixture.events.push(event),
+  })
+
+  await assert.rejects(
+    fixture.runner.authorizeAttempt({ requestId: 'wrong-request', fence }),
+    /VIDEO_SUMMARY_ATTEMPT_NOT_REGISTERED/,
+  )
+  assert.deepEqual(fixture.mediaCalls, [])
+  await fixture.runner.authorizeAttempt({ requestId: 'start-1', fence })
+  assert.equal(fixture.modelCalls.length, 0)
+  assert.equal(
+    fixture.events.some((event) => event.type === 'TASK_RESULT'),
+    true,
+  )
+})
+
+test('duplicate registration is idempotent but conflicting registration is rejected', () => {
+  const fixture = createRunnerFixture()
+  const fence = createFence()
+  const registration = {
+    requestId: 'start-1',
+    fence,
+    mode: 'initial',
+    payload: createInitialPayload(),
+    emit: (event) => fixture.events.push(event),
+  }
+
+  fixture.runner.registerAttempt(registration)
+  assert.deepEqual(fixture.runner.registerAttempt(registration), {
+    status: 'accepted',
+    requestId: 'start-1',
+    fence,
+  })
+  assert.throws(
+    () => fixture.runner.registerAttempt({ ...registration, requestId: 'start-2' }),
+    /VIDEO_SUMMARY_ATTEMPT_CONFLICT/,
+  )
+  assert.throws(
+    () =>
+      fixture.runner.registerAttempt({
+        ...registration,
+        fence: createFence({ attempt: 2 }),
+      }),
+    /VIDEO_SUMMARY_ATTEMPT_CONFLICT/,
+  )
+  assert.throws(
+    () => fixture.runner.registerAttempt({ ...registration, mode: 'retry-summary' }),
+    /VIDEO_SUMMARY_ATTEMPT_CONFLICT/,
+  )
+})
+
+test('retry registration requires an existing transcription checkpoint', () => {
+  const fixture = createRunnerFixture()
+
+  assert.throws(
+    () =>
+      fixture.runner.registerAttempt({
+        requestId: 'retry-1',
+        fence: createFence({ attempt: 2 }),
+        mode: 'retry-summary',
+        payload: { fromStage: 'synthesis', modelSnapshot: { modelName: 'customModel' } },
+        emit: () => {},
+      }),
+    /VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND/,
+  )
+})
+
+test('generation cancellation latches before aborting attempts and isolates generations', async () => {
+  const fixture = createRunnerFixture()
+  const generation1 = createFence()
+  const generation1Attempt2 = createFence({ attempt: 2 })
+  const generation2 = createFence({ generation: 2 })
+  for (const [requestId, fence] of [
+    ['start-1', generation1],
+    ['start-1-again', generation1Attempt2],
+    ['start-2', generation2],
+  ]) {
+    fixture.runner.registerAttempt({
+      requestId,
+      fence,
+      mode: 'initial',
+      payload: createInitialPayload(),
+      emit: () => {},
+    })
+  }
+  const state = fixture.runner.debugState()
+  const signal1 = state.attempts.find(({ fence }) => fencesEqual(fence, generation1)).controller
+    .signal
+  const signal1Attempt2 = state.attempts.find(({ fence }) =>
+    fencesEqual(fence, generation1Attempt2),
+  ).controller.signal
+  const signal2 = state.attempts.find(({ fence }) => fencesEqual(fence, generation2)).controller
+    .signal
+
+  fixture.runner.cancelGeneration(generation1)
+
+  assert.equal(signal1.aborted, true)
+  assert.equal(signal1Attempt2.aborted, true)
+  assert.equal(signal2.aborted, false)
+  await assert.rejects(
+    fixture.runner.authorizeAttempt({ requestId: 'start-1', fence: generation1 }),
+    /VIDEO_SUMMARY_GENERATION_CANCELLED/,
+  )
+  await fixture.runner.authorizeAttempt({ requestId: 'start-2', fence: generation2 })
+})
+
+test('stale release cannot remove a newer attempt or its checkpoint', async () => {
+  const fixture = createRunnerFixture()
+  const attempt1 = createFence({ attempt: 1 })
+  fixture.runner.registerAttempt({
+    requestId: 'start-1',
+    fence: attempt1,
+    mode: 'initial',
+    payload: createInitialPayload(),
+    emit: () => {},
+  })
+  await fixture.runner.authorizeAttempt({ requestId: 'start-1', fence: attempt1 })
+
+  const attempt2 = createFence({ attempt: 2 })
+  const generationKey = {
+    owner: attempt1.owner,
+    taskId: attempt1.taskId,
+    generation: attempt1.generation,
+  }
+  fixture.runner.registerAttempt({
+    requestId: 'retry-1',
+    fence: attempt2,
+    mode: 'retry-summary',
+    payload: { fromStage: 'synthesis', modelSnapshot: { modelName: 'customModel' } },
+    emit: () => {},
+  })
+  const attempt2Signal = fixture.runner
+    .debugState()
+    .attempts.find(({ fence }) => fencesEqual(fence, attempt2)).controller.signal
+
+  fixture.runner.releaseAttempt(attempt1)
+  assert.equal(fixture.runner.hasCheckpoint(generationKey), true)
+  await fixture.runner.authorizeAttempt({ requestId: 'retry-1', fence: attempt2 })
+  fixture.runner.releaseAttempt(attempt1)
+  assert.equal(fixture.runner.hasCheckpoint(generationKey), true)
+  assert.equal(attempt2Signal.aborted, false)
+  fixture.runner.deleteTask(generationKey)
+  fixture.runner.deleteTask(generationKey)
+  assert.equal(fixture.runner.hasCheckpoint(generationKey), false)
+})
 
 test('runner uses staged Markdown text generation without tool calls', async () => {
   const transcription = createTranscription()
