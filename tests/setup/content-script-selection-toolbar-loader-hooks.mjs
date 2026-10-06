@@ -47,6 +47,8 @@ const sources = {
     export const setUserConfig = async () => {}
   `,
   'test:utils': `
+    export const captureEditableSelection = () =>
+      globalThis.__SELECTION_TOOLBAR_TEST__.capturedSelection ?? null
     export const createElementAtPosition = () => {
       const element = document.createElement('div')
       document.documentElement.append(element)
@@ -131,6 +133,7 @@ const sources = {
   'test:floating-utils': `
     export const getClientPosition = () => ({ x: 0, y: 0 })
     export const isMobile = () => false
+    export const replaceCapturedSelection = () => false
     export const setElementPositionInViewport = (_container, x, y) => ({ x, y })
   `,
   'test:floating-draggable': `

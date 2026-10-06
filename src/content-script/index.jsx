@@ -14,6 +14,7 @@ import {
   setUserConfig,
 } from '../config/index.mjs'
 import {
+  captureEditableSelection,
   createElementAtPosition,
   cropText,
   endsWithQuestionMark,
@@ -240,12 +241,19 @@ const deleteToolbar = () => {
   }
 }
 
-const createSelectionTools = async (toolbarContainerElement, selection, creationVersion) => {
+const createSelectionTools = async (
+  toolbarContainerElement,
+  selection,
+  creationVersion,
+  capturedSelection,
+) => {
   console.debug(
     '[content] createSelectionTools called with selection:',
     selection,
-    'and container:',
+    'container:',
     toolbarContainerElement,
+    'captured editable selection kind:',
+    capturedSelection?.kind,
   )
   try {
     toolbarContainerElement.className = 'chatgptbox-toolbar-container'
@@ -268,6 +276,7 @@ const createSelectionTools = async (toolbarContainerElement, selection, creation
         selection={selection}
         container={toolbarContainerElement}
         dockable={true}
+        capturedSelection={capturedSelection}
       />,
       toolbarContainerElement,
     )
@@ -305,11 +314,17 @@ async function prepareForSelectionTools() {
       setTimeout(async () => {
         try {
           if (creationVersion !== toolbarCreationVersion) return
-          const selection = window
-            .getSelection()
-            ?.toString()
-            .trim()
-            .replace(/^-+|-+$/g, '')
+          const capturedSelection = captureEditableSelection()
+          const selection =
+            window
+              .getSelection()
+              ?.toString()
+              .trim()
+              .replace(/^-+|-+$/g, '') ||
+            // Firefox does not expose text field selections via window.getSelection()
+            (capturedSelection?.kind === 'text-field'
+              ? capturedSelection.text.trim().replace(/^-+|-+$/g, '')
+              : '')
           if (selection) {
             console.debug('[content] Text selected. Length:', selection.length)
             let position
@@ -341,7 +356,7 @@ async function prepareForSelectionTools() {
             console.debug('[content] Toolbar position:', position)
             const container = createElementAtPosition(position.x, position.y)
             toolbarContainer = container
-            await createSelectionTools(container, selection, creationVersion)
+            await createSelectionTools(container, selection, creationVersion, capturedSelection)
           } else {
             console.debug('[content] No text selected on mouseup.')
           }
@@ -382,7 +397,8 @@ async function prepareForSelectionTools() {
         console.debug('[content] Keydown in input/textarea outside toolbar.')
         setTimeout(() => {
           try {
-            if (!window.getSelection()?.toString().trim()) {
+            // Firefox does not expose text field selections via window.getSelection()
+            if (!window.getSelection()?.toString().trim() && !captureEditableSelection()) {
               console.debug('[content] No selection after keydown, deleting toolbar.')
               deleteToolbar()
             }
@@ -425,17 +441,23 @@ async function prepareForSelectionToolsTouch() {
       setTimeout(async () => {
         try {
           if (creationVersion !== toolbarCreationVersion) return
-          const selection = window
-            .getSelection()
-            ?.toString()
-            .trim()
-            .replace(/^-+|-+$/g, '')
+          const capturedSelection = captureEditableSelection()
+          const selection =
+            window
+              .getSelection()
+              ?.toString()
+              .trim()
+              .replace(/^-+|-+$/g, '') ||
+            // Firefox does not expose text field selections via window.getSelection()
+            (capturedSelection?.kind === 'text-field'
+              ? capturedSelection.text.trim().replace(/^-+|-+$/g, '')
+              : '')
           if (selection) {
             console.debug('[content] Text selected via touch:', selection)
             const touch = e.changedTouches[0]
             const container = createElementAtPosition(touch.pageX + 20, touch.pageY + 20)
             toolbarContainer = container
-            await createSelectionTools(container, selection, creationVersion)
+            await createSelectionTools(container, selection, creationVersion, capturedSelection)
           } else {
             console.debug('[content] No text selected on touchend.')
           }
@@ -470,7 +492,7 @@ async function prepareForSelectionToolsTouch() {
   })
 }
 
-let menuX, menuY
+let menuX, menuY, menuCapturedSelection
 let rightClickMenuInitialized = false
 
 async function prepareForRightClickMenu() {
@@ -483,6 +505,9 @@ async function prepareForRightClickMenu() {
   document.addEventListener('contextmenu', (e) => {
     menuX = e.clientX
     menuY = e.clientY
+    // the menu click arrives asynchronously via the background script, so the
+    // editable selection has to be captured while it still exists
+    menuCapturedSelection = captureEditableSelection()
     console.debug(`[content] Context menu opened at X: ${menuX}, Y: ${menuY}`)
   })
 
@@ -492,6 +517,10 @@ async function prepareForRightClickMenu() {
       try {
         const data = message.data
         let prompt = ''
+        // only selection tools operate on the selected text; menu tools work
+        // on the whole page and must not offer replacing the selection
+        const capturedSelection = data.itemId in toolsConfig ? menuCapturedSelection : null
+        menuCapturedSelection = null
         if (data.itemId in toolsConfig) {
           console.debug('[content] Generating prompt from toolsConfig for item:', data.itemId)
           prompt = await toolsConfig[data.itemId].genPrompt(data.selectionText)
@@ -534,6 +563,7 @@ async function prepareForRightClickMenu() {
             triggered={true}
             closeable={true}
             prompt={prompt}
+            capturedSelection={capturedSelection}
           />,
           container,
         )

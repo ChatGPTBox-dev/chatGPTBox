@@ -25,6 +25,7 @@ const sources = {
   'test:subscription-utils': `
     export const getClientPosition = () => ({ x: 0, y: 0 })
     export const isMobile = () => true
+    export const replaceCapturedSelection = () => false
     export const setElementPositionInViewport = (_container, x, y) => ({ x, y })
   `,
   'test:subscription-draggable': `
