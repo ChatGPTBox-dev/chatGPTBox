@@ -1,5 +1,3 @@
-import { formatShanghaiTimestamp, formatVideoOffset } from './time.mjs'
-
 const UNANCHORED_LOCATION_WARNING = 'VIDEO_SUMMARY_LOCATIONS_PARTIALLY_UNAVAILABLE'
 
 function dedupeStrings(values) {
@@ -347,5 +345,3 @@ export function buildStructuredSummaryResult({
     failedRanges: normalizedFailedRanges,
   }
 }
-
-export { formatShanghaiTimestamp, formatVideoOffset }

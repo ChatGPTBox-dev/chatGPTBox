@@ -1,22 +1,10 @@
-import {
-  orderSubtitleTracks,
-  selectPreferredSubtitleTrack,
-} from '../../../video-summary/subtitle-tracks.mjs'
+import { orderSubtitleTracks } from '../../../video-summary/subtitle-tracks.mjs'
 
 export function getBilibiliVideoIdentity(input) {
   const url = new URL(input)
   const videoId = url.pathname.match(/^\/video\/(BV[0-9A-Za-z]+)/)?.[1] || ''
   const pageNumber = Math.max(1, Number.parseInt(url.searchParams.get('p') || '1', 10) || 1)
   return { videoId, pageNumber }
-}
-
-export function extractBilibiliPlayInfo(html) {
-  return extractEmbeddedJsonScript({
-    html,
-    marker: 'window.__playinfo__=',
-    notFoundError: 'BILIBILI_PLAYINFO_NOT_FOUND',
-    incompleteError: 'BILIBILI_PLAYINFO_SCRIPT_INCOMPLETE',
-  })
 }
 
 export function extractBilibiliInitialState(html) {
@@ -226,10 +214,6 @@ function normalizeSubtitleUrl(value) {
   if (raw.startsWith('http://')) return `https://${raw.slice('http://'.length)}`
   if (raw.startsWith('https://')) return raw
   return `https://${raw.replace(/^\/+/, '')}`
-}
-
-export function selectPreferredBilibiliSubtitleTrack(tracks, preferredLanguage) {
-  return selectPreferredSubtitleTrack(tracks, preferredLanguage)
 }
 
 export async function normalizeSubtitleTracks(playInfo, loadSubtitleBody) {

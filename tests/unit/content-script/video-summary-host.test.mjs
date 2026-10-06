@@ -64,7 +64,6 @@ function createBridge(platform, tracks, seeks) {
 
 let dom
 let mountVideoSummaryHost
-let mountBilibiliVideoSummaryHost
 const originalDescriptors = new Map()
 const globalNames = ['window', 'document', 'Node', 'Event', 'MouseEvent', 'HTMLElement', 'Blob']
 
@@ -83,9 +82,6 @@ before(async () => {
     }
   }
   ;({ mountVideoSummaryHost } = await import('../../../src/content-script/video-summary-host.mjs'))
-  ;({ mountBilibiliVideoSummaryHost } = await import(
-    '../../../src/content-script/site-adapters/bilibili/video-summary-host.mjs'
-  ))
 })
 
 after(() => {
@@ -170,7 +166,7 @@ test('shared host controls source selection, actions, platform ownership, metada
 
   const bilibiliTarget = document.createElement('div')
   document.body.append(bilibiliTarget)
-  const bilibiliHost = mountBilibiliVideoSummaryHost({
+  const bilibiliHost = mountVideoSummaryHost({
     platform: 'bilibili',
     bridge: createBridge('bilibili', tracks, seeks),
     targetElement: bilibiliTarget,
@@ -220,6 +216,10 @@ test('shared host controls source selection, actions, platform ownership, metada
   assert.equal(state.toolbarContainers[0].isConnected, false)
   assert.equal(state.ports[1].disconnected, true)
   assert.deepEqual(state.ports[1].listenerCounts(), { message: 0, disconnect: 0 })
+  assert.equal(
+    state.ports[1].messages.some((message) => message.type === 'CANCEL_TASK'),
+    false,
+  )
   assert.equal(state.resizeDisconnects, 2)
 })
 

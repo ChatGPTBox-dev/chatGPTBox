@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-  buildStructuredSummaryResult,
-  formatVideoOffset,
-  formatShanghaiTimestamp,
-} from '../../../src/video-summary/result-builder.mjs'
+import { buildStructuredSummaryResult } from '../../../src/video-summary/result-builder.mjs'
+import { formatShanghaiTimestamp, formatVideoOffset } from '../../../src/video-summary/time.mjs'
 
 function createTranscription() {
   return {

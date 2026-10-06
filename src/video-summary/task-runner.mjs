@@ -475,6 +475,14 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
   const commands = new Map()
   const logs = createRunnerLogger(logger)
 
+  function releaseTask(taskId) {
+    controllers.get(taskId)?.abort()
+    controllers.delete(taskId)
+    checkpoints.delete(taskId)
+    commands.delete(taskId)
+    emits.delete(taskId)
+  }
+
   async function runFromCheckpoint(taskId, command, emit, controller, options = {}) {
     const checkpoint = checkpoints.get(taskId)
     if (!checkpoint?.transcription) throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
@@ -548,7 +556,15 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
       controllers.get(taskId)?.abort()
       controllers.set(taskId, controller)
       emits.set(taskId, emit)
-      commands.set(taskId, structuredClone({ ...command, requestSourceRefresh: undefined }))
+      commands.set(
+        taskId,
+        structuredClone({
+          taskId,
+          owner: command.owner,
+          settingsSnapshot: command.settingsSnapshot,
+          modelSnapshot: command.modelSnapshot,
+        }),
+      )
       checkpoints.set(taskId, {
         transcription: null,
         successfulChunkResults: [],
@@ -615,15 +631,17 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
 
         return await runFromCheckpoint(taskId, command, emit, controller)
       } catch (error) {
+        const checkpointAvailable = Boolean(checkpoints.get(taskId)?.transcription)
         if (!isAbortError(error)) {
           emitTaskFailure({
             emit,
             taskId,
             owner: command.owner,
-            checkpointAvailable: Boolean(checkpoints.get(taskId)?.transcription),
+            checkpointAvailable,
             error,
           })
         }
+        if (!checkpointAvailable) releaseTask(taskId)
         throw error
       } finally {
         if (controllers.get(taskId) === controller) controllers.delete(taskId)
@@ -631,7 +649,11 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
     },
 
     cancel(taskId) {
-      controllers.get(taskId)?.abort()
+      releaseTask(taskId)
+    },
+
+    release(taskId) {
+      releaseTask(taskId)
     },
 
     async retry(taskId, { fromStage, ...overrides } = {}) {

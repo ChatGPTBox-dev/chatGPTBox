@@ -48,16 +48,11 @@ export function routeKeyOf({ tabId, documentId, platform, videoId }) {
 }
 
 export function createVideoSummaryRouter({
-  mediaKitGateway,
-  modelGateway,
   ensureOffscreenDocument,
   clock,
   logger,
   emitCommand = () => {},
 }) {
-  void mediaKitGateway
-  void modelGateway
-
   const routes = new Map()
   const portBindings = new WeakMap()
   const startedAtMs = clock.now()

@@ -6,8 +6,8 @@ const hookSource = `
 const stubs = new Map([
   ['../../../utils', 'test:youtube-utils'],
   ['../index.mjs', 'test:youtube-site-adapters'],
-  ['../../../video-summary/capabilities.mjs', 'test:youtube-capabilities'],
-  ['../../video-summary-host.mjs', 'test:youtube-host'],
+  ['../../video-summary-capability.mjs', 'test:youtube-capability'],
+  ['../../video-summary-adapter-controller.mjs', 'test:youtube-controller'],
   ['./video-page-bridge.mjs', 'test:youtube-bridge'],
   ['./media-source.mjs', 'test:youtube-media-source'],
   ['webextension-polyfill', 'test:youtube-browser'],
@@ -15,27 +15,28 @@ const stubs = new Map([
 const sources = {
   'test:youtube-utils': \`
     export const cropText = async (value) => value
-    export const waitForSiteAdapterElement = async () => {
-      const state = globalThis.__YOUTUBE_ADAPTER_TEST__
-      return state.targetPromise ? state.targetPromise : state.targetElement
+    export const waitForSiteAdapterElement = async (selector) => {
+      globalThis.__YOUTUBE_ADAPTER_TEST__.waitSelectors.push(selector)
+      return globalThis.__YOUTUBE_ADAPTER_TEST__.targetElement
     }
   \`,
   'test:youtube-site-adapters': \`export const config = { youtube: {} }\`,
-  'test:youtube-capabilities': \`
-    export const isVideoSummaryEnabled = (config) =>
-      globalThis.__YOUTUBE_ADAPTER_TEST__.buildSupported &&
-      config?.videoTranscriptionEnabled === true
-    export const isVideoSummaryRuntimeSupported = (runtime) =>
-      runtime.manifestVersion === 3 &&
-      runtime.hasOffscreenApi === true &&
-      Number.parseInt(runtime.minChromeVersion, 10) >= 116 &&
-      (runtime.userAgent.includes('Chrome') || runtime.userAgent.includes('Edg/'))
+  'test:youtube-capability': \`
+    export const isEnhancedVideoSummaryAvailable = (config) => {
+      const state = globalThis.__YOUTUBE_ADAPTER_TEST__
+      state.capabilityConfigs.push(config)
+      return state.capabilityAvailable
+    }
   \`,
-  'test:youtube-host': \`
-    export const mountVideoSummaryHost = (options) => {
-      const mount = { options, disposed: false }
-      globalThis.__YOUTUBE_ADAPTER_TEST__.mounts.push(mount)
-      return { dispose() { mount.disposed = true } }
+  'test:youtube-controller': \`
+    export const createVideoSummaryAdapterController = (options) => {
+      const state = globalThis.__YOUTUBE_ADAPTER_TEST__
+      state.controllerOptions.push(options)
+      return {
+        async start() {
+          state.startCount += 1
+        },
+      }
     }
   \`,
   'test:youtube-bridge': \`
@@ -47,20 +48,23 @@ const sources = {
   \`,
   'test:youtube-media-source': \`
     export const getYouTubeWatchIdentity = (href) => {
-      const url = new URL(href)
-      const videoId = url.pathname === '/watch' ? url.searchParams.get('v') : null
-      return { videoId, supported: Boolean(videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId)) }
+      try {
+        const url = new URL(href)
+        const videoId = url.pathname === '/watch' ? url.searchParams.get('v') : null
+        return { videoId, supported: Boolean(videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId)) }
+      } catch {
+        return { videoId: null, supported: false }
+      }
     }
   \`,
   'test:youtube-browser': \`
     export default {
       runtime: {
-        getManifest: () => globalThis.__YOUTUBE_ADAPTER_TEST__.manifest,
-         sendMessage: async (message) => {
-           const state = globalThis.__YOUTUBE_ADAPTER_TEST__
-           state.runtimeMessages.push(message)
-           return state.runtimeResponses[message.type]
-         },
+        sendMessage: async (message) => {
+          const state = globalThis.__YOUTUBE_ADAPTER_TEST__
+          state.runtimeMessages.push(message)
+          return state.runtimeResponses[message.type]
+        },
       },
     }
   \`,
@@ -82,26 +86,20 @@ export async function load(url, context, nextLoad) {
 register(`data:text/javascript,${encodeURIComponent(hookSource)}`)
 
 const originalDescriptors = new Map()
-const globals = ['location', 'document', 'window', 'navigator', 'chrome']
+const globals = ['location', 'document', 'window']
 let adapter
-let intervals
 
 function setLocation(href) {
   const url = new URL(href)
-  globalThis.location.href = href
-  globalThis.location.pathname = url.pathname
-  globalThis.location.search = url.search
-}
-
-function tick() {
-  for (const listener of intervals) listener()
+  location.href = href
+  location.pathname = url.pathname
+  location.search = url.search
 }
 
 before(async () => {
   for (const name of globals) {
     originalDescriptors.set(name, Object.getOwnPropertyDescriptor(globalThis, name))
   }
-
   Object.defineProperties(globalThis, {
     location: {
       configurable: true,
@@ -114,6 +112,7 @@ before(async () => {
     document: {
       configurable: true,
       value: {
+        documentElement: { outerHTML: '<html></html>' },
         querySelector: (selector) => {
           const state = globalThis.__YOUTUBE_ADAPTER_TEST__
           if (selector === 'ytd-watch-flexy[is-live]') return state.live ? {} : null
@@ -123,23 +122,7 @@ before(async () => {
         },
       },
     },
-    window: {
-      configurable: true,
-      value: {
-        setInterval: (listener) => {
-          intervals.push(listener)
-          return intervals.length
-        },
-      },
-    },
-    navigator: {
-      configurable: true,
-      value: { userAgent: 'Mozilla/5.0 Chrome/130.0.0.0' },
-    },
-    chrome: {
-      configurable: true,
-      value: { offscreen: {} },
-    },
+    window: { configurable: true, value: { setInterval: () => 1 } },
   })
   ;({ default: adapter } = await import(
     '../../../src/content-script/site-adapters/youtube/index.mjs'
@@ -147,22 +130,19 @@ before(async () => {
 })
 
 beforeEach(() => {
-  intervals = []
   setLocation('https://www.youtube.com/watch?v=SYNTHVID01A')
+  delete globalThis.ytInitialPlayerResponse
   globalThis.__YOUTUBE_ADAPTER_TEST__ = {
-    buildSupported: true,
-    manifest: {
-      manifest_version: 3,
-      minimum_chrome_version: '116',
-      permissions: ['offscreen'],
-    },
-    targetElement: { id: 'secondary-a' },
+    capabilityAvailable: true,
+    capabilityConfigs: [],
+    controllerOptions: [],
+    startCount: 0,
+    targetElement: { id: 'secondary' },
     videoElement: {},
+    waitSelectors: [],
     live: false,
     bridges: [],
-    mounts: [],
     runtimeMessages: [],
-    pagePlayerResponse: { videoDetails: { videoId: 'SYNTHVID01A' } },
     runtimeResponses: {
       YOUTUBE_PAGE_PLAYER_RESPONSE: {
         ok: true,
@@ -171,64 +151,58 @@ beforeEach(() => {
       YOUTUBE_PAGE_CAPTURE_CAPTION: { ok: true, data: { body: '{}' } },
     },
   }
-  globalThis.navigator.userAgent = 'Mozilla/5.0 Chrome/130.0.0.0'
-  globalThis.chrome.offscreen = {}
 })
 
 after(() => {
   delete globalThis.__YOUTUBE_ADAPTER_TEST__
+  delete globalThis.ytInitialPlayerResponse
   for (const [name, descriptor] of originalDescriptors) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor)
     else delete globalThis[name]
   }
 })
 
-test('enhanced mode mounts the shared host in the visible secondary column', async () => {
-  let legacyMountCount = 0
+test('enhanced mode configures and starts the shared YouTube controller', async () => {
   const state = globalThis.__YOUTUBE_ADAPTER_TEST__
+  const userConfig = { videoTranscriptionEnabled: true, activeSiteAdapters: ['youtube'] }
 
   const result = await adapter.init(
     'www.youtube.com',
-    { videoTranscriptionEnabled: true, activeSiteAdapters: ['youtube'] },
+    userConfig,
     () => {},
-    () => {
-      legacyMountCount += 1
-    },
+    () => {},
   )
 
   assert.equal(result, false)
-  assert.equal(legacyMountCount, 0)
-  assert.equal(state.mounts.length, 1)
-  assert.deepEqual(state.mounts[0].options, {
-    platform: 'youtube',
-    bridge: state.bridges[0],
-    targetElement: state.targetElement,
-  })
-  assert.equal(state.bridges[0].options.getLocationHref(), location.href)
-  assert.equal(state.bridges[0].options.getVideoElement(), state.videoElement)
-  assert.deepEqual(
-    await state.bridges[0].options.getPlayerResponse('SYNTHVID01A'),
-    state.pagePlayerResponse,
-  )
-  assert.deepEqual(state.runtimeMessages, [
-    {
-      type: 'YOUTUBE_PAGE_PLAYER_RESPONSE',
-      data: { expectedVideoId: 'SYNTHVID01A' },
-    },
-  ])
+  assert.deepEqual(state.capabilityConfigs, [userConfig])
+  assert.equal(state.controllerOptions.length, 1)
+  assert.equal(state.startCount, 1)
+  const options = state.controllerOptions[0]
+  assert.equal(options.platform, 'youtube')
+  assert.equal(options.findTargetElement(), state.targetElement)
+  assert.equal(await options.waitForTargetElement(), state.targetElement)
+  assert.equal(state.waitSelectors.length, 1)
+  assert.match(state.waitSelectors[0], /^#secondary/)
+  assert.equal(await options.isPageSupported(), true)
+  const bridge = options.createBridge()
+  assert.equal(bridge, state.bridges[0])
+  assert.equal(bridge.options.getLocationHref(), location.href)
+  assert.equal(bridge.options.getVideoElement(), state.videoElement)
 })
 
-test('unwraps successful page-data envelopes and throws sanitized failures', async () => {
+test('YouTube bridge preserves page-data RPC envelopes and sanitizes failures', async () => {
   const state = globalThis.__YOUTUBE_ADAPTER_TEST__
   await adapter.init(
     'www.youtube.com',
-    { videoTranscriptionEnabled: true, activeSiteAdapters: ['youtube'] },
+    { videoTranscriptionEnabled: true },
     () => {},
     () => {},
   )
-  const options = state.bridges[0].options
+  const options = state.controllerOptions[0].createBridge().options
 
-  assert.deepEqual(await options.getPlayerResponse('SYNTHVID01A'), state.pagePlayerResponse)
+  assert.deepEqual(await options.getPlayerResponse('SYNTHVID01A'), {
+    videoDetails: { videoId: 'SYNTHVID01A' },
+  })
   assert.deepEqual(
     await options.captureCaption({
       expectedVideoId: 'SYNTHVID01A',
@@ -239,6 +213,22 @@ test('unwraps successful page-data envelopes and throws sanitized failures', asy
     }),
     { body: '{}' },
   )
+  assert.deepEqual(state.runtimeMessages, [
+    {
+      type: 'YOUTUBE_PAGE_PLAYER_RESPONSE',
+      data: { expectedVideoId: 'SYNTHVID01A' },
+    },
+    {
+      type: 'YOUTUBE_PAGE_CAPTURE_CAPTION',
+      data: {
+        expectedVideoId: 'SYNTHVID01A',
+        language: 'en',
+        sourceKind: 'author',
+        vssId: '.en',
+        mode: 'nativeOnly',
+      },
+    },
+  ])
 
   state.runtimeResponses.YOUTUBE_PAGE_PLAYER_RESPONSE = {
     ok: false,
@@ -259,189 +249,68 @@ test('unwraps successful page-data envelopes and throws sanitized failures', asy
   )
 })
 
-test('enhanced mode does not require the background-only Offscreen API in content scripts', async () => {
-  const state = globalThis.__YOUTUBE_ADAPTER_TEST__
-  globalThis.chrome.offscreen = undefined
-
-  const result = await adapter.init(
-    'www.youtube.com',
-    { videoTranscriptionEnabled: true, activeSiteAdapters: ['youtube'] },
-    () => {},
-    () => {},
-  )
-
-  assert.equal(result, false)
-  assert.equal(state.mounts.length, 1)
-})
-
-test('video identity changes dispose and remount while unrelated query changes do not', async () => {
-  const state = globalThis.__YOUTUBE_ADAPTER_TEST__
-  await adapter.init(
-    'www.youtube.com',
-    { videoTranscriptionEnabled: true },
-    () => {},
-    () => {},
-  )
-
-  setLocation('https://www.youtube.com/watch?v=SYNTHVID01A&t=30&list=sample')
-  tick()
-  assert.equal(state.mounts.length, 1)
-  assert.equal(state.mounts[0].disposed, false)
-
-  setLocation('https://www.youtube.com/watch?v=SYNTHVID01B&t=30')
-  tick()
-  assert.equal(state.mounts[0].disposed, true)
-  assert.equal(state.mounts.length, 2)
-  assert.equal(state.mounts[1].options.bridge, state.bridges[1])
-})
-
-test('leaving watch disposes the enhanced host without waiting for another target', async () => {
-  const state = globalThis.__YOUTUBE_ADAPTER_TEST__
-  await adapter.init(
-    'www.youtube.com',
-    { videoTranscriptionEnabled: true },
-    () => {},
-    () => {},
-  )
-  state.targetElement = null
-  state.targetPromise = new Promise(() => {})
-  setLocation('https://www.youtube.com/')
-
-  tick()
-
-  assert.equal(state.mounts[0].disposed, true)
-  assert.equal(state.mounts.length, 1)
-})
-
-test('coalesces repeated host creation ticks while a replacement target is loading', async () => {
-  const state = globalThis.__YOUTUBE_ADAPTER_TEST__
-  await adapter.init(
-    'www.youtube.com',
-    { videoTranscriptionEnabled: true },
-    () => {},
-    () => {},
-  )
-  let resolveTarget
-  state.targetElement = null
-  state.targetPromise = new Promise((resolve) => (resolveTarget = resolve))
-  tick()
-  tick()
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  resolveTarget({ id: 'secondary-delayed' })
-  await new Promise((resolve) => setTimeout(resolve, 0))
-
-  assert.equal(state.mounts.length, 2)
-  assert.equal(state.bridges.length, 2)
-})
-
-test('replacing the visible secondary target disposes and remounts the host', async () => {
-  const state = globalThis.__YOUTUBE_ADAPTER_TEST__
-  await adapter.init(
-    'www.youtube.com',
-    { videoTranscriptionEnabled: true },
-    () => {},
-    () => {},
-  )
-
-  state.targetElement = { id: 'secondary-b' }
-  tick()
-
-  assert.equal(state.mounts[0].disposed, true)
-  assert.equal(state.mounts.length, 2)
-  assert.equal(state.mounts[1].options.targetElement, state.targetElement)
-})
-
-test('unsupported pages and live watch pages retain the legacy path', async () => {
-  const state = globalThis.__YOUTUBE_ADAPTER_TEST__
-  setLocation('https://www.youtube.com/shorts/SYNTHVID01A')
-  assert.equal(
-    await adapter.init(
-      'www.youtube.com',
-      { videoTranscriptionEnabled: true },
-      () => {},
-      () => {},
-    ),
-    true,
-  )
-
-  setLocation('https://www.youtube.com/watch?v=SYNTHVID01A')
-  state.live = true
-  assert.equal(
-    await adapter.init(
-      'www.youtube.com',
-      { videoTranscriptionEnabled: true },
-      () => {},
-      () => {},
-    ),
-    true,
-  )
-  assert.equal(state.mounts.length, 0)
-})
-
-test('all capability failures and a disabled adapter retain the legacy path', async (t) => {
+test('malformed watch, Shorts, and live pages preserve the legacy path', async (t) => {
   const cases = [
-    ['setting disabled', () => ({ videoTranscriptionEnabled: false })],
-    ['site adapter disabled', () => ({ videoTranscriptionEnabled: true, activeSiteAdapters: [] })],
-    [
-      'MV2',
-      () => {
-        globalThis.__YOUTUBE_ADAPTER_TEST__.manifest.manifest_version = 2
-        return { videoTranscriptionEnabled: true }
-      },
-    ],
-    [
-      'minimal build',
-      () => {
-        globalThis.__YOUTUBE_ADAPTER_TEST__.buildSupported = false
-        return { videoTranscriptionEnabled: true }
-      },
-    ],
-    [
-      'unsupported browser',
-      () => {
-        globalThis.navigator.userAgent = 'Firefox/130.0'
-        return { videoTranscriptionEnabled: true }
-      },
-    ],
-    [
-      'unsupported browser version',
-      () => {
-        globalThis.__YOUTUBE_ADAPTER_TEST__.manifest.minimum_chrome_version = '115'
-        return { videoTranscriptionEnabled: true }
-      },
-    ],
+    ['malformed watch', 'https://www.youtube.com/watch?v=bad', false],
+    ['Shorts', 'https://www.youtube.com/shorts/SYNTHVID01A', false],
+    ['live watch', 'https://www.youtube.com/watch?v=SYNTHVID01A', true],
   ]
 
-  for (const [name, prepare] of cases) {
+  for (const [name, href, live] of cases) {
     await t.test(name, async () => {
-      const result = await adapter.init(
-        'www.youtube.com',
-        prepare(),
-        () => {},
-        () => {},
+      const state = globalThis.__YOUTUBE_ADAPTER_TEST__
+      setLocation(href)
+      state.live = live
+      assert.equal(
+        await adapter.init(
+          'www.youtube.com',
+          { videoTranscriptionEnabled: true },
+          () => {},
+          () => {},
+        ),
+        true,
       )
-      assert.equal(result, true)
     })
   }
-  assert.equal(globalThis.__YOUTUBE_ADAPTER_TEST__.mounts.length, 0)
 })
 
-test('legacy inputQuery remains callable outside the capability gate and suppresses raw errors', async () => {
-  const originalFetch = globalThis.fetch
-  const originalLog = console.log
-  let logCount = 0
-  globalThis.fetch = async () => {
-    throw new Error('sensitive caption URL')
-  }
-  console.log = () => {
-    logCount += 1
-  }
+test('unavailable enhanced mode and a disabled adapter preserve the legacy path', async (t) => {
+  const cases = [
+    ['capability unavailable', { videoTranscriptionEnabled: true }, false],
+    ['site adapter disabled', { videoTranscriptionEnabled: true, activeSiteAdapters: [] }, true],
+  ]
 
-  try {
-    assert.equal(await adapter.inputQuery(), undefined)
-    assert.equal(logCount, 0)
-  } finally {
-    globalThis.fetch = originalFetch
-    console.log = originalLog
+  for (const [name, config, capabilityAvailable] of cases) {
+    await t.test(name, async () => {
+      const state = globalThis.__YOUTUBE_ADAPTER_TEST__
+      state.capabilityAvailable = capabilityAvailable
+      assert.equal(
+        await adapter.init(
+          'www.youtube.com',
+          config,
+          () => {},
+          () => {},
+        ),
+        true,
+      )
+      assert.equal(state.controllerOptions.length, 0)
+    })
   }
+})
+
+test('controller eligibility follows navigation to unsupported and live pages', async () => {
+  const state = globalThis.__YOUTUBE_ADAPTER_TEST__
+  await adapter.init(
+    'www.youtube.com',
+    { videoTranscriptionEnabled: true },
+    () => {},
+    () => {},
+  )
+  const { isPageSupported } = state.controllerOptions[0]
+
+  setLocation('https://www.youtube.com/shorts/SYNTHVID01A')
+  assert.equal(await isPageSupported(), false)
+  setLocation('https://www.youtube.com/watch?v=SYNTHVID01A')
+  state.live = true
+  assert.equal(await isPageSupported(), false)
 })

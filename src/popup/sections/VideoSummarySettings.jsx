@@ -27,7 +27,7 @@ function resolveVideoSummaryRuntimeSupport() {
     const manifest = Browser?.runtime?.getManifest?.() ?? {}
     return isVideoSummaryRuntimeSupported({
       manifestVersion: manifest.manifest_version,
-      hasOffscreenApi: Boolean(globalThis.chrome?.offscreen),
+      hasOffscreenPermission: manifest.permissions?.includes('offscreen') === true,
       minChromeVersion: manifest.minimum_chrome_version,
       userAgent: globalThis.navigator?.userAgent,
     })

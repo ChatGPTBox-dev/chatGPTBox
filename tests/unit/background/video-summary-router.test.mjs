@@ -58,8 +58,6 @@ function createCommandSink() {
 test('router stamps owner identity from port.sender and ignores spoofed owner fields', async () => {
   const commandSink = createCommandSink()
   const router = createVideoSummaryRouter({
-    mediaKitGateway: {},
-    modelGateway: {},
     ensureOffscreenDocument: async () => {},
     clock: createFakeClock(),
     logger: createLogger(),
@@ -105,8 +103,6 @@ test('exact ATTACH_TASK within grace rebinds the route after disconnect but mism
   const clock = createFakeClock()
   const commandSink = createCommandSink()
   const router = createVideoSummaryRouter({
-    mediaKitGateway: {},
-    modelGateway: {},
     ensureOffscreenDocument: async () => {},
     clock,
     logger: createLogger(),
@@ -198,8 +194,6 @@ test('ATTACH_TASK can rebuild a missing route only during the initial restart gr
   })
 
   const freshRouter = createVideoSummaryRouter({
-    mediaKitGateway: {},
-    modelGateway: {},
     ensureOffscreenDocument: async () => {},
     clock,
     logger: createLogger(),
@@ -232,8 +226,6 @@ test('ATTACH_TASK can rebuild a missing route only during the initial restart gr
   const lateClock = createFakeClock()
   const lateCommandSink = createCommandSink()
   const lateRouter = createVideoSummaryRouter({
-    mediaKitGateway: {},
-    modelGateway: {},
     ensureOffscreenDocument: async () => {},
     clock: lateClock,
     logger: createLogger(),
@@ -259,8 +251,6 @@ test('ATTACH_TASK can rebuild a missing route only during the initial restart gr
 
 test('handleTaskEvent forwards only the exact current task and owner to the active route', async () => {
   const router = createVideoSummaryRouter({
-    mediaKitGateway: {},
-    modelGateway: {},
     ensureOffscreenDocument: async () => {},
     clock: createFakeClock(),
     logger: createLogger(),
@@ -317,8 +307,6 @@ test('handleTaskEvent forwards only the exact current task and owner to the acti
 test('requestSourceRefresh and tab removal target only the matching owner route', async () => {
   const commandSink = createCommandSink()
   const router = createVideoSummaryRouter({
-    mediaKitGateway: {},
-    modelGateway: {},
     ensureOffscreenDocument: async () => {},
     clock: createFakeClock(),
     logger: createLogger(),
@@ -388,8 +376,6 @@ test('requestSourceRefresh and tab removal target only the matching owner route'
 test('routes identical task and video ids independently by platform', async () => {
   const commandSink = createCommandSink()
   const router = createVideoSummaryRouter({
-    mediaKitGateway: {},
-    modelGateway: {},
     ensureOffscreenDocument: async () => {},
     clock: createFakeClock(),
     logger: createLogger(),

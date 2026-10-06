@@ -543,8 +543,6 @@ function createHarness({ mediaPipeline, modelGateway, clock = createFakeClock() 
   })
 
   const router = createVideoSummaryRouter({
-    mediaKitGateway: {},
-    modelGateway,
     ensureOffscreenDocument: async () => {},
     clock,
     logger: { info() {}, warn() {}, error() {} },
@@ -656,6 +654,7 @@ function createHarness({ mediaPipeline, modelGateway, clock = createFakeClock() 
   return {
     clock,
     router,
+    taskRunner,
     emittedCommands,
     mountClient,
   }
@@ -1111,6 +1110,88 @@ test('an ambiguous create-ASR response enters submission-unknown and does not si
   assert.equal(failedEvent.errorCode, 'VIDEO_SUMMARY_SUBMISSION_UNKNOWN')
   assert.equal(submitCalls.length, 1)
   assert.equal(new Set(submitCalls.map((call) => call.clientToken)).size, 1)
+})
+
+test('reattachment inside grace preserves checkpoint retry without rerunning transcription', async () => {
+  const submitCalls = []
+  const failRequestIds = new Set(['actionable:synthesis'])
+  const { pipeline } = createDirectPipeline({
+    transcription: createTranscription(4, 'reattach-checkpoint'),
+    submitCalls,
+  })
+  const harness = createHarness({
+    mediaPipeline: pipeline,
+    modelGateway: createModelGateway({ failRequestIds }),
+  })
+  const owner = createVideoSummaryOwner({
+    tabId: 27,
+    documentId: 'doc-reattach-checkpoint',
+    videoId: 'BV1reattachCheckpoint',
+  })
+  const sourceSnapshot = createSourceSnapshot({ videoId: owner.videoId })
+  const firstMount = await harness.mountClient({ owner, sourceSnapshot })
+  const taskId = await firstMount.client.startTask({
+    sourceChoice: 'asr',
+    sourceSnapshot,
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
+  })
+
+  await firstMount.waitFor((event) => event.type === 'TASK_FAILED')
+  firstMount.client.dispose()
+  harness.clock.advance(14_999)
+
+  const secondMount = await harness.mountClient({ owner, sourceSnapshot })
+  await secondMount.client.attachTask({ taskId })
+  failRequestIds.delete('actionable:synthesis')
+  await secondMount.client.retryTask({ fromStage: 'synthesis' })
+
+  const resultEvent = await secondMount.waitFor((event) => event.type === 'TASK_RESULT')
+  assert.equal(resultEvent.result.status, 'complete')
+  assert.equal(submitCalls.length, 1)
+})
+
+test('disconnect expiry and tab removal release checkpoint retry state', async () => {
+  for (const lifecycle of ['disconnect-expiry', 'tab-removal']) {
+    const submitCalls = []
+    const failRequestIds = new Set(['actionable:synthesis'])
+    const { pipeline } = createDirectPipeline({
+      transcription: createTranscription(4, lifecycle),
+      submitCalls,
+    })
+    const harness = createHarness({
+      mediaPipeline: pipeline,
+      modelGateway: createModelGateway({ failRequestIds }),
+    })
+    const owner = createVideoSummaryOwner({
+      tabId: lifecycle === 'disconnect-expiry' ? 28 : 29,
+      documentId: `doc-${lifecycle}`,
+      videoId: `BV1${lifecycle}`,
+    })
+    const sourceSnapshot = createSourceSnapshot({ videoId: owner.videoId })
+    const mounted = await harness.mountClient({ owner, sourceSnapshot })
+    const taskId = await mounted.client.startTask({
+      sourceChoice: 'asr',
+      sourceSnapshot,
+      settingsSnapshot: { preferredLanguage: 'en' },
+      modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
+    })
+
+    await mounted.waitFor((event) => event.type === 'TASK_FAILED')
+    if (lifecycle === 'disconnect-expiry') {
+      mounted.client.dispose()
+      harness.clock.advance(15_001)
+    } else {
+      harness.router.handleTabRemoved(owner.tabId)
+    }
+    await flushTasks()
+
+    await assert.rejects(
+      harness.taskRunner.retry(taskId, { fromStage: 'synthesis' }),
+      /VIDEO_SUMMARY_TASK_NOT_FOUND/,
+    )
+    assert.equal(submitCalls.length, 1)
+  }
 })
 
 test('port disconnect, tab removal, video identity changes, and stale events affect only the matching owner task', async () => {
@@ -1589,8 +1670,6 @@ test('native subtitle and ASR tasks traverse the real background-offscreen port 
   })
 
   const router = createVideoSummaryRouter({
-    mediaKitGateway: {},
-    modelGateway,
     ensureOffscreenDocument: async () => {},
     clock,
     logger: { info() {}, warn() {}, error() {} },

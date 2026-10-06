@@ -179,49 +179,6 @@ export async function queryMediaKitTask({ apiKey, taskId, fetchImpl = fetch }) {
   return data
 }
 
-export async function pollMediaKitTask({
-  apiKey,
-  taskId,
-  signal,
-  fetchImpl = fetch,
-  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  now = () => Date.now(),
-}) {
-  const delays = [5000, 10000, 20000, 30000]
-  const deadline = now() + 2 * 60 * 60 * 1000
-  let delayIndex = 0
-  let consecutiveFailures = 0
-
-  while (now() < deadline) {
-    if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
-    try {
-      const data = await queryMediaKitTask({ apiKey, taskId, fetchImpl })
-      consecutiveFailures = 0
-      if (data.status === 'completed') return data.result
-      if (data.status === 'failed') {
-        throw new MediaKitError(data.error?.message || 'MEDIAKIT_TASK_FAILED', {
-          operation: 'query-asr',
-          providerCode: data.error?.code || null,
-          requestId: data.request_id || null,
-        })
-      }
-    } catch (error) {
-      const retryable =
-        error instanceof TypeError ||
-        error?.httpStatus === 429 ||
-        [500, 503, 504].includes(error?.httpStatus)
-      if (!retryable || ++consecutiveFailures > 5) throw error
-      const retryDelay = error.retryAfterMs ?? delays[Math.min(delayIndex, delays.length - 1)]
-      delayIndex += 1
-      await wait(retryDelay)
-      continue
-    }
-    await wait(delays[Math.min(delayIndex, delays.length - 1)])
-    delayIndex += 1
-  }
-  throw new MediaKitError('MEDIAKIT_TASK_TIMEOUT', { operation: 'query-asr' })
-}
-
 export function normalizeMediaKitTranscription(result) {
   const rawResult =
     result?.result && typeof result.result === 'object' && !Array.isArray(result.result)

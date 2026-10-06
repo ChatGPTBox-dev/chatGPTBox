@@ -644,6 +644,153 @@ test('native subtitle choice rejects a missing requested track without MediaKit 
   assert.equal(mediaCalls.length, 0)
 })
 
+test('successful tasks retain only retry state until explicitly released', async () => {
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      async transcribeFromSource() {
+        return createTranscription()
+      },
+    },
+    modelGateway: createUnsupportedModelGateway(),
+    logger: createLogger(),
+    clock: { now: () => 1234 },
+  })
+  const emitted = []
+
+  await runner.start(
+    {
+      taskId: 'task-release-complete',
+      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1release' },
+      sourceChoice: 'asr',
+      sourceSnapshot: {
+        videoId: 'BV1release',
+        signedMediaUrl: 'https://media.invalid/audio?signature=secret',
+      },
+      settingsSnapshot: { preferredLanguage: 'en' },
+      modelSnapshot: { modelName: 'customModel' },
+    },
+    (event) => emitted.push(event),
+  )
+
+  await runner.retry('task-release-complete', { fromStage: 'summarizing' })
+  assert.equal(emitted.filter((event) => event.type === 'TASK_RESULT').length, 2)
+
+  runner.release('task-release-complete')
+  await assert.rejects(
+    () => runner.retry('task-release-complete', { fromStage: 'summarizing' }),
+    /VIDEO_SUMMARY_TASK_NOT_FOUND/,
+  )
+})
+
+test('checkpointed failures retain retry state without cloning source data or callbacks', async () => {
+  let capabilityAvailable = false
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      async transcribeFromSource() {
+        return createTranscription()
+      },
+    },
+    modelGateway: {
+      async describeCapabilities() {
+        if (!capabilityAvailable) {
+          return {
+            supported: false,
+            code: 'MODEL_GATEWAY_TEMPORARILY_UNAVAILABLE',
+            temporary: true,
+          }
+        }
+        return { supported: false, reason: 'MODEL_GATEWAY_UNSUPPORTED' }
+      },
+      cancel() {},
+    },
+    logger: createLogger(),
+    clock: { now: () => 1234 },
+  })
+  const sourceSnapshot = {
+    videoId: 'BV1checkpoint',
+    nonCloneable: () => {},
+  }
+
+  await assert.rejects(
+    () =>
+      runner.start(
+        {
+          taskId: 'task-checkpoint-retained',
+          owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1checkpoint' },
+          sourceChoice: 'asr',
+          sourceSnapshot,
+          settingsSnapshot: { preferredLanguage: 'en' },
+          modelSnapshot: { modelName: 'customModel' },
+          requestSourceRefresh() {},
+        },
+        () => {},
+      ),
+    /MODEL_GATEWAY_TEMPORARILY_UNAVAILABLE/,
+  )
+
+  capabilityAvailable = true
+  const result = await runner.retry('task-checkpoint-retained', { fromStage: 'summarizing' })
+  assert.equal(result.status, 'degraded')
+})
+
+test('pre-transcription failures and cancellation release all retry state', async () => {
+  let rejectTranscription
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      transcribeFromSource({ signal }) {
+        return new Promise((resolve, reject) => {
+          rejectTranscription = reject
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+      },
+    },
+    modelGateway: createUnsupportedModelGateway(),
+    logger: createLogger(),
+    clock: { now: () => 1234 },
+  })
+
+  await assert.rejects(
+    () =>
+      runner.start(
+        {
+          taskId: 'task-before-checkpoint',
+          owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1failure' },
+          sourceChoice: 'native-subtitle',
+          subtitleTrackId: 'missing',
+          sourceSnapshot: { nativeSubtitleTracks: [] },
+          settingsSnapshot: {},
+          modelSnapshot: {},
+        },
+        () => {},
+      ),
+    /VIDEO_NATIVE_SUBTITLES_NOT_FOUND/,
+  )
+  await assert.rejects(
+    () => runner.retry('task-before-checkpoint', { fromStage: 'summarizing' }),
+    /VIDEO_SUMMARY_TASK_NOT_FOUND/,
+  )
+
+  const startPromise = runner.start(
+    {
+      taskId: 'task-cancel-release',
+      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1cancel' },
+      sourceChoice: 'asr',
+      sourceSnapshot: { videoId: 'BV1cancel' },
+      settingsSnapshot: {},
+      modelSnapshot: {},
+    },
+    () => {},
+  )
+  await Promise.resolve()
+  runner.cancel('task-cancel-release')
+  await assert.rejects(startPromise, { name: 'AbortError' })
+  await assert.rejects(
+    () => runner.retry('task-cancel-release', { fromStage: 'summarizing' }),
+    /VIDEO_SUMMARY_TASK_NOT_FOUND/,
+  )
+  rejectTranscription?.(new Error('unused'))
+})
+
 test('unsupported source choice cannot fall through to paid ASR', async () => {
   const mediaCalls = []
   const runner = createVideoTaskRunner({

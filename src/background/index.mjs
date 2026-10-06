@@ -226,8 +226,6 @@ function emitVideoSummaryOffscreenCommand(command) {
 }
 
 videoSummaryRouter = createVideoSummaryRouter({
-  mediaKitGateway,
-  modelGateway,
   ensureOffscreenDocument: ensureVideoSummaryOffscreen,
   clock: {
     now: () => Date.now(),
@@ -947,17 +945,6 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         }
         await mediaKitGateway.deleteKey()
         return mediaKitGateway.getKeyState()
-      }
-      case 'VIDEO_SUMMARY_TASK_EVENT': {
-        if (!isTrustedExtensionSender(sender)) {
-          console.warn(
-            '[background] Rejecting VIDEO_SUMMARY_TASK_EVENT from untrusted sender:',
-            sender,
-          )
-          return null
-        }
-        videoSummaryRouter.handleTaskEvent(message.data)
-        return null
       }
       case 'FETCH': {
         if (!isTrustedExtensionSender(sender)) {

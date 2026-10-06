@@ -1,7 +1,7 @@
 import { cropText, waitForElementToExistAndSelect } from '../../../utils'
 import { config } from '../index.mjs'
-import { isVideoSummaryEnabled } from '../../../video-summary/capabilities.mjs'
-import { mountVideoSummaryHost } from '../../video-summary-host.mjs'
+import { createVideoSummaryAdapterController } from '../../video-summary-adapter-controller.mjs'
+import { isEnhancedVideoSummaryAvailable } from '../../video-summary-capability.mjs'
 import { createBilibiliVideoPageBridge } from './video-page-bridge.mjs'
 
 export default {
@@ -11,40 +11,19 @@ export default {
       // B站页面是SSR的，如果插入过早，页面 js 检测到实际 Dom 和期望 Dom 不一致，会导致重新渲染
       await waitForElementToExistAndSelect('img.bili-avatar-img')
 
-      if (isVideoSummaryEnabled(userConfig)) {
-        let host = null
-        const createHost = () => {
-          const targetElement = document.querySelector('#danmukuBox')
-          if (!targetElement) return
-
-          host?.dispose()
-          host = mountVideoSummaryHost({
-            platform: 'bilibili',
-            bridge: createBilibiliVideoPageBridge({
+      if (isEnhancedVideoSummaryAvailable(userConfig)) {
+        const controller = createVideoSummaryAdapterController({
+          platform: 'bilibili',
+          createBridge: () =>
+            createBilibiliVideoPageBridge({
               getLocationHref: () => location.href,
               getVideoElement: () => document.querySelector('video'),
             }),
-            targetElement,
-          })
-        }
-
-        const getVideoPath = () =>
-          location.pathname + `?p=${new URLSearchParams(location.search).get('p') || 1}`
-        let oldPath = getVideoPath()
-        createHost()
-        window.setInterval(() => {
-          const newPath = getVideoPath()
-          if (newPath !== oldPath) {
-            oldPath = newPath
-            createHost()
-            return
-          }
-
-          if (host && document.body.contains(document.querySelector('.video-summary-host'))) {
-            return
-          }
-          createHost()
-        }, 500)
+          findTargetElement: () => document.querySelector('#danmukuBox'),
+          waitForTargetElement: () => waitForElementToExistAndSelect('#danmukuBox'),
+          isPageSupported: () => !location.pathname.includes('/bangumi'),
+        })
+        await controller.start()
         return false
       }
 

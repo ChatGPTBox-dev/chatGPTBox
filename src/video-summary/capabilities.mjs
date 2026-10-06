@@ -6,20 +6,26 @@ export function isVideoSummaryBuildEnabled() {
 
 export function isVideoSummaryRuntimeSupported({
   manifestVersion,
-  hasOffscreenApi,
+  hasOffscreenPermission,
   minChromeVersion,
   userAgent,
-}) {
+} = {}) {
   return (
     manifestVersion === 3 &&
-    hasOffscreenApi === true &&
+    hasOffscreenPermission === true &&
     Number.parseInt(String(minChromeVersion || '0'), 10) >= 116 &&
-    /Chrome|Edg\//.test(String(userAgent || ''))
+    /(?:Chrome|Edg)\//.test(String(userAgent || ''))
+  )
+}
+
+export function isVideoSummaryAvailable(config, runtimeFacts) {
+  return (
+    isVideoSummaryBuildEnabled() &&
+    config?.videoTranscriptionEnabled === true &&
+    isVideoSummaryRuntimeSupported(runtimeFacts)
   )
 }
 
 export function isVideoSummaryEnabled(config) {
   return isVideoSummaryBuildEnabled() && config?.videoTranscriptionEnabled === true
 }
-
-export const isBilibiliVideoTranscriptionEnabled = isVideoSummaryEnabled

@@ -2,13 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   extractBilibiliInitialState,
-  extractBilibiliPlayInfo,
   getBilibiliVideoIdentity,
   normalizeBilibiliAiConclusion,
   normalizeBilibiliAudioCandidates,
   normalizeSubtitleTracks,
   resolveBilibiliSelectedPageMetadata,
-  selectPreferredBilibiliSubtitleTrack,
 } from '../../../src/content-script/site-adapters/bilibili/media-source.mjs'
 import { resolveBilibiliSourceSnapshot } from '../../../src/content-script/site-adapters/bilibili/video-page-bridge.mjs'
 
@@ -53,11 +51,6 @@ test('parses BV identity and page number', () => {
     videoId: 'BVTESTCASE01',
     pageNumber: 3,
   })
-})
-
-test('extracts __playinfo__ JSON without executing page script', () => {
-  const html = `<script>window.__playinfo__=${JSON.stringify(playInfo)}</script>`
-  assert.deepEqual(extractBilibiliPlayInfo(html), playInfo)
 })
 
 test('extracts __INITIAL_STATE__ JSON without executing page script', () => {
@@ -107,32 +100,12 @@ test('normalizes audio candidates and never materializes cookie headers', () => 
   assert.equal('headers' in candidate.localFetchRecipe, false)
 })
 
-test('throws BILIBILI_PLAYINFO_NOT_FOUND when script marker is missing', () => {
-  assert.throws(() => extractBilibiliPlayInfo('<html><body>no playinfo here</body></html>'), {
-    message: 'BILIBILI_PLAYINFO_NOT_FOUND',
-  })
-})
-
 test('throws BILIBILI_INITIAL_STATE_NOT_FOUND when script marker is missing', () => {
   assert.throws(
     () => extractBilibiliInitialState('<html><body>no initial state here</body></html>'),
     {
       message: 'BILIBILI_INITIAL_STATE_NOT_FOUND',
     },
-  )
-})
-
-test('throws on malformed __playinfo__ JSON', () => {
-  assert.throws(
-    () => extractBilibiliPlayInfo('<script>window.__playinfo__={not json}</script>'),
-    SyntaxError,
-  )
-})
-
-test('throws BILIBILI_PLAYINFO_SCRIPT_INCOMPLETE when marker exists but closing script tag is absent', () => {
-  assert.throws(
-    () => extractBilibiliPlayInfo('<script>window.__playinfo__={"key":"value"}</div>'),
-    { message: 'BILIBILI_PLAYINFO_SCRIPT_INCOMPLETE' },
   )
 })
 
@@ -308,7 +281,6 @@ test('normalizes and orders player subtitle tracks by source kind', async () => 
       { id: '3', sourceKind: 'unknown' },
     ],
   )
-  assert.equal(selectPreferredBilibiliSubtitleTrack(tracks, 'zh-CN').id, '1')
 })
 
 test('skips a failing player subtitle body while retaining usable tracks', async () => {

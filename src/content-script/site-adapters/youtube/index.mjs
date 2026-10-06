@@ -1,11 +1,8 @@
 import Browser from 'webextension-polyfill'
 import { cropText, waitForSiteAdapterElement } from '../../../utils'
 import { config } from '../index.mjs'
-import {
-  isVideoSummaryEnabled,
-  isVideoSummaryRuntimeSupported,
-} from '../../../video-summary/capabilities.mjs'
-import { mountVideoSummaryHost } from '../../video-summary-host.mjs'
+import { createVideoSummaryAdapterController } from '../../video-summary-adapter-controller.mjs'
+import { isEnhancedVideoSummaryAvailable } from '../../video-summary-capability.mjs'
 import { getYouTubeWatchIdentity } from './media-source.mjs'
 import { createYouTubeVideoPageBridge } from './video-page-bridge.mjs'
 
@@ -51,25 +48,11 @@ function unwrapPageDataResponse(response) {
 }
 
 function isEnhancedModeAvailable(userConfig) {
-  if (
-    Array.isArray(userConfig?.activeSiteAdapters) &&
-    !userConfig.activeSiteAdapters.includes('youtube')
-  ) {
-    return false
-  }
-  if (!isVideoSummaryEnabled(userConfig)) return false
-
-  try {
-    const manifest = Browser.runtime.getManifest()
-    return isVideoSummaryRuntimeSupported({
-      manifestVersion: manifest.manifest_version,
-      hasOffscreenApi: manifest.permissions?.includes('offscreen') === true,
-      minChromeVersion: manifest.minimum_chrome_version,
-      userAgent: globalThis.navigator?.userAgent,
-    })
-  } catch {
-    return false
-  }
+  return (
+    (!Array.isArray(userConfig?.activeSiteAdapters) ||
+      userConfig.activeSiteAdapters.includes('youtube')) &&
+    isEnhancedVideoSummaryAvailable(userConfig)
+  )
 }
 
 // This function was written by ChatGPT and modified by iamsirsammy
@@ -82,87 +65,42 @@ export default {
   init: async (hostname, userConfig, getInput, mountComponent) => {
     const initialIdentity = getWatchIdentity()
     if (initialIdentity.supported && !isLiveWatchPage() && isEnhancedModeAvailable(userConfig)) {
-      let host = null
-      let targetElement = null
-      let videoId = initialIdentity.videoId
-      let hostCreation = null
-
-      const createHost = () => {
-        const startingIdentity = getWatchIdentity()
-        if (!startingIdentity.supported || isLiveWatchPage()) {
-          host?.dispose()
-          host = null
-          targetElement = null
-          videoId = startingIdentity.videoId
-          return Promise.resolve()
-        }
-        if (hostCreation) return hostCreation
-        const operation = (async () => {
-          const nextTarget =
-            document.querySelector(SECONDARY_COLUMN_SELECTOR) ||
-            (await waitForSiteAdapterElement(SECONDARY_COLUMN_SELECTOR))
+      const controller = createVideoSummaryAdapterController({
+        platform: 'youtube',
+        createBridge: () =>
+          createYouTubeVideoPageBridge({
+            getLocationHref: () => location.href,
+            getPlayerResponse: async (expectedVideoId) =>
+              unwrapPageDataResponse(
+                await Browser.runtime.sendMessage({
+                  type: 'YOUTUBE_PAGE_PLAYER_RESPONSE',
+                  data: { expectedVideoId },
+                }),
+              ),
+            getPageHtml: () => document.documentElement?.outerHTML || '',
+            captureCaption: async ({ expectedVideoId, language, sourceKind, vssId, mode }) =>
+              unwrapPageDataResponse(
+                await Browser.runtime.sendMessage({
+                  type: 'YOUTUBE_PAGE_CAPTURE_CAPTION',
+                  data: {
+                    expectedVideoId,
+                    language,
+                    sourceKind,
+                    vssId,
+                    mode,
+                  },
+                }),
+              ),
+            getVideoElement: () => document.querySelector('video'),
+          }),
+        findTargetElement: () => document.querySelector(SECONDARY_COLUMN_SELECTOR),
+        waitForTargetElement: () => waitForSiteAdapterElement(SECONDARY_COLUMN_SELECTOR),
+        isPageSupported: () => {
           const identity = getWatchIdentity()
-          if (!nextTarget || !identity.supported || isLiveWatchPage()) {
-            host?.dispose()
-            host = null
-            targetElement = null
-            videoId = identity.videoId
-            return
-          }
-
-          host?.dispose()
-          targetElement = nextTarget
-          videoId = identity.videoId
-          host = mountVideoSummaryHost({
-            platform: 'youtube',
-            bridge: createYouTubeVideoPageBridge({
-              getLocationHref: () => location.href,
-              getPlayerResponse: async (expectedVideoId) =>
-                unwrapPageDataResponse(
-                  await Browser.runtime.sendMessage({
-                    type: 'YOUTUBE_PAGE_PLAYER_RESPONSE',
-                    data: { expectedVideoId },
-                  }),
-                ),
-              getPageHtml: () => document.documentElement?.outerHTML || '',
-              captureCaption: async ({ expectedVideoId, language, sourceKind, vssId, mode }) =>
-                unwrapPageDataResponse(
-                  await Browser.runtime.sendMessage({
-                    type: 'YOUTUBE_PAGE_CAPTURE_CAPTION',
-                    data: {
-                      expectedVideoId,
-                      language,
-                      sourceKind,
-                      vssId,
-                      mode,
-                    },
-                  }),
-                ),
-              getVideoElement: () => document.querySelector('video'),
-            }),
-            targetElement,
-          })
-        })()
-        hostCreation = operation
-        return operation.finally(() => {
-          if (hostCreation === operation) hostCreation = null
-        })
-      }
-
-      await createHost()
-      window.setInterval(() => {
-        const identity = getWatchIdentity()
-        const nextTarget = document.querySelector(SECONDARY_COLUMN_SELECTOR)
-        if (
-          identity.videoId === videoId &&
-          identity.supported &&
-          !isLiveWatchPage() &&
-          nextTarget === targetElement
-        ) {
-          return
-        }
-        void createHost()
-      }, 500)
+          return identity.supported && !isLiveWatchPage()
+        },
+      })
+      await controller.start()
       return false
     }
 

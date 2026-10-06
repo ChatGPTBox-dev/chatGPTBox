@@ -96,10 +96,6 @@ function createInitialTaskState() {
   }
 }
 
-export function mountBilibiliVideoSummaryHost(options) {
-  return mountVideoSummaryHost({ platform: 'bilibili', ...options })
-}
-
 export function mountVideoSummaryHost({
   platform,
   bridge,

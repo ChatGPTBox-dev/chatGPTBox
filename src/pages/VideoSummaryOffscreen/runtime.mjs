@@ -221,6 +221,9 @@ export function startVideoSummaryOffscreenRuntime({
         owner,
       }),
     })
+    if (event?.type === 'TASK_FAILED' && event.checkpointAvailable !== true) {
+      taskOwners.delete(event.taskId)
+    }
   }
 
   function requestSourceRefresh({ owner, taskId, expectedVideoId, reason }) {
@@ -353,6 +356,7 @@ export function startVideoSummaryOffscreenRuntime({
         const owner = getBoundOwner(message)
         if (!owner) return
         runtimeTaskRunner.cancel(message.taskId)
+        taskOwners.delete(message.taskId)
         return
       }
       case 'ATTACH_TASK':

@@ -21,7 +21,7 @@ function createRequestIdFactory() {
   return () => `request-${nextId++}`
 }
 
-test('START_TASK creates a runner command, TASK_EVENT returns to background, and CANCEL/RETRY dispatch correctly', async () => {
+test('START_TASK emits events and validated cancellation releases its owner binding', async () => {
   const owner = createVideoSummaryOwner({
     tabId: 5,
     documentId: 'doc-5',
@@ -32,6 +32,7 @@ test('START_TASK creates a runner command, TASK_EVENT returns to background, and
   const starts = []
   const cancels = []
   const retries = []
+  const releases = []
   const taskRunner = {
     async start(command, emit) {
       starts.push(command)
@@ -44,6 +45,9 @@ test('START_TASK creates a runner command, TASK_EVENT returns to background, and
     },
     cancel(taskId) {
       cancels.push(taskId)
+    },
+    release(taskId) {
+      releases.push(taskId)
     },
     async retry(taskId, command) {
       retries.push({ taskId, command })
@@ -103,20 +107,83 @@ test('START_TASK creates a runner command, TASK_EVENT returns to background, and
   await Promise.resolve()
 
   assert.deepEqual(cancels, ['task-5'])
-  assert.deepEqual(retries, [
-    {
-      taskId: 'task-5',
-      command: {
-        type: 'RETRY_TASK',
-        taskId: 'task-5',
-        platform: owner.platform,
-        videoId: owner.videoId,
-        owner,
-        fromStage: 'summarizing',
-        modelSnapshot: { provider: 'openai' },
-      },
+  assert.deepEqual(releases, [])
+  assert.deepEqual(retries, [])
+})
+
+test('owner binding follows result and failure retention semantics without new protocol commands', async () => {
+  const owner = createVideoSummaryOwner({
+    tabId: 7,
+    documentId: 'doc-7',
+    platform: 'bilibili',
+    videoId: 'BV7retention',
+  })
+  const port = createFakePort({ name: VIDEO_SUMMARY_OFFSCREEN_PORT_NAME })
+  const starts = []
+  const retries = []
+  const taskRunner = {
+    async start(command, emit) {
+      starts.push({ command, emit })
     },
-  ])
+    cancel() {},
+    release() {},
+    async retry(taskId) {
+      retries.push(taskId)
+    },
+  }
+
+  startVideoSummaryOffscreenRuntime({ port, taskRunner, logger: createLogger() })
+  const start = (taskId) => {
+    port.emitMessage({
+      type: 'START_TASK',
+      taskId,
+      platform: owner.platform,
+      videoId: owner.videoId,
+      owner,
+    })
+  }
+  const retry = (taskId) => {
+    port.emitMessage({
+      type: 'RETRY_TASK',
+      taskId,
+      platform: owner.platform,
+      videoId: owner.videoId,
+      owner,
+      fromStage: 'summarizing',
+    })
+  }
+
+  start('result-task')
+  await Promise.resolve()
+  starts.at(-1).emit({ type: 'TASK_RESULT', taskId: 'result-task', owner })
+  retry('result-task')
+
+  start('checkpoint-failure-task')
+  await Promise.resolve()
+  starts.at(-1).emit({
+    type: 'TASK_FAILED',
+    taskId: 'checkpoint-failure-task',
+    owner,
+    checkpointAvailable: true,
+  })
+  retry('checkpoint-failure-task')
+
+  start('pre-checkpoint-failure-task')
+  await Promise.resolve()
+  starts.at(-1).emit({
+    type: 'TASK_FAILED',
+    taskId: 'pre-checkpoint-failure-task',
+    owner,
+    checkpointAvailable: false,
+  })
+  retry('pre-checkpoint-failure-task')
+  await Promise.resolve()
+
+  assert.deepEqual(retries, ['result-task', 'checkpoint-failure-task'])
+  assert.equal(
+    port.postedMessages.some((message) => message.type === 'RELEASE_TASK'),
+    false,
+  )
 })
 
 test('task commands and refresh results cannot cross platform owner bindings', async () => {
