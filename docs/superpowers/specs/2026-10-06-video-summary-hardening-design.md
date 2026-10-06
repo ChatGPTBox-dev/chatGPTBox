@@ -2,86 +2,40 @@
 
 **Date:** 2026-10-06
 
-**Status:** Approved design
+**Status:** Needs revision review
 
 **Applies to:** Full Chromium enhanced Bilibili and YouTube video summaries
 
-## 1. Purpose
+## 1. Goal
 
-Harden the enhanced video-summary implementation against duplicate paid work, cross-context message
-forgery, stale page identity, cancellation gaps, lost task state, unbounded media resource use, and
-untrusted summary output while retaining the existing product boundary:
+Fix confirmed security, billing, cancellation, identity, lifecycle, resource, and output-integrity
+problems without introducing persistent jobs or distributed transactions.
 
-- enhanced summaries remain explicitly invoked;
-- native subtitles and confirmed ASR feed the same summary pipeline;
-- MediaKit and model credentials remain in Background;
-- tasks remain ephemeral and are not restored after an extension runtime restart;
-- Firefox, Safari, minimal builds, unsupported pages, and disabled settings retain the legacy path;
-- archive and Markdown download remain explicit user actions.
+Keep four boundaries:
 
-This design directly upgrades the internal content/background/offscreen protocol. All extension
-contexts ship together, so no old-protocol compatibility layer is required.
+- adapters own page identity, source discovery, refresh, and seek;
+- Background authenticates contexts, allocates task fences, owns one execution slot per site tab, and
+  authorizes privileged operations;
+- Offscreen executes ephemeral attempts and owns in-memory transcript checkpoints;
+- gateways own credentials and narrow provider calls.
 
-## 2. Scope
+A Background or Offscreen restart fails local work. It does not resume tasks.
 
-### 2.1 Included
+## 2. Non-goals
 
-- Make Background the authoritative coordinator for owner/task identity, task replacement, state
-  replay, cancellation, and runtime epochs.
-- Authenticate content and offscreen ports before granting protocol access.
-- Replace Bilibili BVID-only ownership with multipart-aware media identity.
-- Define strict command, event, source snapshot, and gateway payload schemas.
-- Make cancellation propagate through model calls, source refresh, MediaKit calls, media download,
-  upload, polling delays, and task cleanup.
-- Add bounded MediaKit polling, duration limits, URL policy, OPFS byte limits, and deferred cleanup.
-- Unify enhanced, legacy, and unsupported page lifecycle selection across SPA navigation.
-- Make failed transcription checkpoints reattachable and summary-retryable.
-- Preserve model message roles where the provider supports them and harden Web-provider prompts.
-- Validate empty or truncated model output and correct transcript coverage calculation.
-- Escape untrusted video-summary data when generating archived or downloaded Markdown.
-- Add automated and manual validation for concurrency, restart, security, and resource limits.
+- Exactly-once execution or billing across runtime restarts.
+- Persistent task recovery.
+- A general privileged fetch/model proxy.
+- Process-level isolation from Offscreen; it is trusted extension code. Capability checks prevent
+  programming mistakes, cross-task confusion, and duplicate paid operations.
+- Guaranteeing rollback after a provider request begins.
+- Global Markdown-renderer changes.
+- Legacy fallback behavior changes.
+- Custom ChatGPT endpoint credential hardening; that provider-wide issue requires a separate design.
 
-### 2.2 Excluded
+## 3. Identity
 
-- Persisting or resuming tasks across Background or offscreen restarts.
-- A project-operated media backend.
-- Browser-local ASR, tab recording, or local file selection.
-- Bypassing authentication, DRM, paid/private content, or regional controls.
-- Global changes to the chat Markdown renderer.
-- Changing provider credentials, settings storage formats, or existing archived session formats.
-- Guaranteeing cancellation of an ASR job after MediaKit has accepted it.
-
-## 3. Architectural Decision
-
-Background becomes the authoritative task coordinator. Content owns page extraction and rendering;
-offscreen owns task execution and ephemeral checkpoints; privileged gateways own credentials and
-provider calls. Neither content nor offscreen may independently redefine task ownership.
-
-The alternatives were rejected as follows:
-
-- Making offscreen authoritative complicates Background service-worker restart detection and sender
-  authentication.
-- Applying local fixes without a coordinator leaves route replacement, state replay, and generation
-  checks distributed across contexts and preserves the current race conditions.
-
-The hardened ownership chain is:
-
-```text
-trusted top-frame content port
-  -> Background TaskCoordinator
-     -> authenticated offscreen port
-        -> VideoTaskRunner
-           -> narrow Background gateways
-```
-
-## 4. Canonical Identity
-
-### 4.1 Page identity
-
-Each bridge exposes a serializable `PageIdentity`. Protocol messages carry it only as the nested
-`pageIdentity` field; source snapshots contain an exactly equal read-only copy. No message may also
-carry independent top-level identity fields that could disagree.
-
+Each adapter returns one nested `PageIdentity`:
 
 ```js
 // Bilibili
@@ -103,681 +57,525 @@ carry independent top-level identity fields that could disagree.
 }
 ```
 
-`mediaScope` identifies the concrete media object. Bilibili uses BVID plus CID; page number remains
-metadata because CID is the stable multipart media identity. YouTube uses video ID.
+Bilibili CID distinguishes multipart media. Source snapshots carry an exactly equal copy. Messages do
+not duplicate identity fields at the top level.
 
-### 4.2 Owner identity
-
-Background derives the privileged owner from the authenticated content port and validated page
-identity:
+Background derives the owner from browser sender metadata and validated page identity:
 
 ```js
-{
-  tabId,
-  documentId,
-  platform,
-  videoId,
-  mediaScope,
-}
+{ tabId, documentId, platform, mediaScope }
 ```
 
-The route key is all five fields. `videoId` and `mediaScope` are intentionally redundant: the former
-supports product display and cross-platform lookup, while the latter identifies the concrete media;
-validators require them to agree with the platform identity. Caller-supplied `tabId`, `documentId`,
-or owner objects are ignored. An authoritative tuple is exactly
-`{ owner, taskId, generation, attempt, runtimeEpoch, offscreenInstanceId }`; initial Content requests
-follow the non-authoritative envelope below.
-
-### 4.3 Generation
-
-Background keeps a monotonically increasing generation counter per `(runtimeEpoch, tabId, platform)`
-slot for the lifetime of that Background instance; deleting a route does not reset its counter. A
-replacement start first cancels generation N, then allocates N+1 from that slot counter. Each execution or retry within one retained task
-also has a monotonically increasing positive integer `attempt`. Every asynchronous completion, state
-mutation, gateway response, refresh result, and cleanup operation must prove that its tuple still
-matches:
-
-```text
-runtimeEpoch + offscreenInstanceId + owner + taskId + generation + attempt
-```
-
-An old generation or attempt may finish cleanup, but it may not emit user-visible state, delete a
-newer controller, release a newer checkpoint, or satisfy a newer RPC. Summary-only retry retains the
-task and checkpoint but increments `attempt` before any new model call. Checkpoint ownership is
-`runtimeEpoch + offscreenInstanceId + owner + taskId + generation`, while execution controllers and
-pending RPCs add `attempt`. Retrying first
-atomically aborts and drains the old attempt-owned resources, then binds the new attempt to the same
-immutable transcription checkpoint. Old-attempt cleanup may delete only resources tagged with its
-attempt and can never delete the generation-owned checkpoint.
-
-Content requests do not invent authoritative fields. Before `START_ACK`, Content sends:
+The task fence is:
 
 ```js
-{
-  type: 'START_TASK',
-  requestId,
-  taskId,
-  pageIdentity,
-  payload,
-}
+{ owner, taskId, generation, attempt }
 ```
 
-Background derives owner, allocates generation and attempt, and returns:
+Background alone allocates generation and attempt. Events and task-scoped RPCs carry the fence; stale
+fences are ignored.
 
-```js
-{
-  type: 'START_ACK',
-  requestId,
-  status: 'started' | 'rejected',
-  tuple,
-  errorCode,
-}
-```
+Page mount, snapshot, refresh, and seek use `PageIdentity + pageGeneration`, not a task fence.
 
-`started` requires a tuple and no error; `rejected` requires `tuple: null` and a stable error code.
-Content may cancel a start awaiting acknowledgement by `requestId + taskId`; after acknowledgement,
-commands use the full authoritative tuple. Background-to-Offscreen commands and
-Offscreen-to-Background events always use the full tuple.
+## 4. Port Authentication
 
-Background keeps a mutation ledger per authenticated `(tabId, documentId, platform)`, keyed by
-`requestId`; it survives content-port replacement. Rejected entries expire after 15 minutes. A started task's live entry remains through task release;
-release converts it to a terminal mutation tombstone retained for another 15 minutes or until
-runtime-epoch termination. Replaying that request returns its original `START_ACK` and cannot create
-work; Content then resolves current state through `ATTACH_TASK`. The ledger admits at
-most 128 entries per document; when only live entries remain at the limit, new mutations fail with
-`VIDEO_SUMMARY_REQUEST_LEDGER_FULL` rather than evicting an entry. Repeating an identical request
-returns the cached ACK without restarting work. A new port that lacks an acknowledged tuple recovers an unacknowledged start by repeating the same
-request ID; the live ledger entry returns the original ACK for the full task lifetime. A port with an
-acknowledged tuple must attach it before issuing a new start. Reusing a request ID with different content fails with
-`VIDEO_SUMMARY_REQUEST_ID_CONFLICT`. `CANCEL_ACK { requestId, status, tuple, errorCode }` is returned
-after `TASK_RELEASED` or with status `cleanup-timeout` after quarantine.
-`RETRY_TASK { requestId, tuple, modelSnapshot, fromStage }` authorizes with the current tuple and uses
-a two-phase idempotent handshake under the slot lock:
+### 4.1 Content
 
-1. Background records `pendingRetry { requestId, previousTuple, nextTuple, payloadHash }` and sends
-   `RETRY_PREPARE`.
-2. Offscreen validates the generation-owned checkpoint and payload without aborting, rebinding, or
-   emitting progress. It records a bounded prepared entry and replies `RETRY_READY`, or replies
-   `TASK_RETRY_REJECTED` without changing the old attempt.
-3. After `RETRY_READY`, Background commits `route.attempt = nextTuple.attempt` and the mutation ledger
-   before sending `RETRY_COMMIT`.
-4. `RETRY_COMMIT` atomically aborts and drains old attempt resources, binds the next controller, and
-   replies `TASK_RETRY_STARTED`; repeated identical commits return the same response.
-5. Background returns a started `RETRY_ACK` only after `TASK_RETRY_STARTED`. If that response is lost,
-   Background remains committed to `nextTuple`, resends the same commit, and reports `reattaching`
-   rather than restoring the old attempt.
+Background accepts a content port only when:
 
-A prepare rejection or prepare timeout leaves the old retryable route and checkpoint unchanged. A
-commit timeout marks the route `retry-start-unknown`; attach replays that state while Background
-retries the exact commit. If reconciliation exceeds 10 seconds, Background sends a tuple-specific
-cancel for `nextTuple` and enters the normal cancellation/quarantine path rather than rolling back.
-
-Offscreen serializes prepare, commit, and cancel operations per task generation. A cancel for
-`nextTuple` creates a cancellation tombstone even if its controller has not been bound yet. Before
-binding a controller or issuing any model call, commit checks that tombstone; when present, it skips
-execution and returns `TASK_RELEASED` for `nextTuple`. If cancel arrives during drain or bind, the same
-serialized operation aborts the new controller before it can call a provider. A late or repeated
-commit after release returns the cached released response and cannot restart work. Prepared and
-cancellation tombstones expire only after Background acknowledges the release or the runtime epoch
-ends; they count toward the coordinator and pending-operation limits. Cancel and retry use the same
-ledger idempotency and payload-conflict rules.
-
-## 5. Port Authentication and Protocol Validation
-
-### 5.1 Content port
-
-Background accepts `VIDEO_SUMMARY_PORT_NAME` only when:
-
-- `port.sender.id` equals the extension runtime ID;
+- `sender.id === runtime.id`;
 - `sender.tab.id` is an integer;
 - `sender.documentId` is non-empty;
-- `sender.frameId === 0`; a missing frame ID, prerender, fenced frame, or subframe is rejected;
-- the sender URL is HTTPS and matches the declared Bilibili or YouTube content-script origins;
-- the requested platform matches the sender origin.
+- `sender.frameId === 0`;
+- sender URL is HTTPS and belongs to the expected Bilibili or YouTube origin;
+- requested platform matches the origin.
 
-Invalid ports are disconnected before listeners or offscreen work are created.
+Invalid ports are disconnected before Offscreen creation.
 
-### 5.2 Offscreen port
+### 4.2 Offscreen
 
-Background accepts `VIDEO_SUMMARY_OFFSCREEN_PORT_NAME` only when:
+Background authenticates Offscreen using browser-provided context identity:
 
-- `port.sender.id` equals the extension runtime ID;
-- the sender has no tab or frame-owned page context;
-- the sender URL exactly equals `runtime.getURL(VIDEO_SUMMARY_OFFSCREEN_PATH)`;
-- it completes the current epoch challenge-response handshake.
+1. query `runtime.getContexts()` for `OFFSCREEN_DOCUMENT` and the exact extension URL;
+2. require same extension ID, no sender tab, exact URL, and sender document ID matching that context.
 
-After sender metadata passes, Background sends
-`HELLO_CHALLENGE { runtimeEpoch, nonce }`. Offscreen replies
-`HELLO_ACK { runtimeEpoch, offscreenInstanceId, nonce }`. Before the exact nonce and epoch match, the port may exchange
-only these handshake messages. The nonce is single-use and expires after 5 seconds. An
-unauthenticated port cannot replace the active offscreen port, flush queued commands, invoke a
-gateway, or receive task data. An existing offscreen document reconnects through the same handshake;
-it never learns the epoch from storage or caller-controlled messages.
+Port name alone is insufficient. No nonce challenge is added because browser context type, exact URL,
+extension ID, and document ID form the trust root.
 
-### 5.3 Strict schemas
+On Background initialization, any existing video-summary Offscreen document is closed before new
+video-summary ports are accepted. A fresh Offscreen is created on demand. If the authenticated
+Offscreen disconnects, Background revokes capabilities, fails current executions with
+`VIDEO_SUMMARY_RUNTIME_RESTARTED`, clears execution slots, and permits a later explicit restart.
 
-Protocol parsing uses explicit validators and field allowlists. Invalid payloads are rejected with a
-safe protocol error and never spread into privileged commands. Validators enforce:
+## 5. Message Validation
 
-- known command, event, stage, source choice, platform, and gateway operation values;
-- bounded IDs and strings;
-- positive finite durations and timestamps;
-- bounded arrays, transcript cue counts, text sizes, headers, and serialized payload size;
-- exact owner, page identity, task, generation, and epoch matches;
-- structured-clone-safe plain data only;
-- no functions, signals, DOM objects, credentials, arbitrary headers, or caller-defined callbacks.
-
-Gateway schemas are operation-specific. The allowlist remains necessary but is not sufficient.
-Protocol limits are centralized and injectable for tests:
+Every message has an explicit schema and field allowlist. Reject non-plain data, unknown enums,
+invalid IDs, functions, DOM objects, signals, credentials, arbitrary headers, or mismatched identity.
 
 | Limit | Value |
 | --- | ---: |
-| IDs, codes, operation names | 128 UTF-16 code units |
-| Video title and labels | 1,000 code units |
+| ID, code, operation name | 128 UTF-16 code units |
+| Video title or label | 1,000 code units |
 | One subtitle cue | 20,000 code units |
-| Subtitle cues per snapshot | 100,000 |
-| Media candidates per snapshot | 16 |
+| Subtitle cues | 20,000 |
+| Total subtitle text | 16 MiB |
+| Media candidates | 16 |
 | Upload headers | 32 entries, 256 code units per key/value |
-| Serialized content command | 32 MiB |
+| Serialized content command | 24 MiB |
 | Pending RPCs per task | 16 |
-| RPC timeout | 30 seconds, except source refresh at 10 seconds |
 
-Exceeded limits fail closed with `VIDEO_SUMMARY_PROTOCOL_LIMIT_EXCEEDED` before privileged work.
+Aggregate validation runs before privileged work. Excess fails with
+`VIDEO_SUMMARY_PROTOCOL_LIMIT_EXCEEDED`.
 
-## 6. Background Task Coordinator
+## 6. Minimal Background State
 
-### 6.1 Route state
+Background keeps only four in-memory collections:
 
-Each owner route stores:
+### 6.1 `activeSlots`
+
+One entry per `(tabId, platform)`, containing only an executing attempt:
+
+```js
+{
+  state: 'starting' | 'running' | 'cancelling',
+  fence,
+  pageIdentity,
+  port,
+}
+```
+
+A slot is released when the attempt emits `EXECUTION_RELEASED`. Completed, failed, and retryable state
+never occupies an active slot.
+
+### 6.2 `retainedTasks`
+
+One entry per retained task generation:
 
 ```js
 {
   owner,
   taskId,
   generation,
-  attempt,
-  runtimeEpoch,
-  offscreenInstanceId,
-  port,
-  phase,
+  pageIdentity,
+  state: 'retained' | 'deleting',
+  checkpointAvailable,
   latestEvent,
   terminalEvent,
-  checkpointAvailable,
-  attachDeadlineAt,
-  cancelState,
+  expiresAt,
 }
 ```
 
-Port listener ownership is connection-scoped, not route-scoped. Replacing a task on the same port
-must not remove that port's listeners. A listener is removed only when the port disconnects or is
-explicitly rejected.
+This record owns replay state. Offscreen owns the corresponding transcript checkpoint. A retained task
+may retry only when its `(tabId, platform)` execution slot is empty.
 
-### 6.2 Starting and replacing tasks
+Terminal and retryable records expire 15 minutes after attempt terminal time, regardless of
+attachment. Expiry sends `DELETE_TASK`, which removes the Offscreen checkpoint. Explicit cancel,
+navigation grace expiry, tab removal, and runtime reset also delete the retained task.
 
-`START_TASK` follows one serialized transaction under the `(tabId, platform)` slot lock:
+### 6.3 `startRecords`
 
-1. validate sender, page identity, source snapshot, settings, and model snapshot;
-2. acquire the tab-platform slot lock before reading either the slot index or owner routes;
-3. if the slot has a route for any document or media scope, emit `CANCEL_TASK` for its exact tuple and
-   mark it superseded;
-4. wait for local cancellation acknowledgement; a cleanup timeout quarantines and blocks the slot;
-5. allocate the next slot generation and route within the same lock;
-6. emit the validated start command to the authenticated offscreen runtime;
-7. return `START_ACK` with the authoritative tuple.
+A bounded map keyed by `(documentId, taskId)`:
 
-The UI also prevents duplicate starts, but Background enforces the invariant:
+- stores the initial start request hash and response;
+- identical replay returns the same response;
+- conflicting content returns `VIDEO_SUMMARY_REQUEST_ID_CONFLICT`;
+- pending and terminal records are capped at 128 per document;
+- terminal records expire after 15 minutes.
 
-> At most one non-terminal task exists per owner.
+A pending-start cancellation marker is stored in the same record and is never evicted while pending.
 
-Background also maintains a tab-platform slot index keyed by `(tabId, platform)`. A new top-frame
-document or new `mediaScope` in the same slot immediately supersedes and cancels the previous route;
-the 15-second reattachment grace applies only when both document ID and media scope are unchanged.
-This prevents full-document navigation from leaving two paid tasks active in one site tab.
+### 6.4 `capabilities`
 
-### 6.3 Event snapshots and attachment
+One task-generation capability record containing source choice, ASR confirmation, validated candidate
+URLs, upload reservation, provider task ID, and model identity by attempt. It contains only security
+invariants and single-use reservations, not media-pipeline business state.
 
-The coordinator stores the latest safe event and terminal event before attempting delivery. When a
-content port sends `ATTACH_TASK`, Background returns exactly one `ATTACH_ACK`:
+No other request journal, restart tombstone, cleanup registry, or protocol transaction log is added.
+
+## 7. Unified Attempt Start
+
+Initial start and summary retry use the same attempt protocol.
+
+### 7.1 Fence allocation
+
+For initial start, Background validates the content request, checks `(documentId, taskId)` idempotency,
+requires an empty `(tabId, platform)` slot, allocates `generation` and `attempt = 1`, and creates the
+retained task shell and capability.
+
+For retry, Background validates the retained task and checkpoint, requires an empty execution slot,
+and allocates `attempt + 1` under the same generation. Offscreen never allocates a fence.
+
+### 7.2 Start protocol
+
+Background reserves `activeSlots[(tabId, platform)]`, immediately writes synthetic `TASK_STARTED` to
+the retained task, installs the exact attempt model capability, and sends:
+
+```js
+{
+  type: 'START_ATTEMPT',
+  requestId,
+  fence,
+  mode: 'initial' | 'retry-summary',
+  payload,
+}
+```
+
+Offscreen performs only local registration:
+
+1. reject if the permanent task cancel latch is set;
+2. reject a stale or duplicate conflicting fence;
+3. bind an attempt controller to the generation checkpoint;
+4. reply `ATTEMPT_ACCEPTED { requestId, fence }` without starting provider work;
+5. wait for `ATTEMPT_AUTHORIZED { requestId, fence }`.
+
+Background accepts the ACK only if the same slot/fence is still starting and not cancelled. It then
+marks the slot running, marks the exact-fence capability executable, sends `ATTEMPT_AUTHORIZED`, and
+returns `START_ACK` or `RETRY_ACK` to Content. `ATTEMPT_AUTHORIZED` and all later gateway RPCs use the
+same authenticated Background↔Offscreen port; port FIFO guarantees authorization arrives before the
+first RPC.
+
+If acceptance times out or Cancel wins, Background revokes capability, sends `CANCEL_TASK`, and keeps
+the slot cancelling until release or Offscreen reset. Offscreen times out an accepted but unauthorized
+attempt after 10 seconds and releases it without provider work.
+
+This has one authority: Background allocates the fence and authorizes execution; Offscreen only
+registers or rejects it.
+
+## 8. Initial Start Cancellation
+
+Before receiving a fence, Content sends:
+
+```js
+{
+  type: 'CANCEL_START',
+  cancelRequestId,
+  targetStartRequestId,
+  taskId,
+  pageIdentity,
+}
+```
+
+Background records cancellation in the matching `(documentId, taskId)` start record. Every initial
+start continuation checks that marker before slot reservation, before `START_ATTEMPT`, and after
+`ATTEMPT_ACCEPTED`.
+
+Background always settles the target start with one of:
+
+```text
+START_ACK(started, fence)
+START_ACK(cancelled, null)
+START_ACK(cancelling, fence)
+START_ACK(rejected, null, errorCode)
+```
+
+The cancellation marker remains until that start reaches a terminal ACK, then for 15 minutes. Cancel
+records share the start-record capacity but pending records are never evicted; when capacity is full,
+new starts are rejected while cancellation remains available for existing pending records.
+
+## 9. Task Cancellation and Release
+
+After a fence exists, Content cancels by task ID and generation, not attempt:
+
+```js
+{
+  type: 'CANCEL_TASK',
+  taskId,
+  generation,
+}
+```
+
+Background ignores any caller-supplied owner, derives tab/document/platform from the authenticated
+sender, and resolves the matching retained task before constructing the authoritative owner. It then
+resolves the current active attempt, if any, revokes the whole generation capability, sets
+its cancellation state, and forwards the current fence to Offscreen. This remains valid when Content
+missed a retry ACK and still knows an older attempt.
+
+Offscreen has a permanent generation cancel latch separate from attempt controllers. It is set outside
+provider-drain waits, immediately aborts every known attempt, and prevents a delayed attempt handler
+from starting provider work.
+
+Attempt cleanup emits:
+
+```text
+EXECUTION_RELEASED(fence)
+EXECUTION_RELEASED_ACK(fence)
+```
+
+`EXECUTION_RELEASED` removes only the active execution slot and attempt resources. It does not delete
+the transcript checkpoint or retained result.
+
+If explicit cancellation finds no active execution, Background atomically marks the retained task
+`deleting` before sending `DELETE_TASK`; deleting tasks reject attach retry/start-from-checkpoint. The
+retained record is removed only after `TASK_DELETED` or Offscreen reset.
+
+Task deletion emits:
+
+```text
+DELETE_TASK(owner, taskId, generation)
+TASK_DELETED(owner, taskId, generation)
+TASK_DELETED_ACK(owner, taskId, generation)
+```
+
+`DELETE_TASK` instructs Offscreen to remove the checkpoint and generation resources. It does not
+remove Background's retained record. Offscreen returns `TASK_DELETED` after local deletion; Background
+then removes the matching `deleting` retained record and replies `TASK_DELETED_ACK`. Release and
+deletion handlers are statelessly idempotent: missing Offscreen resources are treated as already
+deleted, and a missing Background retained record still receives the same ACK.
+
+If active execution does not release within 10 seconds after cancellation, Background closes and
+recreates Offscreen, clears active slots and retained checkpoint claims, and reports runtime restart.
+It does not start a second local execution while release is unknown.
+
+## 10. Attempt Completion and Retry
+
+Offscreen emits the terminal task event, then releases attempt resources with `EXECUTION_RELEASED`.
+Background stores the bounded event in `retainedTasks` before delivering it and frees the active slot
+on release.
+
+- success retains result plus checkpoint for optional summary retry;
+- failure with checkpoint retains retryable state;
+- failure without checkpoint retains terminal error for replay but has no retry action;
+- explicit cancel deletes the retained task after execution release.
+
+A retry reuses section 7: Background allocates the next attempt, occupies the empty active slot,
+installs only the next attempt's model capability, and sends `START_ATTEMPT`. There is no
+`RETRY_ACCEPTED → RETRY_AUTHORIZED` fence transfer; `ATTEMPT_ACCEPTED → ATTEMPT_AUTHORIZED` is the
+single start barrier for every attempt.
+
+Old attempt cleanup is tagged by fence and cannot delete the generation checkpoint or a newer
+controller. Provider drain has a separate 10-second timeout and cannot block the generation cancel
+latch.
+
+## 11. Replay, Disconnect, and Navigation
+
+Background writes synthetic `TASK_STARTED` during active-slot reservation, before sending
+`START_ATTEMPT`. Therefore attach during both starting and running always has an event.
+
+`ATTACH_TASK` returns:
 
 ```js
 {
   type: 'ATTACH_ACK',
-  requestId,
-  status: 'active' | 'retryable' | 'terminal' | 'not-found' | 'runtime-restarted',
-  tuple,
+  status: 'active' | 'retryable' | 'terminal' | 'not-found',
+  fence,
   event,
 }
 ```
 
-- `active` requires `tuple` and a progress event.
-- `retryable` requires `tuple` and a failed event with an available transcript checkpoint.
-- `terminal` requires `tuple` and a completed result or non-retryable failure.
-- `not-found` requires `tuple: null` and `event: null` and tells content to clear its local attachment.
-- `runtime-restarted` requires `tuple: null` and `event` containing only the stable restart code.
-
-The acknowledgement `requestId` must equal the attach request. `tuple` is always the canonical
-authoritative tuple and therefore contains owner, task ID, generation, attempt, runtime epoch, and
-offscreen instance ID. Content keeps the last acknowledged tuple in page memory. An
-attach request sends `previousRuntimeEpoch` and `previousOffscreenInstanceId`; if either differs
-from the current authenticated runtime pair, Background returns `runtime-restarted`. Background keeps
-a restart tombstone for each affected `(tabId, documentId, platform, mediaScope)` for 15 minutes, so
-a page disconnected during offscreen replacement also receives `runtime-restarted`. A matching pair
-with no route or tombstone returns `not-found`. This page-memory value is not persistent task recovery.
-
-Events emitted while no page port is attached remain in the route snapshot and are replayed later.
-
-### 6.4 Cancellation and expiry
-
-`CANCEL_TASK` is idempotent and tuple-specific. Offscreen emits
-`TASK_RELEASED { tuple, reason, cleanupStatus }` only after the runner controller, checkpoint binding,
-owner binding, and tuple-owned pending RPCs are released. Cancellation removes the route after this
-acknowledgement. If acknowledgement does not arrive within 10 seconds, the route enters `quarantined-cleanup` in its
-active tab-platform slot. It cannot accept attach, retry, replacement, or user-visible task events;
-only its matching late `TASK_RELEASED` may remove it. The slot rejects new starts with
-`VIDEO_SUMMARY_CLEANUP_PENDING`, preserving the one-paid-task invariant. Quarantine therefore uses
-the same route count/byte limits and cannot grow separately. After 2 minutes without release,
-Background force-recreates the authenticated offscreen runtime, which changes `offscreenInstanceId`
-and clears all ephemeral routes through the runtime-restart path before a new start is allowed. Disconnect retains the
-15-second reattachment grace period. Grace expiry, tab removal, explicit cancellation, replacement,
-and runtime restart all enter the same cleanup path.
-
-A failed task with `checkpointAvailable: true` remains attachable and retryable. A completed result
-and retryable failure are retained for 15 minutes after their last attachment, subject to a global
-limit of 32 routes or 16 MiB of serialized safe event data. Before storing an event, Background
-computes its serialized size. An event that would exceed the per-coordinator byte limit is replaced by
-a bounded failure event `VIDEO_SUMMARY_RESULT_TOO_LARGE`, and its task enters non-retryable cleanup;
-raw oversized data is never retained. Oldest detached routes are evicted first through the
-cancellation cleanup path. If attached retained routes already consume the route or byte limit, a new
-start is rejected with `VIDEO_SUMMARY_COORDINATOR_CAPACITY_EXCEEDED`; active or attached state is
-never silently evicted. Archive and download actions do not extend retention.
-Non-retryable failure releases immediately after its terminal event is safely recorded or delivered.
-
-### 6.5 State transitions
-
-The coordinator accepts only these transitions:
-
-| Current state | Input | Next state | Retain checkpoint | User-visible result |
-| --- | --- | --- | --- | --- |
-| none | valid start | starting | no | `START_ACK` |
-| starting/running/reattaching | progress | running | event-defined | latest progress |
-| starting/running/reattaching | cancel | cancelling | until release | cancelling |
-| cancelling | `TASK_RELEASED` | removed | no | cancelled/restartable |
-| cancelling | 10-second release timeout | quarantined-cleanup in active slot | yes | cleanup-timeout |
-| quarantined-cleanup | valid new start/retry/attach | unchanged | yes | `VIDEO_SUMMARY_CLEANUP_PENDING` |
-| quarantined-cleanup | matching late `TASK_RELEASED` | removed | no | none |
-| quarantined-cleanup | 2-minute quarantine deadline | runtime recreation and restart cleanup | no | runtime-restarted |
-| any retained state | epoch/instance change | runtime-restarted notification, then active route removed | no | restartable failure |
-| running | result | complete | yes | terminal result |
-| running | failure with checkpoint | retryable-failure | yes | retry action |
-| running | failure without checkpoint | failed then removed | no | terminal failure |
-| retryable-failure/complete | retry summary | running with `attempt + 1` | yes | progress |
-| any retained state | same-scope attach | unchanged | unchanged | `ATTACH_ACK` replay |
-| any non-removed state | replacement/new media scope | cancelling/superseded | until release | new start waits |
-
-Any command outside these transitions fails with `VIDEO_SUMMARY_STATE_CONFLICT`. An event from a
-non-current tuple is discarded. `retryable-failure` is terminal for one attempt but not for the
-retained task.
-
-## 7. Runtime Epoch and Restart Semantics
-
-Background creates a random `runtimeEpoch` at service-worker initialization. Each offscreen
-bootstrap creates a random `offscreenInstanceId`. The challenge response authenticates both values,
-and every authoritative tuple includes both. A changed runtime epoch or offscreen instance means
-runner/checkpoint memory was lost and triggers the same explicit restart path.
-
-If Background starts while an offscreen document already exists but no authenticated matching port
-connects within 5 seconds, Background closes and recreates that offscreen document. The pre-handshake
-command queue accepts at most 32 commands and 2 MiB of serialized data, and each command expires
-after 10 seconds. Overflow and expiry fail with `VIDEO_SUMMARY_OFFSCREEN_UNAVAILABLE`. If a newly
-authenticated `offscreenInstanceId` differs from the instance recorded by an existing route,
-Background marks that route `runtime-restarted`; it never forwards attach, retry, or cancellation as
-if the old runner still existed.
-
-An epoch or offscreen-instance mismatch means ephemeral state cannot be trusted. The system:
-
-1. rejects old messages and ports;
-2. sends a bounded `runtime-restarted` notification to reachable page ports;
-3. removes affected active routes and quarantine entries from coordinator memory;
-4. cancels and releases runner state where possible without waiting for acknowledgement from a lost instance;
-5. rejects all pending gateway and source-refresh RPCs;
-6. cleans OPFS task directories;
-7. lets the user explicitly start again.
-
-No checkpoint, media blob, prompt, or result is persisted for crash recovery.
-
-## 8. Source Refresh RPC
-
-Source refresh requests use `requestId`, the authoritative task tuple, and a 10-second timeout.
-Background replies with `SOURCE_REFRESH_ACK { requestId, tuple, delivered, errorCode }` before a page
-result is expected. If the owner port is detached, `delivered` is false with
-`VIDEO_SOURCE_REFRESH_UNAVAILABLE`; the request is not left pending for the grace period.
-`SOURCE_REFRESH_RESULT { requestId, tuple, sourceSnapshot, errorCode }` resolves the operation. Every
-malformed, mismatched, detached, cancelled, or expired branch settles and deletes its pending entry
-with a stable error code.
-
-Offscreen registers each pending request with:
-
-- its tuple;
-- an expiry timer;
-- the task AbortSignal;
-- a generation-safe resolver.
-
-Cancellation, disconnect, epoch change, timeout, and mismatched refresh results all settle the
-Promise. Content validates the complete current `PageIdentity`, not only BVID/video ID, before
-returning a refreshed snapshot.
-
-## 9. Media Safety and Resource Governance
-
-### 9.1 Source validation
-
-The privileged boundary validates the source snapshot before any network or paid operation:
-
-- platform, video ID, and media scope match the owner;
-- duration is finite, positive, and at most `10_800_000` ms;
-- candidate media duration differs from page duration by no more than the greater of 2 seconds or 1%;
-- remote and local URLs use HTTPS;
-- Bilibili media hosts must equal or be subdomains of `bilivideo.com`; YouTube media hosts must equal
-  or be subdomains of `googlevideo.com`; any additional CDN suffix requires a sanitized production
-  fixture and explicit code/test update;
-- localhost, IP literals, URL credentials, non-default ports, redirects outside the same allowlist,
-  and unsupported schemes are rejected;
-- Bilibili local fetch permits only `credentialMode: 'include'` and
-  `requiredRequestOrigin: 'https://www.bilibili.com/'`; YouTube local fetch permits only the exact
-  mode and origin emitted by its audited bridge fixture, with `omit` used when no credential is
-  required;
-- redirects are revalidated against the same platform policy before body consumption;
-- upload submission references use only `mediakit://` values returned by the gateway.
-
-MediaKit remains a narrow API wrapper, not a generic privileged fetch interface.
-
-### 9.2 Cancellation propagation
-
-The runner's attempt AbortSignal propagates through:
-
-- source refresh;
-- MediaKit gateway RPC;
-- upload-target creation;
-- direct ASR submission;
-- task query;
-- OPFS download and writable stream;
-- signed upload fetch;
-- polling waits and cleanup waits;
-- model generation.
-
-Every irreversible or paid step checks cancellation and generation immediately before and after the
-operation. Cancellation before submission guarantees no later submission. Once MediaKit accepts a
-job, the UI continues to disclose that remote cancellation and cost reversal are not guaranteed.
-
-Background gateways keep request-scoped controllers keyed by the full tuple and request ID. Starting
-a replacement request aborts the previous exact key. A `finally` block deletes a controller only if
-the map still contains that same controller.
-
-### 9.3 Submission ambiguity and idempotency
-
-The stable MediaKit `clientToken` is the first 64 lowercase hexadecimal characters of the SHA-256
-digest of canonical UTF-8 JSON containing `runtimeEpoch`, owner fields in fixed order, task ID, and
-generation; attempt is excluded so an explicit retry cannot create a second provider job. Network
-failures after a submission may have
-reached the provider are mapped in Background to
-`VIDEO_SUMMARY_SUBMISSION_UNKNOWN`. This error is preserved through RPC, is never automatically
-retried, and tells the user that a remote task and charge may already exist.
-
-### 9.4 Polling policy
-
-Polling uses a signal-aware timer, not a microtask loop:
-
-- initial delay: 2 seconds;
-- exponential growth to a 30-second cap;
-- jitter sampled through an injectable random source in the range ±20%;
-- finite provider `retryAfterMs` is clamped to 0–30 seconds and overrides the computed delay;
-- five consecutive transient query failures terminate with `MEDIAKIT_QUERY_RETRY_EXHAUSTED`;
-- total ASR settlement deadline: 2 hours;
-- cancellation settles the wait immediately.
-
-Terminal, timeout, and provider failures use stable error codes.
-
-### 9.5 OPFS quota and cleanup
-
-Known media lengths are checked against available quota with a reserve of the greater of 64 MiB or
-10% of quota before download. Unknown lengths use the smaller of `duration × declared bitrate / 8 ×
-1.25` and the hard limit as the estimate. Every download enforces a 1 GiB hard task byte limit and
-checks bytes while streaming. The writable is aborted and the task directory is cleaned immediately
-on limit, quota, or identity failure. These limits are injectable in tests but not user-configurable.
-
-Cleanup failure records only a random task-directory ID, creation time, and attempt count in
-extension local storage. This is the sole persisted recovery metadata; it contains no owner, task
-identity, media URL, transcript, prompt, result, or credential. The registry holds at most 128 entries
-for seven days. Offscreen bootstrap cleans it before accepting work, and idle maintenance retries
-remaining entries. Entries are removed only after confirmed deletion. This cleanup registry does not
-resume a task and is compatible with the no-crash-recovery boundary.
-
-## 10. Site Lifecycle
-
-A shared page-mode coordinator selects exactly one mode on every meaningful page identity change:
-
-```text
-enhanced | legacy | none
-```
-
-It owns the active mode handle and disposes it before switching. This replaces the current split
-where enhanced and legacy paths independently decide their lifetime.
-
-- `enhanced` requires the strict runtime capability gate and supported page identity.
-- `legacy` preserves the existing subtitle-summary prompt on pages where it remains applicable.
-- `none` applies to unsupported pages such as live content or excluded Bilibili content.
-
-YouTube navigation from home to watch, watch to another watch video, or watch to live/Shorts reruns
-mode selection. Bilibili navigation uses the full multipart identity. Adapter bridges remain the only
-modules that parse site URLs, page APIs, and player DOM.
-
-The shared host controller monitors both the target element identity and a host-owned `isConnected`
-health check. A site removing only the injected child causes a bounded remount without recreating a
-healthy host.
-
-Every asynchronous snapshot, mount, refresh, and seek operation verifies the complete authoritative
-tuple (`runtimeEpoch + offscreenInstanceId + owner + taskId + generation + attempt`) where a task exists, and verifies the
-current `PageIdentity + page-mode generation` before a task has started.
-
-## 11. UI State and User Actions
-
-The content host uses these phases:
-
-```text
-idle
-loading-source
-awaiting-asr-confirmation
-starting
-running
-cancelling
-reattaching
-retryable-failure
-failed
-complete
-runtime-restarted
-```
-
-Source selectors, start buttons, and ASR confirmation are disabled during `starting`, `running`,
-`cancelling`, and `reattaching`. A synchronous host-side start latch prevents two handlers from
-creating task IDs before the first render. Background remains the authoritative duplicate defense.
-
-A Cancel action is visible during active work. It sends the authoritative tuple, enters
-`cancelling`, and becomes idempotently disabled until acknowledgement or timeout.
-
-`checkpointAvailable` alone enables “Retry summary only”; a completed result is not required. Retry
-uses the retained task and generation, increments attempt, freezes a new model snapshot, and never
-reruns ASR.
-
-All asynchronous actions have one safe error boundary. Snapshot, configuration, port, retry,
-archive, toolbar, and download failures update the current generation only and cannot leave the UI
-permanently loading. Safe errors contain codes, not page text, prompts, signed URLs, or credentials.
-
-## 12. Model Request Integrity
-
-Within the Video Summary `ModelGateway`, API-capable providers receive the original role-preserving
-message list. The video-summary request path must not flatten `system` and `user` messages for
-adapters that support structured messages. Shared provider changes require ordinary-chat regression
-tests and may not alter existing chat request semantics.
-
-Legacy Web providers that require one question receive:
-
-- fixed trusted instructions before and after the data block;
-- a random, request-scoped data delimiter;
-- JSON-encoded transcript data inside that delimiter;
-- an explicit statement that delimited content is untrusted data;
-- no credential, session history, or unrelated page context.
-
-This is a structural separation requirement, not a claim that prompt injection can be completely
-prevented at the model layer.
-
-The capability descriptor records whether structured roles are preserved so tests can enforce the
-correct path.
-
-Custom ChatGPT Web endpoints may receive account credentials only when their origin exactly matches
-the trusted ChatGPT origin. Cross-origin custom endpoints must use separate explicit credentials and
-must never receive ChatGPT cookies, access tokens, or device identifiers.
-
-## 13. Summary Correctness
-
-A chunk succeeds only when parsing yields meaningful summary text, a key point, or a valid anchored
-candidate. Empty, whitespace-only, structurally invalid, or unusably truncated chunk output becomes
-a failed range. Chunk `finishReason: 'length'` produces a stable incomplete warning or failure rather
-than silently counting as complete.
-
-A final synthesis succeeds only when it contains meaningful parsed content. Empty final output falls
-back to retained local summaries and yields `degraded` or `partial`, never `complete`. A final
-`finishReason === 'length'` always produces `partial` or `degraded` with
-`MODEL_OUTPUT_INCOMPLETE`; it cannot produce `complete` and is not automatically continued.
-
-The checkpoint stores the original chunk plan. A synthesis-only retry reuses every successful chunk.
-When failed ranges exist and the model budget changes, the new plan reruns every chunk whose primary
-segment interval intersects a failed range; successful non-intersecting chunks are retained. An empty
-selection fails with `VIDEO_SUMMARY_RETRY_RANGE_NOT_FOUND` and cannot run synthesis unchanged.
-
-Transcript coverage is the union of source time intervals belonging to every successful chunk-plan
-primary range retained in `successfulChunkResults`; final synthesis wording and anchor selection do
-not change coverage. Failed, empty, and truncated chunk ranges are excluded. Each interval is clipped to `[0, totalDurationMs]`; invalid, negative, or reversed
-ranges are excluded. Covered duration is clamped to total duration and ratio to `[0, 1]`.
-
-## 14. Markdown and Logging Safety
-
-Video-summary Markdown generation routes every untrusted scalar through
-`escapeVideoSummaryMarkdownText(value, context)`. The field matrix covers video title, session title
-fragment, archive question title, status, preferred language, overview, raw summary text, key-point
-text, key-moment text, chapter title, chapter summary, speaker label, and transcript text. Heading,
-list-item, and paragraph contexts escape backslashes and CommonMark punctuation, encode `<`, `>`, and
-`&`, neutralize autolinks and raw HTML, and collapse field-owned newlines so a value cannot create a
-new block or close a fence. Fixed headings, list markers, and timestamp structure are added only after
-escaping.
-
-Tests render archived output through the application's actual Markdown renderer and parse downloaded
-output with the repository's CommonMark pipeline. Untrusted fields may produce text nodes but no
-`a`, `img`, `video`, `script`, or raw-HTML nodes. The global chat Markdown renderer is unchanged.
-
-MediaKit and model logs contain only stable local error codes, HTTP status, bounded operation names,
-booleans, and sanitized request-ID metadata. Provider error bodies and messages are never logged.
-Request IDs and provider codes are character-filtered and length-limited before logging or RPC.
-
-## 15. Implementation Waves
-
-This is one design and one end-state, implemented in four reviewable waves:
-
-1. **Protocol foundation and minimal coordinator:** authenticated epoch/instance handshake, request
-   versus authoritative envelopes, strict schemas, nested page identity, media scope,
-   generation/attempt, start/attach/source-refresh/cancel acknowledgements, minimal `TASK_RELEASED`,
-   route state, and request deduplication needed to exercise the new protocol end to end.
-2. **Full coordinator and cancellation:** tab-platform slot and owner routing, duplicate replacement,
-   quarantine handling, event replay, retention bounds, restart handling, gateway controller races,
-   and full abort propagation.
-3. **Media governance and page lifecycle:** polling, duration/URL validation, submission ambiguity,
-   quota limits, cleanup registry, page-mode coordinator, host health, UI cancel, and checkpoint retry.
-4. **Output correctness and hardening:** role preservation, output validation, retry chunk plan,
-   coverage union, Markdown escaping, and safe logging.
-
-Each wave must keep the repository buildable and include its own focused tests. Protocol producers
-and consumers change atomically within a wave; no temporary old/new compatibility layer is shipped.
-
-## 16. Testing
-
-### 16.1 Protocol and security
-
-- Reject offscreen ports with the right name but wrong extension ID, URL, tab, frame, or epoch.
-- Reject content ports from wrong origins, subframes, mismatched platforms, and malformed senders.
-- Reject unknown, oversized, non-plain, mismatched, and credential-bearing command payloads.
-- Reject HTTP, localhost, IP-literal, credentialed, non-default-port, cross-platform, and redirected
-  media URLs.
-- Prove gateway operations cannot be invoked before offscreen authentication.
-
-### 16.2 Concurrency and lifecycle
-
-- Double-click and same-port repeated start create one task and cancel the predecessor.
-- Old generation completion cannot delete, cancel, emit for, or satisfy the new generation.
-- Same request key reentry cannot delete the replacement controller.
-- Events produced during disconnection replay on attach.
-- Retryable checkpoint failure survives host remount and supports summary-only retry.
-- Grace expiry, tab removal, cancellation, replacement, and restart release all task resources.
-- Background/offscreen restart produces `runtime-restarted`, rejects pending RPCs, and permits a new
-  explicit start.
-
-### 16.3 Sites and UI
-
-- Bilibili P1 and P2 use different media scopes and never attach each other's tasks.
-- YouTube home/watch/watch/live/Shorts SPA transitions select the correct mode and leave one handle.
-- Removing only the host child remounts it once.
-- Stale snapshot, refresh, and seek completions do not affect a new page identity.
-- Active phases disable duplicate actions; Cancel is idempotent; action failures leave recoverable UI.
-
-### 16.4 Media
-
-- Reject missing, invalid, and over-three-hour durations before paid submission.
-- Cancel during upload, direct submission, query, polling wait, and source refresh.
-- Ambiguous submission maps to `VIDEO_SUMMARY_SUBMISSION_UNKNOWN` through the real RPC chain and is
-  not retried.
-- Polling follows fake-clock delays, `Retry-After`, jitter bounds, failure limits, and deadline.
-- Unknown-size and misleading-size downloads stop at the hard byte limit and clean partial files.
-- Deferred cleanup survives one failed deletion and succeeds on the next maintenance pass.
-
-### 16.5 Summary and output
-
-- Empty, invalid, injected, and length-truncated chunk/final outputs cannot report complete coverage.
-- Retry with a changed model budget reruns every overlapping failed range.
-- Overlapping transcript segments never produce coverage over 100%.
-- Markdown payloads containing raw HTML, images, links, headings, lists, fences, and multiline speaker
-  labels render as inert text in archived sessions and downloads.
-- API providers preserve roles; Web providers keep transcript injection inside the untrusted boundary.
-- Custom cross-origin ChatGPT endpoints receive no ChatGPT account credentials.
-
-### 16.6 Required validation
-
-Run:
-
-```bash
-npm run pretty
-npm run lint
-npm test
-npm run build
-```
-
-Confirm `VideoSummaryOffscreen.html/js` exist only in full Chromium output. Manual Chrome and Edge
-smoke tests cover Bilibili multipart navigation, YouTube SPA mode changes, duplicate clicks, Cancel,
-checkpoint retry, DOM remount, Background restart, offscreen restart, OPFS cleanup, and actual
-MediaKit direct/upload behavior with sanitized diagnostics.
-
-## 17. Success Criteria
-
-- Unauthenticated extension contexts cannot invoke or replace the offscreen RPC channel.
-- One owner has at most one active paid task; replacement and cancellation release the previous task.
-- No old generation can mutate or delete newer task or gateway state.
-- Bilibili multipart media never shares a task identity.
-- A disconnected UI can recover current, retryable, or terminal state without losing events.
-- Runtime restart fails ephemerally and explicitly rather than hanging or pretending to resume.
-- Cancellation stops all local transfer, wait, and provider requests that have not already been
-  accepted remotely.
-- MediaKit polling, duration, URL access, OPFS bytes, queues, RPCs, and cleanup are bounded.
-- Failed checkpoints remain summary-retryable without rerunning ASR.
-- Empty or truncated model output cannot report a successful complete summary.
-- Coverage stays between 0% and 100%.
-- Archived/downloaded video Markdown treats page and model text as inert data.
-- Provider credentials, signed URLs, prompts, subtitles, and raw provider errors do not cross or leak
-  beyond their intended boundaries.
-- Formatting, lint, full tests, production build, artifact checks, and required browser smoke tests
-  pass.
+`not-found` maps to `TASK_UNAVAILABLE`; it does not imply restart because expiry or normal deletion can
+also remove a task.
+
+A same-document/same-media disconnect gets a 15-second grace period. Grace expiry:
+
+1. revokes generation capability;
+2. sets Background cancellation state;
+3. sends `CANCEL_TASK` for the current attempt, if active;
+4. waits for `EXECUTION_RELEASED`, resetting Offscreen on timeout;
+5. marks the retained task `deleting`, sends `DELETE_TASK`, and removes retained state only after
+   `TASK_DELETED`; Offscreen reset is the fallback terminal cleanup.
+
+Navigation to another document, video, or Bilibili CID follows the same cancellation/deletion path.
+A new video cannot start in the tab-platform slot until active execution is released.
+
+At most 32 retained tasks or 16 MiB of serialized replay state are kept. Oversized terminal output is
+replaced with `VIDEO_SUMMARY_RESULT_TOO_LARGE`. Capacity occupied by live retained tasks rejects new
+work rather than evicting active state.
+
+## 12. Gateway Safety Invariants
+
+Gateway capability checks protect task integrity and billing invariants; they do not claim an
+adversarial sandbox against trusted Offscreen code.
+
+Each capability binds:
+
+- generation fence and current authorized attempt;
+- source choice and recorded ASR confirmation;
+- exact validated candidate URLs;
+- at most one upload-target reservation;
+- provider task ID returned by submission;
+- model identity for the authorized attempt.
+
+Rules:
+
+- native-subtitle tasks cannot call ASR operations;
+- direct ASR submission reserves the generation's direct-submit slot before network I/O;
+- when query returns the documented terminal direct-download failure, Gateway may issue one opaque,
+  random fallback permit bound to the generation and provider task ID; this is the only provider-code
+  interpretation retained at the privileged boundary;
+- pipeline decides whether to use that permit; upload-target creation validates but does not consume
+  it, while fallback submission validates and consumes it; upload-target creation and fallback
+  submission also have separate single-use reservations;
+- ambiguous, pending, active, completed, or non-download-failure submissions cannot be repeated;
+- upload uses only the exact Background-issued HTTPS target, `PUT`, allowlisted headers,
+  `credentials: 'omit'`, and `redirect: 'error'`;
+- query uses only the provider task ID recorded for that generation;
+- model calls use only the current authorized attempt's model identity;
+- cancellation revokes capability before network abort;
+- attempt terminal state revokes model capability; task deletion removes the generation capability.
+
+The media pipeline remains responsible for fallback sequencing, polling, and interpretation of
+provider errors. Gateway stores only safety facts and single-use reservations.
+
+## 13. Cancellation Semantics
+
+The task AbortSignal reaches source refresh, gateway RPC, download, writable stream, upload,
+submission, query, polling waits, and model generation. Gateway controllers are keyed by fence plus
+request ID; `finally` deletes only the controller still stored under that key.
+
+The guarantee is limited:
+
+> After cancellation is observed, the extension does not actively begin a new stage. A network call
+> already started, or whose result is unknown, may have been accepted and may incur cost.
+
+Ambiguous submission maps to `VIDEO_SUMMARY_SUBMISSION_UNKNOWN` and is never automatically retried.
+MediaKit `clientToken` is correlation metadata unless verified provider documentation proves
+idempotency. No cross-Background-restart billing deduplication is promised.
+
+Cleanup uses an independent bounded cleanup signal, not the aborted task signal.
+
+## 14. Media Governance
+
+### 14.1 URL and upload policy
+
+Canonical media duration must be finite, positive, and at most `10_800_000` ms. Candidate duration may
+differ by at most the greater of two seconds or 1%.
+
+Initial URLs must be HTTPS, contain no credentials or non-default port, and match:
+
+- Bilibili: exact `bilivideo.com` or subdomain;
+- YouTube: exact `googlevideo.com` or subdomain.
+
+New suffixes require sanitized production fixtures and tests. Direct MediaKit fetch is remote, so the
+extension validates only the submitted initial URL and makes no provider-redirect claim.
+
+Local fetch uses `redirect: 'manual'`; redirects are rejected unless revalidated before body read.
+`requiredRequestOrigin` is metadata only. If transport requires headers Offscreen cannot set, local
+fallback is disabled.
+
+Upload-target validation requires HTTPS, an approved MediaKit/object-storage host, method `PUT`, no
+credentials/non-default port, at most 32 allowlisted headers, `credentials: 'omit'`, and
+`redirect: 'error'`.
+
+### 14.2 Polling
+
+MediaKit polling uses an abortable timer:
+
+- minimum/initial delay: two seconds;
+- exponential growth capped at 30 seconds;
+- injectable ±20% jitter;
+- `retryAfterMs` clamped to 2–30 seconds;
+- five consecutive transient failures;
+- total deadline: two hours.
+
+There is no zero-delay path.
+
+### 14.3 OPFS
+
+Reserve the greater of 64 MiB or 10% of quota. Unknown lengths use a conservative duration/bitrate
+estimate. Every task has a 1 GiB streaming hard limit.
+
+Offscreen bootstrap deletes every child in the dedicated `video-summary-tasks` root before accepting
+work. Task completion/cancellation also deletes its directory. No persistent cleanup journal is added.
+A crash may leave a directory; the next bootstrap removes it.
+
+## 15. Page Lifecycle and UI
+
+A small page-mode coordinator owns one disposable handle and reevaluates
+`enhanced | legacy | none` on adapter identity changes. Site rules stay in each adapter.
+
+This covers YouTube home→watch, watch→watch, and watch→live/Shorts. Bilibili compares BVID+CID. Async
+page operations verify `PageIdentity + pageGeneration`; task events verify the task fence separately.
+The host exposes `isConnected()` for child-only DOM removal recovery.
+
+Source actions are disabled while starting, running, cancelling, or reattaching. A synchronous latch
+prevents double clicks. Running attempts expose Cancel. Retry appears only for completed or
+retryable-failure retained tasks with a checkpoint. Async handlers update only the current page
+generation.
+
+## 16. Summary and Sink Safety
+
+Video-summary API requests preserve system/user roles. Web-only providers receive fixed instructions
+and a JSON-encoded untrusted transcript block. A random delimiter is not treated as a security
+boundary. Video-summary model requests expose no tools.
+
+A chunk succeeds only with meaningful parsed content. Empty, invalid, or length-truncated chunks become
+failed ranges. Empty or truncated final output falls back to local summaries and yields
+partial/degraded with `MODEL_OUTPUT_INCOMPLETE`, never complete.
+
+The checkpoint stores the original chunk plan. Synthesis retry reuses successful chunks. Failed-range
+retry reruns every new chunk whose primary segment ID interval intersects a failed range.
+
+Coverage denominator is canonical media duration. Numerator is the union of canonical transcript cue
+intervals belonging to successful chunk primary ranges. Failed/empty/truncated ranges are excluded;
+intervals are clipped and ratio is clamped to `[0, 1]`.
+
+Markdown is sink-specific:
+
+- titles, session names, and question metadata remain plain strings and are not passed through a
+  Markdown escaper;
+- structured summary/transcript Markdown uses a dedicated serializer that escapes each text field for
+  its exact heading, paragraph, or list context;
+- archive tests use the application renderer; download tests use the repository parser;
+- the design guarantees inert output in these two supported sinks, not every external Markdown viewer.
+
+Logs contain stable local codes, HTTP status, bounded operation names, booleans, and sanitized request
+IDs. They never contain provider bodies/messages, signed URLs, upload references, prompts, subtitles,
+or credentials.
+
+## 17. Delivery
+
+Implement in three buildable increments:
+
+1. **Protocol/coordinator:** canonical identity, browser-rooted authentication, schemas,
+   `activeSlots`/`retainedTasks`, start records, unified attempt start, execution release/task delete,
+   replay, disconnect behavior, and tests.
+2. **Media/lifecycle:** gateway safety invariants, cancellation propagation, URL/upload policy,
+   polling, duration/quota limits, bootstrap OPFS scan, page-mode lifecycle, and UI cancel/retry.
+3. **Summary/sinks:** message roles/no-tools policy, output validity, retry ranges, interval coverage,
+   sink-specific serialization, and logging redaction.
+
+No temporary dual protocol ships.
+
+## 18. Required Tests
+
+- Reject forged content/offscreen ports using browser context identity.
+- Bilibili P1/P2 have different identities.
+- Initial and retry attempts receive Background-allocated fences.
+- `ATTEMPT_AUTHORIZED` precedes the first gateway RPC on the same port.
+- Cancel-before-start settles the target start and survives every await boundary.
+- Generation-level cancel works when Content holds an old attempt.
+- Active execution release does not delete retained checkpoint; `DELETE_TASK` does.
+- Completed/retryable attempts release the active slot and allow another video to start.
+- Retry reacquires the slot and uses unified attempt start.
+- Attach during starting returns `TASK_STARTED`; not-found maps to `TASK_UNAVAILABLE`.
+- Disconnect grace expiry revokes capability, cancels execution, and deletes retained task.
+- Capability reservations prevent repeated direct/fallback submissions and cross-task substitution.
+- Cancellation reaches refresh, download, upload, submission, query, waits, and model calls.
+- Polling has minimum delay, clamp, backoff, failure limit, deadline, and abort.
+- Duration mismatch and over-three-hour media fail before paid work.
+- Unknown/misreported size stops at quota or 1 GiB; bootstrap removes crash leftovers.
+- Empty/truncated output cannot be complete; changed-budget retry covers failed ranges.
+- Overlapping cues never exceed 100% coverage.
+- Supported archive/download sinks render malicious fields inert.
+- API messages preserve roles; video-summary model calls expose no tools.
+- Logs/RPC errors expose no sensitive fields.
+
+Run `npm run pretty`, `npm run lint`, `npm test`, and `npm run build`; inspect artifact separation and
+manually exercise Bilibili multipart, YouTube SPA, duplicate start, Cancel, checkpoint retry, DOM
+remount, disconnect grace, Background/Offscreen restart, and MediaKit direct/upload paths.
+
+## 19. Success Criteria
+
+- Browser context identity roots privileged-channel authentication.
+- One `(tabId, platform)` slot controls at most one executing attempt.
+- Completed/retryable state never blocks the execution slot.
+- Background is the sole fence allocator and attempt authorizer.
+- Start/cancel/release/delete protocols are race-safe and idempotent.
+- Gateway capabilities enforce task binding and single-use paid reservations without duplicating
+  pipeline business logic.
+- Cancellation starts no new stage after observation, without promising remote rollback.
+- Runtime restart is explicit failure, not recovery.
+- Polling, messages, RPCs, retained tasks, downloads, and OPFS are bounded.
+- Retryable checkpoints survive execution release and support summary-only retry.
+- Empty/truncated output, coverage, supported Markdown sinks, and logs meet their safety contracts.
+- Legacy fallback and unsupported builds remain unchanged.
