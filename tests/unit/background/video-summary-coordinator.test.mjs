@@ -515,8 +515,15 @@ test('attach replays active, retryable, terminal, and not-found states', async (
   await harness.coordinator.handleContentCommand({
     context,
     port: harness.otherPort,
-    command: { type: 'ATTACH_TASK', taskId: 'task-1', generation: 1, pageIdentity: identity },
+    command: {
+      type: 'ATTACH_TASK',
+      requestId: 'attach-active',
+      taskId: 'task-1',
+      generation: 1,
+      pageIdentity: identity,
+    },
   })
+  assert.equal(harness.contentMessages.at(-1).requestId, 'attach-active')
   assert.equal(harness.contentMessages.at(-1).status, 'active')
   assert.equal(harness.contentMessages.at(-1).event.type, 'TASK_STARTED')
   harness.acceptAttempt()
@@ -525,16 +532,54 @@ test('attach replays active, retryable, terminal, and not-found states', async (
   await harness.coordinator.handleContentCommand({
     context,
     port: harness.otherPort,
-    command: { type: 'ATTACH_TASK', taskId: 'task-1', generation: 1, pageIdentity: identity },
+    command: {
+      type: 'ATTACH_TASK',
+      requestId: 'attach-retryable',
+      taskId: 'task-1',
+      generation: 1,
+      pageIdentity: identity,
+    },
   })
+  assert.equal(harness.contentMessages.at(-1).requestId, 'attach-retryable')
   assert.equal(harness.contentMessages.at(-1).status, 'retryable')
   await harness.coordinator.handleContentCommand({
     context,
     port: harness.otherPort,
-    command: { type: 'ATTACH_TASK', taskId: 'missing', generation: 9, pageIdentity: identity },
+    command: {
+      type: 'ATTACH_TASK',
+      requestId: 'attach-missing',
+      taskId: 'missing',
+      generation: 9,
+      pageIdentity: identity,
+    },
   })
   assert.equal(harness.contentMessages.at(-1).status, 'not-found')
   assert.equal(harness.contentMessages.at(-1).errorCode, 'TASK_UNAVAILABLE')
+})
+
+test('concurrent attach requests preserve their individual correlation IDs', async () => {
+  const harness = createHarness()
+  await begin(harness)
+  const attach = (requestId, port) =>
+    harness.coordinator.handleContentCommand({
+      context,
+      port,
+      command: {
+        type: 'ATTACH_TASK',
+        requestId,
+        taskId: 'task-1',
+        generation: 1,
+        pageIdentity: identity,
+      },
+    })
+  await Promise.all([attach('attach-1', harness.port), attach('attach-2', harness.otherPort)])
+  assert.deepEqual(
+    harness.contentMessages.slice(-2).map(({ port, requestId }) => [port, requestId]),
+    [
+      ['port-1', 'attach-1'],
+      ['port-2', 'attach-2'],
+    ],
+  )
 })
 
 test('same owner reconnect cancels disconnect grace', async () => {
@@ -546,7 +591,13 @@ test('same owner reconnect cancels disconnect grace', async () => {
   await harness.coordinator.handleContentCommand({
     context,
     port: harness.otherPort,
-    command: { type: 'ATTACH_TASK', taskId: 'task-1', generation: 1, pageIdentity: identity },
+    command: {
+      type: 'ATTACH_TASK',
+      requestId: 'attach-active',
+      taskId: 'task-1',
+      generation: 1,
+      pageIdentity: identity,
+    },
   })
   await harness.clock.advance(2_000)
   assert.equal(

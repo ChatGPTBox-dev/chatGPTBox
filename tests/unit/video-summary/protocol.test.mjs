@@ -279,7 +279,13 @@ const validContentCommands = [
     taskId: 'task-1',
     pageIdentity: youtubeIdentity,
   },
-  { type: 'ATTACH_TASK', taskId: 'task-1', generation: 1, pageIdentity: youtubeIdentity },
+  {
+    type: 'ATTACH_TASK',
+    requestId: 'attach-1',
+    taskId: 'task-1',
+    generation: 1,
+    pageIdentity: youtubeIdentity,
+  },
   { type: 'CANCEL_TASK', taskId: 'task-1', generation: 1, pageIdentity: youtubeIdentity },
   {
     type: 'RETRY_TASK',
@@ -309,6 +315,29 @@ const validContentCommands = [
     errorCode: 'VIDEO_SOURCE_UNAVAILABLE',
   },
 ]
+
+test('ATTACH_TASK requires and normalizes its own request ID', () => {
+  assert.throws(
+    () =>
+      parseContentCommand({
+        type: 'ATTACH_TASK',
+        taskId: 'task-1',
+        generation: 1,
+        pageIdentity: youtubeIdentity,
+      }),
+    /VIDEO_SUMMARY_PROTOCOL_FIELD_REQUIRED/,
+  )
+  const command = {
+    type: 'ATTACH_TASK',
+    requestId: 'attach-1',
+    taskId: 'task-1',
+    generation: 1,
+    pageIdentity: youtubeIdentity,
+  }
+  const parsed = parseContentCommand(command)
+  assert.deepEqual(parsed, command)
+  assert.notEqual(parsed, command)
+})
 
 const validContentMessages = [
   { type: 'START_ACK', requestId: 'start-1', taskId: 'task-1', status: 'started', fence },

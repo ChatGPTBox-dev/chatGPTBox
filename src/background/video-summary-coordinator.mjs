@@ -584,7 +584,7 @@ export function createVideoSummaryCoordinator({
       : 'terminal'
     sendContent(port, {
       type: 'ATTACH_ACK',
-      requestId: command.taskId,
+      requestId: command.requestId,
       status,
       fence: clone(fence),
       event: clone(retained.replayEvent),

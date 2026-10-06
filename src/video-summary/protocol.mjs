@@ -448,7 +448,17 @@ export function parseContentCommand(value) {
       taskId: text(value.taskId),
       pageIdentity: parsePageIdentity(value.pageIdentity),
     }
-  } else if (value.type === 'ATTACH_TASK' || value.type === 'CANCEL_TASK') {
+  } else if (value.type === 'ATTACH_TASK') {
+    exact(value, ['type', 'requestId', 'taskId', 'generation', 'pageIdentity'])
+    required(value, ['type', 'requestId', 'taskId', 'generation', 'pageIdentity'])
+    parsed = {
+      type: value.type,
+      requestId: text(value.requestId),
+      taskId: text(value.taskId),
+      generation: generation(value.generation),
+      pageIdentity: parsePageIdentity(value.pageIdentity),
+    }
+  } else if (value.type === 'CANCEL_TASK') {
     exact(value, ['type', 'taskId', 'generation', 'pageIdentity'])
     required(value, ['type', 'taskId', 'generation', 'pageIdentity'])
     parsed = {
