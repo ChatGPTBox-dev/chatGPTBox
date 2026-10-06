@@ -48,9 +48,9 @@ test('resolves page player data and preserves caption query while reusing observ
     videoId,
     mediaId: videoId,
   })
-  assert.equal(snapshot.platform, 'youtube')
-  assert.equal(snapshot.videoId, videoId)
-  assert.equal(snapshot.pageId, videoId)
+  assert.equal('platform' in snapshot, false)
+  assert.equal('videoId' in snapshot, false)
+  assert.equal('pageId' in snapshot, false)
   assert.equal(snapshot.title, 'Synthetic {title} with "quotes"')
   assert.equal(snapshot.durationMs, 12000)
   assert.equal(snapshot.nativeSubtitleTracks.length, 2)
@@ -269,7 +269,7 @@ test('loads player data from the active document before fetching watch HTML', as
 
   const snapshot = await bridge.getSnapshot()
   assert.equal(htmlLoads, 0)
-  assert.equal(snapshot.videoId, videoId)
+  assert.equal(snapshot.pageIdentity.videoId, videoId)
   assert.equal(snapshot.nativeSubtitleTracks.length, 2)
 })
 
@@ -292,7 +292,7 @@ test('loads fetched watch HTML when page player data is absent', async () => {
 
   const snapshot = await bridge.getSnapshot()
   assert.equal(htmlLoads, 1)
-  assert.equal(snapshot.videoId, videoId)
+  assert.equal(snapshot.pageIdentity.videoId, videoId)
   assert.equal(snapshot.nativeSubtitleTracks.length, 2)
 })
 

@@ -3,31 +3,16 @@ import test from 'node:test'
 import { defaultConfig } from '../../../src/config/index.mjs'
 import {
   VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS,
-  VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES,
   VIDEO_SUMMARY_OFFSCREEN_PATH,
   VIDEO_SUMMARY_OFFSCREEN_PORT_NAME,
   VIDEO_SUMMARY_PLATFORMS,
   VIDEO_SUMMARY_PORT_NAME,
   VIDEO_SUMMARY_STORAGE_KEY,
   assertVideoSummaryPlatform,
-  createVideoSummaryOwner,
 } from '../../../src/video-summary/contracts.mjs'
 
-test('video-summary contracts stay structured-clone-safe and platform-aware', () => {
-  const owner = createVideoSummaryOwner({
-    tabId: 12,
-    documentId: 'doc-1',
-    platform: 'bilibili',
-    videoId: 'same-id',
-  })
-  const youtubeOwner = createVideoSummaryOwner({
-    tabId: 12,
-    documentId: 'doc-1',
-    platform: 'youtube',
-    videoId: 'same-id',
-  })
+test('video-summary contracts contain only stable configuration constants', () => {
   assert.deepEqual(VIDEO_SUMMARY_PLATFORMS, ['bilibili', 'youtube'])
-  assert.notDeepEqual(owner, youtubeOwner)
   assert.equal(assertVideoSummaryPlatform('youtube'), 'youtube')
   assert.throws(() => assertVideoSummaryPlatform(), /VIDEO_SUMMARY_PLATFORM_INVALID/)
   assert.throws(() => assertVideoSummaryPlatform('vimeo'), /VIDEO_SUMMARY_PLATFORM_INVALID/)
@@ -35,17 +20,10 @@ test('video-summary contracts stay structured-clone-safe and platform-aware', ()
   assert.equal(VIDEO_SUMMARY_OFFSCREEN_PATH, 'VideoSummaryOffscreen.html')
   assert.equal(VIDEO_SUMMARY_OFFSCREEN_PORT_NAME, 'video-summary-offscreen')
   assert.equal(VIDEO_SUMMARY_STORAGE_KEY, 'mediaKitApiKey')
-  assert.deepEqual(VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES, {
-    taskEvent: 'TASK_EVENT',
-    sourceRefreshRequest: 'SOURCE_REFRESH_REQUEST',
-    gatewayRequest: 'GATEWAY_REQUEST',
-    gatewayResponse: 'GATEWAY_RESPONSE',
-  })
   assert.deepEqual(VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS, {
     mediakit: ['submitDirectAsr', 'requestUploadTarget', 'queryTask'],
     model: ['describeCapabilities', 'generateText', 'cancel'],
   })
-  assert.doesNotThrow(() => structuredClone(owner))
 })
 
 test('feature config is explicit while the MediaKit key stays outside defaultConfig', () => {

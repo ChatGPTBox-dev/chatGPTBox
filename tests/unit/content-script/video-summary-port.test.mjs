@@ -1,170 +1,155 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createVideoSummaryPortClient } from '../../../src/content-script/video-summary-port.mjs'
+import { createFakePort } from '../helpers/port.mjs'
 
-const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0))
+const pageIdentity = { platform: 'youtube', videoId: 'abcdefghijk', mediaId: 'abcdefghijk' }
+const owner = { tabId: 7, documentId: 'doc-7', platform: 'youtube', mediaId: 'abcdefghijk' }
+const fence = { owner, taskId: 'task-1', generation: 1, attempt: 1 }
 
-function createPort({ sender = { documentId: 'doc-1' } } = {}) {
-  const outbound = []
-  const messageListeners = new Set()
-  const disconnectListeners = new Set()
-
+function createStartPayload() {
   return {
-    sender,
-    outbound,
-    onMessage: {
-      addListener(listener) {
-        messageListeners.add(listener)
-      },
-      removeListener(listener) {
-        messageListeners.delete(listener)
-      },
+    sourceChoice: 'native-subtitle',
+    subtitleTrackId: 'track-1',
+    sourceSnapshot: {
+      pageIdentity,
+      nativeSubtitleTracks: [{ id: 'track-1', cues: [{ startMs: 0, endMs: 1000, text: 'hello' }] }],
+      mediaCandidates: [],
     },
-    onDisconnect: {
-      addListener(listener) {
-        disconnectListeners.add(listener)
-      },
-      removeListener(listener) {
-        disconnectListeners.delete(listener)
-      },
-    },
-    postMessage(message) {
-      outbound.push(message)
-    },
-    emitMessage(message) {
-      for (const listener of Array.from(messageListeners)) {
-        listener(message)
-      }
-    },
-    emitDisconnect() {
-      for (const listener of Array.from(disconnectListeners)) {
-        listener()
-      }
-    },
-    disconnectCalled: false,
-    disconnect() {
-      this.disconnectCalled = true
-      this.emitDisconnect()
-    },
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot: { modelName: 'customModel' },
   }
 }
 
-test('port client sends serializable START_TASK and ignores stale task events', async () => {
-  const port = createPort()
+function createFixture() {
+  const port = createFakePort({ name: 'video-summary' })
   const events = []
-  const refreshSnapshotCalls = []
+  let id = 0
   const client = createVideoSummaryPortClient({
-    platform: 'bilibili',
-    videoId: 'BV1test',
+    pageIdentity,
+    pageGeneration: 3,
     pageBridge: {
-      async getSnapshot() {
-        return { videoId: 'BV1test' }
+      async refreshSnapshot({ expectedPageIdentity, pageGeneration }) {
+        return {
+          ...createStartPayload().sourceSnapshot,
+          pageIdentity: expectedPageIdentity,
+          pageGeneration,
+        }
       },
-      async refreshSnapshot({ expectedPlatform, expectedVideoId }) {
-        refreshSnapshotCalls.push({ expectedPlatform, expectedVideoId })
-        return { videoId: expectedVideoId, mediaCandidates: [{ id: 'fresh' }] }
-      },
-      seekTo() {},
     },
     connect: () => port,
-    onEvent(event) {
-      events.push(event)
-    },
+    createTaskId: () => 'task-1',
+    createRequestId: () => `request-${++id}`,
+    onEvent: (event) => events.push(event),
   })
+  return { port, client, events }
+}
 
-  const taskId = await client.startTask({
-    sourceChoice: 'native-subtitle',
-    subtitleTrackId: 'bilibili-ai-conclusion',
-    sourceSnapshot: { videoId: 'BV1test' },
-    settingsSnapshot: { preferredLanguage: 'en', speakerIdentification: true },
+test('start sends no caller authority and resolves only a parsed correlated ACK', async () => {
+  const { port, client } = createFixture()
+  const started = client.startTask(createStartPayload())
+  assert.deepEqual(port.postedMessages[0], {
+    type: 'START_TASK',
+    requestId: 'request-1',
+    taskId: 'task-1',
+    pageIdentity,
+    ...createStartPayload(),
   })
+  for (const key of ['owner', 'generation', 'attempt', 'platform', 'videoId', 'mediaId']) {
+    assert.equal(key in port.postedMessages[0], false)
+  }
+  port.emitMessage({
+    type: 'START_ACK',
+    requestId: 'request-1',
+    taskId: 'task-1',
+    status: 'started',
+    fence,
+  })
+  assert.deepEqual(await started, { taskId: 'task-1', generation: 1, fence })
+})
 
-  assert.equal(port.outbound[0].type, 'START_TASK')
-  assert.equal(port.outbound[0].platform, 'bilibili')
-  assert.equal(port.outbound[0].videoId, 'BV1test')
-  assert.equal(port.outbound[0].taskId, taskId)
-  assert.equal(port.outbound[0].subtitleTrackId, 'bilibili-ai-conclusion')
-  assert.doesNotThrow(() => structuredClone(port.outbound[0]))
+test('parseContentMessage rejects malformed ACKs before correlation', async () => {
+  const { port, client } = createFixture()
+  const started = client.startTask(createStartPayload())
+  port.emitMessage({
+    type: 'START_ACK',
+    requestId: 'request-1',
+    taskId: 'task-1',
+    status: 'started',
+    fence,
+    owner,
+  })
+  port.emitMessage({
+    type: 'START_ACK',
+    requestId: 'request-1',
+    taskId: 'task-1',
+    status: 'started',
+    fence,
+  })
+  assert.equal((await started).generation, 1)
+})
+
+test('cancel start, attach, retry, generation cancel, stale events and refresh are correlated', async () => {
+  const { port, client, events } = createFixture()
+  const started = client.startTask(createStartPayload())
+  const cancelling = client.cancelStart({
+    cancelRequestId: 'cancel-1',
+    targetStartRequestId: 'request-1',
+    taskId: 'task-1',
+  })
+  port.emitMessage({
+    type: 'CANCEL_START_ACK',
+    cancelRequestId: 'cancel-1',
+    targetStartRequestId: 'request-1',
+    status: 'cancelling',
+    fence,
+  })
+  assert.equal((await cancelling).status, 'cancelling')
+  port.emitMessage({
+    type: 'START_ACK',
+    requestId: 'request-1',
+    taskId: 'task-1',
+    status: 'cancelling',
+    fence,
+  })
+  assert.equal((await started).generation, 1)
 
   port.emitMessage({
-    type: 'TASK_STATUS',
-    taskId,
-    owner: { tabId: 7, documentId: 'doc-1', platform: 'bilibili', videoId: 'BV1test' },
-    stage: 'transcribing',
+    type: 'TASK_EVENT',
+    fence: { ...fence, attempt: 2 },
+    event: { type: 'TASK_STATUS' },
   })
   port.emitMessage({
-    type: 'TASK_STATUS',
-    taskId: 'task-stale',
-    owner: { tabId: 7, documentId: 'doc-1', platform: 'bilibili', videoId: 'BV1test' },
-    stage: 'stale-task',
+    type: 'TASK_EVENT',
+    fence: { ...fence, generation: 2 },
+    event: { type: 'TASK_STATUS' },
   })
-  port.emitMessage({
-    type: 'TASK_STATUS',
-    taskId,
-    owner: {
-      tabId: 7,
-      documentId: 'doc-other',
-      platform: 'bilibili',
-      videoId: 'BV1test',
-    },
-    stage: 'stale-owner',
-  })
-  port.emitMessage({
-    type: 'REQUEST_SOURCE_REFRESH',
-    taskId,
-    owner: { tabId: 7, documentId: 'doc-1', platform: 'bilibili', videoId: 'BV1test' },
-  })
+  port.emitMessage({ type: 'TASK_EVENT', fence, event: { type: 'TASK_STATUS', stage: 'running' } })
+  assert.deepEqual(events, [{ type: 'TASK_STATUS', stage: 'running' }])
 
-  assert.deepEqual(events, [
-    {
-      type: 'TASK_STATUS',
-      taskId,
-      owner: { tabId: 7, documentId: 'doc-1', platform: 'bilibili', videoId: 'BV1test' },
-      stage: 'transcribing',
-    },
-  ])
-  assert.deepEqual(refreshSnapshotCalls, [
-    { expectedPlatform: 'bilibili', expectedVideoId: 'BV1test' },
-  ])
-  await nextTask()
-  assert.deepEqual(port.outbound.at(-1), {
-    type: 'SOURCE_REFRESH_RESULT',
-    taskId,
-    platform: 'bilibili',
-    videoId: 'BV1test',
-    sourceSnapshot: { videoId: 'BV1test', mediaCandidates: [{ id: 'fresh' }] },
+  port.emitMessage({
+    type: 'SOURCE_REFRESH_REQUEST',
+    requestId: 'refresh-1',
+    fence,
+    expectedPageIdentity: pageIdentity,
+    reason: 'SIGNED_URL_EXPIRED',
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(port.postedMessages.at(-1).type, 'SOURCE_REFRESH_RESULT')
+  assert.equal(port.postedMessages.at(-1).pageGeneration, 3)
+
+  await client.cancelTask({ taskId: 'task-1', generation: 1 })
+  assert.deepEqual(port.postedMessages.at(-1), {
+    type: 'CANCEL_TASK',
+    taskId: 'task-1',
+    generation: 1,
+    pageIdentity,
   })
 })
 
-test('port client reattaches, retries, cancels, and disposes the active task', async () => {
-  const port = createPort()
-  const client = createVideoSummaryPortClient({
-    platform: 'bilibili',
-    videoId: 'BV9test',
-    pageBridge: {
-      async getSnapshot() {
-        return { videoId: 'BV9test' }
-      },
-      seekTo() {},
-    },
-    connect: () => port,
-  })
-
-  await client.attachTask({ taskId: 'task-9' })
-  await client.retryTask({ fromStage: 'synthesis' })
-  await client.cancelTask()
-  client.dispose()
-
-  assert.deepEqual(port.outbound, [
-    { type: 'ATTACH_TASK', taskId: 'task-9', platform: 'bilibili', videoId: 'BV9test' },
-    {
-      type: 'RETRY_TASK',
-      taskId: 'task-9',
-      platform: 'bilibili',
-      videoId: 'BV9test',
-      fromStage: 'synthesis',
-    },
-    { type: 'CANCEL_TASK', taskId: 'task-9', platform: 'bilibili', videoId: 'BV9test' },
-  ])
-  assert.equal(port.disconnectCalled, true)
+test('disconnect rejects all pending requests', async () => {
+  const { port, client } = createFixture()
+  const started = client.startTask(createStartPayload())
+  port.emitDisconnect()
+  await assert.rejects(started, /VIDEO_SUMMARY_PORT_DISCONNECTED/)
 })

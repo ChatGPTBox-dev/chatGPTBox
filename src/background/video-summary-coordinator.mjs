@@ -800,7 +800,7 @@ export function createVideoSummaryCoordinator({
 
   function gatewayRequest(message) {
     const capability = getCapability(message.fence)
-    if (!capability || !capability.executable || capability.revoked) return
+    if (!capability || !capability.executable || capability.revoked) return false
     if (
       capability.pendingRpcIds.size >= VIDEO_SUMMARY_PROTOCOL_LIMITS.pendingRpcsPerTask &&
       !capability.pendingRpcIds.has(message.requestId)
@@ -812,9 +812,10 @@ export function createVideoSummaryCoordinator({
         ok: false,
         error: { code: 'VIDEO_SUMMARY_PROTOCOL_LIMIT_EXCEEDED' },
       })
-      return
+      return false
     }
     capability.pendingRpcIds.add(message.requestId)
+    return true
   }
 
   function handleOffscreenMessage(value) {
@@ -829,15 +830,23 @@ export function createVideoSummaryCoordinator({
     else if (message.type === 'TASK_EVENT') taskEvent(message)
     else if (message.type === 'EXECUTION_RELEASED') executionReleased(message)
     else if (message.type === 'TASK_DELETED') taskDeleted(message)
-    else if (message.type === 'GATEWAY_REQUEST') gatewayRequest(message)
+    else if (message.type === 'GATEWAY_REQUEST') return gatewayRequest(message)
     else if (message.type === 'SOURCE_REFRESH_REQUEST') {
       const retained = getRetained(
         message.fence.owner,
         message.fence.taskId,
         message.fence.generation,
       )
-      if (retained?.port) sendContent(retained.port, clone(message))
+      const capability = getCapability(message.fence)
+      if (!retained?.port || !capability?.executable || capability.revoked) return false
+      sendContent(retained.port, clone(message))
+      return true
     }
+    return true
+  }
+
+  function completeGatewayRequest(fence, requestId) {
+    getCapability(fence)?.pendingRpcIds.delete(requestId)
   }
 
   function scheduleDisconnect(record) {
@@ -962,6 +971,7 @@ export function createVideoSummaryCoordinator({
     handleContentDisconnect,
     handleTabRemoved,
     handleOffscreenDisconnect,
+    completeGatewayRequest,
     debugState,
   }
 }

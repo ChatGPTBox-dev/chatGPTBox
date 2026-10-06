@@ -462,7 +462,6 @@ async function summarizeChunks({
 
 export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clock }) {
   const generations = new Map()
-  const legacyTasks = new Map()
   const logInfo = createInfoLogger(logger)
 
   function ownerPath(owner) {
@@ -779,20 +778,6 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
     return Boolean(getGeneration(key)?.checkpoint?.transcription)
   }
 
-  function legacyFence(command, generation = 1, attempt = 1) {
-    return {
-      owner: {
-        tabId: Number.isInteger(command.owner?.tabId) ? command.owner.tabId : 0,
-        documentId: String(command.owner?.documentId || 'legacy'),
-        platform: 'bilibili',
-        mediaId: String(command.owner?.videoId || command.taskId),
-      },
-      taskId: command.taskId,
-      generation,
-      attempt,
-    }
-  }
-
   const runner = {
     registerAttempt,
     authorizeAttempt,
@@ -810,53 +795,6 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
                 for (const state of generationMap.values())
                   for (const attempt of state.attempts.values()) attempts.push(attempt)
       return { attempts }
-    },
-    async start(command, emit) {
-      if (!command?.taskId) throw new Error('VIDEO_SUMMARY_TASK_ID_REQUIRED')
-      const previous = legacyTasks.get(command.taskId)
-      if (previous) deleteTask(previous.fence)
-      const fence = legacyFence(command)
-      const requestId = `legacy-start-${command.taskId}`
-      registerAttempt({
-        requestId,
-        fence,
-        mode: 'initial',
-        payload: {
-          sourceChoice: command.sourceChoice,
-          subtitleTrackId: command.subtitleTrackId,
-          settingsSnapshot: command.settingsSnapshot,
-          modelSnapshot: command.modelSnapshot,
-        },
-        transientPayload: { sourceSnapshot: command.sourceSnapshot },
-        emit,
-      })
-      legacyTasks.set(command.taskId, { fence, command, emit, nextAttempt: 2 })
-      try {
-        return await authorizeAttempt({ requestId, fence })
-      } catch (error) {
-        if (!hasCheckpoint(fence)) legacyTasks.delete(command.taskId)
-        throw error
-      }
-    },
-    cancel(taskId) {
-      const legacy = legacyTasks.get(taskId)
-      if (!legacy) return
-      deleteTask(legacy.fence)
-      legacyTasks.delete(taskId)
-    },
-    async retry(taskId, { fromStage, ...overrides } = {}) {
-      const legacy = legacyTasks.get(taskId)
-      if (!legacy) throw new Error('VIDEO_SUMMARY_TASK_NOT_FOUND')
-      const fence = { ...legacy.fence, attempt: legacy.nextAttempt++ }
-      const requestId = `legacy-retry-${taskId}-${fence.attempt}`
-      registerAttempt({
-        requestId,
-        fence,
-        mode: 'retry-summary',
-        payload: { fromStage, ...overrides },
-        emit: legacy.emit,
-      })
-      return authorizeAttempt({ requestId, fence })
     },
   }
 

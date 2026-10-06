@@ -1,253 +1,137 @@
-import {
-  VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS,
-  VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES,
-  VIDEO_SUMMARY_OFFSCREEN_PORT_NAME,
-} from '../video-summary/contracts.mjs'
-
-function getLoggerMethod(logger, level) {
-  return typeof logger?.[level] === 'function' ? logger[level].bind(logger) : () => {}
-}
-
-function normalizeId(value) {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-function toSafeCode(value, fallback) {
-  if (typeof value === 'string' && /^[A-Z0-9_:-]+$/.test(value)) return value
-  return fallback
-}
+import { VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS } from '../video-summary/contracts.mjs'
+import { parseOffscreenCommand, parseOffscreenMessage } from '../video-summary/protocol.mjs'
 
 const SAFE_GATEWAY_CONDITIONS = new Set(['login-required', 'provider-page-required', 'temporary'])
 
-function cloneSerializable(value) {
-  return structuredClone(value)
+function safeCode(value, fallback) {
+  return typeof value === 'string' && /^[A-Z0-9_:-]+$/.test(value) ? value : fallback
 }
 
-function projectSafeCondition(value) {
-  return SAFE_GATEWAY_CONDITIONS.has(value) ? value : null
-}
-
-function projectSafeModelName(value) {
-  if (typeof value !== 'string') return null
-  const normalized = value.trim()
-  if (!normalized || normalized.length > 120) return null
-  return /^[A-Za-z0-9_.:/-]+$/.test(normalized) ? normalized : null
-}
-
-function hasOwnProperty(object, property) {
-  return Object.prototype.hasOwnProperty.call(object || {}, property)
-}
-
-function createRefreshKey({ owner, taskId }) {
-  return `${owner?.tabId ?? 'tab'}:${owner?.documentId ?? 'doc'}:${owner?.platform ?? 'platform'}:${
-    owner?.videoId ?? 'video'
-  }:${taskId ?? 'task'}`
-}
-
-function serializeGatewayResult(result, operation) {
-  if (operation !== 'generateText') return cloneSerializable(result)
+function serializeResult(result, operation) {
+  if (operation !== 'generateText') return structuredClone(result)
   return {
     text: typeof result?.text === 'string' ? result.text : '',
     finishReason: typeof result?.finishReason === 'string' ? result.finishReason : null,
   }
 }
 
-function serializeGatewayError(
-  error,
-  operation,
-  fallbackCode = 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED',
-) {
-  const serialized = {
-    code: toSafeCode(error?.code || error?.message, fallbackCode),
-    operation: typeof operation === 'string' ? operation : null,
+function serializeError(error, operation) {
+  const result = {
+    code: safeCode(error?.code || error?.message, 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED'),
+    operation,
     httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
     providerCode: typeof error?.providerCode === 'string' ? error.providerCode : null,
     retryAfterMs: Number.isFinite(error?.retryAfterMs) ? error.retryAfterMs : null,
   }
-
-  if (hasOwnProperty(error, 'condition'))
-    serialized.condition = projectSafeCondition(error?.condition)
-  if (hasOwnProperty(error, 'modelName'))
-    serialized.modelName = projectSafeModelName(error?.modelName)
-
-  return serialized
-}
-
-function resolveGateway(gatewayName, gatewaysByName) {
-  if (typeof gatewayName !== 'string') return null
-  return gatewaysByName[gatewayName] ?? null
+  if ('condition' in (error || {})) {
+    result.condition = SAFE_GATEWAY_CONDITIONS.has(error.condition) ? error.condition : null
+  }
+  if ('modelName' in (error || {})) {
+    const modelName = typeof error.modelName === 'string' ? error.modelName.trim() : ''
+    result.modelName = /^[A-Za-z0-9_.:/-]{1,120}$/.test(modelName) ? modelName : null
+  }
+  return result
 }
 
 export function createVideoSummaryOffscreenRpc({
   mediaKitGateway,
   modelGateway,
+  coordinator,
   logger,
-  onTaskEvent = () => {},
-  requestSourceRefresh = () => {},
+  onDisconnect = () => {},
 }) {
-  const gatewaysByName = {
-    mediakit: mediaKitGateway,
-    model: modelGateway,
-  }
-  const pendingSourceRefreshRequests = new Map()
+  const gateways = { mediakit: mediaKitGateway, model: modelGateway }
   let attachedPort = null
-  let detachListeners = null
-  const logWarn = getLoggerMethod(logger, 'warn')
-  const logError = getLoggerMethod(logger, 'error')
+  let listeners = null
 
-  function detachPort(port = attachedPort) {
-    if (!port || !detachListeners) return
-    port.onMessage.removeListener(detachListeners.onMessage)
-    port.onDisconnect.removeListener(detachListeners.onDisconnect)
-    pendingSourceRefreshRequests.clear()
-    if (attachedPort === port) attachedPort = null
-    detachListeners = null
+  function postCommand(value) {
+    if (!attachedPort) throw new Error('VIDEO_SUMMARY_OFFSCREEN_DISCONNECTED')
+    attachedPort.postMessage(parseOffscreenCommand(value))
   }
 
-  function postMessage(message) {
-    if (!attachedPort) return
-    attachedPort.postMessage(cloneSerializable(message))
-  }
-
-  async function handleGatewayRequest(message) {
-    const requestId = normalizeId(message?.requestId)
-    const gatewayName = typeof message?.gateway === 'string' ? message.gateway : null
-    const operation = typeof message?.operation === 'string' ? message.operation : null
-    const allowedOperations = gatewayName
-      ? new Set(VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS[gatewayName] || [])
-      : null
-    const gateway = resolveGateway(gatewayName, gatewaysByName)
-
-    if (!requestId) return
-
+  async function dispatchGateway(message) {
+    if (coordinator.handleOffscreenMessage(message) !== true) return
+    const gateway = gateways[message.gateway]
+    const allowed = VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS[message.gateway] || []
+    let response
     if (
       !gateway ||
-      !allowedOperations?.has(operation) ||
-      typeof gateway?.[operation] !== 'function'
+      !allowed.includes(message.operation) ||
+      typeof gateway[message.operation] !== 'function'
     ) {
-      postMessage({
-        type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse,
-        requestId,
+      response = {
+        type: 'GATEWAY_RESPONSE',
+        requestId: message.requestId,
+        fence: message.fence,
         ok: false,
-        error: serializeGatewayError(
+        error: serializeError(
           { code: 'VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED' },
-          operation,
-          'VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED',
+          message.operation,
         ),
-      })
-      return
+      }
+    } else {
+      try {
+        response = {
+          type: 'GATEWAY_RESPONSE',
+          requestId: message.requestId,
+          fence: message.fence,
+          ok: true,
+          result: serializeResult(
+            await gateway[message.operation](message.args),
+            message.operation,
+          ),
+        }
+      } catch (error) {
+        response = {
+          type: 'GATEWAY_RESPONSE',
+          requestId: message.requestId,
+          fence: message.fence,
+          ok: false,
+          error: serializeError(error, message.operation),
+        }
+      }
     }
-
-    try {
-      const result = await gateway[operation](message?.args ?? {})
-      postMessage({
-        type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse,
-        requestId,
-        ok: true,
-        result: serializeGatewayResult(result, operation),
-      })
-    } catch (error) {
-      postMessage({
-        type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse,
-        requestId,
-        ok: false,
-        error: serializeGatewayError(error, operation),
-      })
-    }
+    coordinator.completeGatewayRequest(message.fence, message.requestId)
+    postCommand(response)
   }
 
-  function handleSourceRefreshRequest(message) {
-    const requestId = normalizeId(message?.requestId)
-    const taskId = normalizeId(message?.taskId)
-    if (!requestId || !taskId || !message?.owner) return
-
-    pendingSourceRefreshRequests.set(createRefreshKey({ owner: message.owner, taskId }), requestId)
-    requestSourceRefresh({
-      requestId,
-      taskId,
-      owner: cloneSerializable(message.owner),
-      expectedVideoId: message.expectedVideoId ?? null,
-      reason: message.reason ?? null,
-    })
-  }
-
-  function handleTaskEvent(message) {
-    if (!message?.event || typeof message.event !== 'object') return
-    onTaskEvent(cloneSerializable(message.event))
-  }
-
-  function handleMessage(message) {
-    if (!message || typeof message !== 'object') return
-
-    switch (message.type) {
-      case VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.taskEvent:
-        handleTaskEvent(message)
-        return
-      case VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.sourceRefreshRequest:
-        handleSourceRefreshRequest(message)
-        return
-      case VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayRequest:
-        void handleGatewayRequest(message).catch((error) => {
-          logError({
-            event: 'video-summary-offscreen-rpc.gateway-request-failed',
-            requestId: normalizeId(message?.requestId),
-            gateway: message?.gateway ?? null,
-            operation: message?.operation ?? null,
-            error: toSafeCode(error?.message, 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED'),
-          })
-        })
-        return
-      default:
-        return
-    }
+  function detach(port = attachedPort) {
+    if (!port || !listeners) return
+    port.onMessage.removeListener(listeners.message)
+    port.onDisconnect.removeListener(listeners.disconnect)
+    if (attachedPort === port) attachedPort = null
+    listeners = null
   }
 
   return {
     attachPort(port) {
-      if (port?.name !== VIDEO_SUMMARY_OFFSCREEN_PORT_NAME) return false
-      if (attachedPort && attachedPort !== port) detachPort(attachedPort)
-
-      const onMessage = (message) => {
+      if (attachedPort) detach(attachedPort)
+      const message = (value) => {
+        let parsed
         try {
-          handleMessage(message)
+          parsed = parseOffscreenMessage(value)
         } catch (error) {
-          logWarn({
+          logger?.warn?.({
             event: 'video-summary-offscreen-rpc.message-rejected',
-            type: message?.type ?? null,
-            error: toSafeCode(error?.message, 'VIDEO_SUMMARY_OFFSCREEN_RPC_MESSAGE_REJECTED'),
+            error: error?.message,
           })
+          return
         }
+        if (parsed.type === 'GATEWAY_REQUEST') void dispatchGateway(parsed)
+        else coordinator.handleOffscreenMessage(parsed)
       }
-      const onDisconnect = () => {
-        detachPort(port)
+      const disconnect = () => {
+        detach(port)
+        coordinator.handleOffscreenDisconnect()
+        onDisconnect(port)
       }
-
       attachedPort = port
-      detachListeners = { onMessage, onDisconnect }
-      port.onMessage.addListener(onMessage)
-      port.onDisconnect.addListener(onDisconnect)
+      listeners = { message, disconnect }
+      port.onMessage.addListener(message)
+      port.onDisconnect.addListener(disconnect)
       return true
     },
-
-    postCommand(command) {
-      if (!command || typeof command !== 'object') return
-
-      if (command.type === 'SOURCE_REFRESH_RESULT') {
-        const refreshKey = createRefreshKey({
-          owner: command.owner,
-          taskId: normalizeId(command.taskId),
-        })
-        const requestId = pendingSourceRefreshRequests.get(refreshKey)
-        if (!requestId) return
-        pendingSourceRefreshRequests.delete(refreshKey)
-        postMessage({
-          ...command,
-          requestId,
-        })
-        return
-      }
-
-      postMessage(command)
-    },
+    postCommand,
+    detachPort: detach,
   }
 }

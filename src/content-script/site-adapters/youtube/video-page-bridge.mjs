@@ -111,9 +111,6 @@ export async function resolveYouTubeSourceSnapshot({
       if (cues.length > 0) {
         return {
           pageIdentity,
-          platform: pageIdentity.platform,
-          videoId: pageIdentity.videoId,
-          pageId: pageIdentity.mediaId,
           title: String(resolvedPlayerResponse?.videoDetails?.title || ''),
           durationMs: normalizeDurationMs(resolvedPlayerResponse),
           nativeSubtitleTracks: [
@@ -230,9 +227,6 @@ export async function resolveYouTubeSourceSnapshot({
   assertIdentity(resolvedPlayerResponse)
   return {
     pageIdentity,
-    platform: pageIdentity.platform,
-    videoId: pageIdentity.videoId,
-    pageId: pageIdentity.mediaId,
     title: String(resolvedPlayerResponse?.videoDetails?.title || ''),
     durationMs: normalizeDurationMs(resolvedPlayerResponse),
     nativeSubtitleTracks,
@@ -397,7 +391,7 @@ export function createYouTubeVideoPageBridge({
       if (
         expectedPageIdentity
           ? !pageIdentitiesEqual(expectedPageIdentity, snapshot.pageIdentity)
-          : snapshot.videoId !== expectedVideoId
+          : snapshot.pageIdentity.videoId !== expectedVideoId
       ) {
         throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
       }

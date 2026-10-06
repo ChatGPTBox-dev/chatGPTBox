@@ -70,8 +70,12 @@ import { createVideoSummaryChatgptProxy } from './video-summary-chatgpt-proxy.mj
 import { createVideoSummaryOffscreenRpc } from './video-summary-offscreen-rpc.mjs'
 import {
   VIDEO_SUMMARY_OFFSCREEN_PORT_NAME,
+  closeVideoSummaryOffscreenDocument,
   ensureVideoSummaryOffscreenDocument,
+  resetVideoSummaryOffscreenDocument,
 } from './offscreen.mjs'
+import { createVideoSummaryCoordinator } from './video-summary-coordinator.mjs'
+import { authenticateVideoSummaryOffscreenPort } from './video-summary-port-auth.mjs'
 import { createVideoSummaryRouter } from './video-summary-router.mjs'
 import { createYouTubePageDataReader, createYouTubePageDataResponse } from './youtube-page-data.mjs'
 
@@ -155,36 +159,18 @@ const modelGateway = createModelGateway({
   generateTextWithModel: (args) => modelTextDispatcher.generateText(args),
   logger: videoSummaryLogger,
 })
-const videoSummaryOffscreenState = {
-  port: null,
-  pendingCommands: [],
+const videoSummaryClock = {
+  now: () => Date.now(),
+  setTimeout: globalThis.setTimeout.bind(globalThis),
+  clearTimeout: globalThis.clearTimeout.bind(globalThis),
 }
-let videoSummaryRouter = null
-const videoSummaryOffscreenRpc = createVideoSummaryOffscreenRpc({
-  mediaKitGateway,
-  modelGateway,
-  logger: {
-    info(entry) {
-      console.info('[background]', entry)
-    },
-    warn(entry) {
-      console.warn('[background]', entry)
-    },
-    error(entry) {
-      console.error('[background]', entry)
-    },
-  },
-  onTaskEvent(event) {
-    videoSummaryRouter?.handleTaskEvent(event)
-  },
-  requestSourceRefresh({ owner, taskId }) {
-    videoSummaryRouter?.requestSourceRefresh(owner, taskId)
-  },
-})
+const videoSummaryOffscreenState = { port: null }
+let videoSummaryOffscreenRpc
 
 function getVideoSummaryRuntime() {
   const chromeRuntime = globalThis.chrome?.runtime
   return {
+    id: Browser.runtime.id,
     getURL: Browser.runtime.getURL.bind(Browser.runtime),
     getContexts:
       typeof chromeRuntime?.getContexts === 'function'
@@ -200,50 +186,46 @@ async function ensureVideoSummaryOffscreen() {
   })
 }
 
-function flushVideoSummaryOffscreenCommands() {
-  if (!videoSummaryOffscreenState.port) return
-
-  while (videoSummaryOffscreenState.pendingCommands.length > 0) {
-    const command = videoSummaryOffscreenState.pendingCommands.shift()
+const videoSummaryStartupReady = closeVideoSummaryOffscreenDocument({
+  runtime: getVideoSummaryRuntime(),
+  chromeOffscreen: globalThis.chrome?.offscreen,
+}).catch((error) => {
+  videoSummaryLogger.warn({
+    event: 'video-summary-offscreen.initial-reset-failed',
+    error: error?.message || 'VIDEO_SUMMARY_OFFSCREEN_RESET_FAILED',
+  })
+})
+const videoSummaryCoordinator = createVideoSummaryCoordinator({
+  clock: videoSummaryClock,
+  ensureOffscreen: ensureVideoSummaryOffscreen,
+  sendOffscreen(command) {
     videoSummaryOffscreenRpc.postCommand(command)
-  }
-}
-
-function emitVideoSummaryOffscreenCommand(command) {
-  const serializableCommand = structuredClone(command)
-  if (!videoSummaryOffscreenState.port) {
-    videoSummaryOffscreenState.pendingCommands.push(serializableCommand)
-    return
-  }
-
-  try {
-    videoSummaryOffscreenRpc.postCommand(serializableCommand)
-  } catch (error) {
-    console.warn('[background] Failed to post video summary command to offscreen:', error)
+  },
+  sendContent(port, message) {
+    port.postMessage(structuredClone(message))
+  },
+  resetOffscreen() {
     videoSummaryOffscreenState.port = null
-    videoSummaryOffscreenState.pendingCommands.unshift(serializableCommand)
-  }
-}
-
-videoSummaryRouter = createVideoSummaryRouter({
-  ensureOffscreenDocument: ensureVideoSummaryOffscreen,
-  clock: {
-    now: () => Date.now(),
-    setTimeout: globalThis.setTimeout.bind(globalThis),
-    clearTimeout: globalThis.clearTimeout.bind(globalThis),
+    return resetVideoSummaryOffscreenDocument({
+      runtime: getVideoSummaryRuntime(),
+      chromeOffscreen: globalThis.chrome?.offscreen,
+    })
   },
-  logger: {
-    info(entry) {
-      console.info('[background]', entry)
-    },
-    warn(entry) {
-      console.warn('[background]', entry)
-    },
-    error(entry) {
-      console.error('[background]', entry)
-    },
+})
+videoSummaryOffscreenRpc = createVideoSummaryOffscreenRpc({
+  mediaKitGateway,
+  modelGateway,
+  coordinator: videoSummaryCoordinator,
+  logger: videoSummaryLogger,
+  onDisconnect(port) {
+    if (videoSummaryOffscreenState.port === port) videoSummaryOffscreenState.port = null
   },
-  emitCommand: emitVideoSummaryOffscreenCommand,
+})
+const videoSummaryRouter = createVideoSummaryRouter({
+  runtime: getVideoSummaryRuntime(),
+  coordinator: videoSummaryCoordinator,
+  logger: videoSummaryLogger,
+  startupReady: videoSummaryStartupReady,
 })
 
 function getSenderUrl(sender) {
@@ -1268,20 +1250,17 @@ try {
   if (Browser.runtime?.onConnect?.addListener) {
     Browser.runtime.onConnect.addListener((port) => {
       if (port?.name === VIDEO_SUMMARY_OFFSCREEN_PORT_NAME) {
-        videoSummaryOffscreenState.port = port
-        videoSummaryOffscreenRpc.attachPort(port)
-        flushVideoSummaryOffscreenCommands()
-        port.onDisconnect.addListener(() => {
-          if (videoSummaryOffscreenState.port === port) {
-            videoSummaryOffscreenState.port = null
-          }
-        })
+        try {
+          authenticateVideoSummaryOffscreenPort({ port, runtime: getVideoSummaryRuntime() })
+          videoSummaryOffscreenState.port = port
+          videoSummaryOffscreenRpc.attachPort(port)
+        } catch {
+          port.disconnect()
+        }
         return
       }
 
-      Promise.resolve(videoSummaryRouter.handleConnect(port)).catch((error) => {
-        console.error('[background] Error handling video summary port connection:', error)
-      })
+      videoSummaryRouter.handleConnect(port)
     })
   }
 

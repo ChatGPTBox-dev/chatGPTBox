@@ -75,9 +75,6 @@ export async function resolveBilibiliSourceSnapshot({
 
   return {
     pageIdentity,
-    platform: pageIdentity.platform,
-    videoId: pageIdentity.videoId,
-    pageId: pageIdentity.mediaId,
     title: String(initialState?.videoData?.title || ''),
     durationMs: pageMetadata.durationMs,
     nativeSubtitleTracks:
@@ -270,7 +267,7 @@ export function createBilibiliVideoPageBridge({
       if (
         expectedPageIdentity
           ? !pageIdentitiesEqual(expectedPageIdentity, snapshot.pageIdentity)
-          : snapshot.videoId !== expectedVideoId
+          : snapshot.pageIdentity.videoId !== expectedVideoId
       ) {
         throw new Error('VIDEO_SOURCE_IDENTITY_CHANGED')
       }

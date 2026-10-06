@@ -1,85 +1,38 @@
 import { createMediaPipeline } from '../../video-summary/media-pipeline.mjs'
 import { createTaskOpfsStore } from '../../video-summary/opfs.mjs'
+import { fencesEqual, ownersEqual, parseOffscreenCommand } from '../../video-summary/protocol.mjs'
 import { createVideoTaskRunner } from '../../video-summary/task-runner.mjs'
-import {
-  VIDEO_SUMMARY_OFFSCREEN_COMMAND_TYPES,
-  VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES,
-  createVideoSummaryOwner,
-} from '../../video-summary/contracts.mjs'
 
-function getLoggerMethod(logger, level) {
-  return typeof logger?.[level] === 'function' ? logger[level].bind(logger) : () => {}
-}
+const AUTHORIZATION_TIMEOUT_MS = 10_000
+const RELEASE_RETRY_MS = 1_000
+const RELEASE_SEND_LIMIT = 10
 
-function normalizeId(value) {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-function cloneSerializable(value) {
+function clone(value) {
   return structuredClone(value)
 }
 
-function normalizeOwner(owner) {
-  const taskOwner = createVideoSummaryOwner(owner || {})
-  if (
-    !Number.isInteger(taskOwner.tabId) ||
-    !normalizeId(taskOwner.documentId) ||
-    !normalizeId(taskOwner.videoId)
-  ) {
-    throw new Error('VIDEO_SUMMARY_OWNER_INVALID')
-  }
-  return taskOwner
+function fenceKey(fence) {
+  return JSON.stringify(fence)
 }
 
-function ownersEqual(left, right) {
-  return (
-    left?.tabId === right?.tabId &&
-    left?.documentId === right?.documentId &&
-    left?.platform === right?.platform &&
-    left?.videoId === right?.videoId
-  )
+function generationKey({ owner, taskId, generation }) {
+  return { owner, taskId, generation }
 }
 
-function sanitizeRpcArgs(args) {
-  if (!args || typeof args !== 'object') return {}
-  const serializableArgs = { ...args }
-  delete serializableArgs.signal
-  return cloneSerializable(serializableArgs)
-}
-
-const SAFE_GATEWAY_CONDITIONS = new Set(['login-required', 'provider-page-required', 'temporary'])
-
-function projectSafeCondition(value) {
-  return SAFE_GATEWAY_CONDITIONS.has(value) ? value : null
-}
-
-function projectSafeModelName(value) {
-  if (typeof value !== 'string') return null
-  const normalized = value.trim()
-  if (!normalized || normalized.length > 120) return null
-  return /^[A-Za-z0-9_.:/-]+$/.test(normalized) ? normalized : null
-}
-
-function createRpcError(error) {
-  const rpcError = new Error(error?.code || 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED')
-  rpcError.code = error?.code || 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED'
-  rpcError.operation = error?.operation ?? null
-  rpcError.httpStatus = error?.httpStatus ?? null
-  rpcError.providerCode = error?.providerCode ?? null
-  rpcError.retryAfterMs = error?.retryAfterMs ?? null
-  rpcError.condition = projectSafeCondition(error?.condition)
-  rpcError.modelName = projectSafeModelName(error?.modelName)
-  return rpcError
-}
-
-function createDisconnectError() {
-  const error = new Error('VIDEO_SUMMARY_OFFSCREEN_DISCONNECTED')
-  error.code = 'VIDEO_SUMMARY_OFFSCREEN_DISCONNECTED'
+function createRpcError(value) {
+  const error = new Error(value?.code || 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED')
+  Object.assign(error, value)
   return error
 }
 
-function defaultCreateRequestId() {
-  return globalThis.crypto?.randomUUID?.() || `video-summary-${Date.now()}-${Math.random()}`
+function sanitizeArgs(args) {
+  const value = { ...(args || {}) }
+  delete value.signal
+  return clone(value)
+}
+
+function defaultRequestId() {
+  return crypto.randomUUID()
 }
 
 export function startVideoSummaryOffscreenRuntime({
@@ -88,102 +41,79 @@ export function startVideoSummaryOffscreenRuntime({
   mediaPipeline,
   modelGateway,
   logger,
-  clock = { now: () => Date.now() },
-  createRequestId = defaultCreateRequestId,
+  clock = {},
+  createRequestId = defaultRequestId,
 }) {
+  const setTimer = clock.setTimeout?.bind(clock) ?? setTimeout
+  const clearTimer = clock.clearTimeout?.bind(clock) ?? clearTimeout
+  const attempts = new Map()
+  const taskFences = new Map()
   const pendingGatewayRequests = new Map()
   const pendingSourceRefreshes = new Map()
-  const taskOwners = new Map()
-  const logWarn = getLoggerMethod(logger, 'warn')
-  const logError = getLoggerMethod(logger, 'error')
+  const pendingExecutionReleases = new Map()
   let stopped = false
 
-  function rejectPendingRequests(error = createDisconnectError()) {
-    for (const pending of pendingGatewayRequests.values()) pending.reject(error)
-    for (const pending of pendingSourceRefreshes.values()) pending.reject(error)
-    pendingGatewayRequests.clear()
-    pendingSourceRefreshes.clear()
+  function post(message) {
+    if (!stopped) port.postMessage(clone(message))
   }
 
-  function postMessage(message) {
-    if (stopped) return
-    port.postMessage(cloneSerializable(message))
+  function currentFence(taskId) {
+    return taskFences.get(taskId) ?? null
   }
 
   function requestGateway({ gateway, operation, args }) {
+    const fence = currentFence(args?.taskId)
+    if (!fence) return Promise.reject(new Error('VIDEO_SUMMARY_ATTEMPT_NOT_AUTHORIZED'))
     const requestId = createRequestId()
     return new Promise((resolve, reject) => {
-      pendingGatewayRequests.set(requestId, { resolve, reject })
-      postMessage({
-        type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayRequest,
+      pendingGatewayRequests.set(requestId, { resolve, reject, fence })
+      post({
+        type: 'GATEWAY_REQUEST',
         requestId,
+        fence,
         gateway,
         operation,
-        args: sanitizeRpcArgs(args),
+        args: sanitizeArgs(args),
       })
     })
   }
 
   const runtimeModelGateway = modelGateway || {
-    async describeCapabilities(modelSnapshot) {
+    describeCapabilities(modelSnapshot) {
+      const attempt = [...attempts.values()].find(
+        (candidate) =>
+          JSON.stringify(candidate.modelSnapshot) === JSON.stringify(modelSnapshot) &&
+          fencesEqual(taskFences.get(candidate.fence.taskId), candidate.fence),
+      )
       return requestGateway({
         gateway: 'model',
         operation: 'describeCapabilities',
-        args: modelSnapshot,
+        args: { ...modelSnapshot, taskId: attempt?.fence.taskId },
       })
     },
-    async generateText(args) {
-      return requestGateway({
-        gateway: 'model',
-        operation: 'generateText',
-        args,
-      })
+    generateText(args) {
+      return requestGateway({ gateway: 'model', operation: 'generateText', args })
     },
-    async cancel(args) {
-      return requestGateway({
-        gateway: 'model',
-        operation: 'cancel',
-        args,
-      }).catch(() => {})
+    cancel(args) {
+      return requestGateway({ gateway: 'model', operation: 'cancel', args }).catch(() => {})
     },
   }
-
-  const runtimeMediaKitGateway = {
-    submitDirectAsr(args) {
-      return requestGateway({
-        gateway: 'mediakit',
-        operation: 'submitDirectAsr',
-        args,
-      })
-    },
-    requestUploadTarget(args = {}) {
-      return requestGateway({
-        gateway: 'mediakit',
-        operation: 'requestUploadTarget',
-        args,
-      })
-    },
-    queryTask(args) {
-      return requestGateway({
-        gateway: 'mediakit',
-        operation: 'queryTask',
-        args,
-      })
-    },
+  const mediaKitGateway = {
+    submitDirectAsr: (args) =>
+      requestGateway({ gateway: 'mediakit', operation: 'submitDirectAsr', args }),
+    requestUploadTarget: (args = {}) =>
+      requestGateway({ gateway: 'mediakit', operation: 'requestUploadTarget', args }),
+    queryTask: (args) => requestGateway({ gateway: 'mediakit', operation: 'queryTask', args }),
   }
-
   const runtimeMediaPipeline =
     mediaPipeline ||
     createMediaPipeline({
-      mediaKitGateway: runtimeMediaKitGateway,
-      opfsStoreFactory({ taskId, owner }) {
-        return createTaskOpfsStore({ taskId, owner })
-      },
+      mediaKitGateway,
+      opfsStoreFactory: ({ taskId, owner }) => createTaskOpfsStore({ taskId, owner }),
       logger,
       clock,
     })
-
-  const runtimeTaskRunner =
+  const runner =
     taskRunner ||
     createVideoTaskRunner({
       mediaPipeline: runtimeMediaPipeline,
@@ -192,204 +122,177 @@ export function startVideoSummaryOffscreenRuntime({
       clock,
     })
 
-  function getBoundOwner(message) {
-    const taskId = normalizeId(message?.taskId)
-    if (!taskId) return null
-    let owner
-    try {
-      owner = normalizeOwner(message?.owner)
-    } catch {
-      return null
+  function normalizeEvent(event) {
+    const type = event.type === 'TASK_RESULT' ? 'TASK_COMPLETED' : event.type
+    const normalized = { type }
+    for (const key of [
+      'stage',
+      'checkpointAvailable',
+      'completedChunks',
+      'totalChunks',
+      'result',
+      'errorCode',
+      'message',
+    ]) {
+      if (key in event) normalized[key] = clone(event[key])
     }
-    if (message?.platform !== owner.platform || message?.videoId !== owner.videoId) return null
-    return ownersEqual(taskOwners.get(taskId), owner) ? owner : null
+    return normalized
   }
 
-  function emitTaskEvent(event) {
-    const owner = getBoundOwner({
-      ...event,
-      platform: event?.platform ?? event?.owner?.platform,
-      videoId: event?.videoId ?? event?.owner?.videoId,
-    })
-    if (!owner) return
-    postMessage({
-      type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.taskEvent,
-      event: cloneSerializable({
-        ...event,
-        platform: owner.platform,
-        videoId: owner.videoId,
-        owner,
-      }),
-    })
-    if (event?.type === 'TASK_FAILED' && event.checkpointAvailable !== true) {
-      taskOwners.delete(event.taskId)
+  function sendRelease(fence) {
+    const key = fenceKey(fence)
+    let record = pendingExecutionReleases.get(key)
+    if (!record) {
+      record = { fence: clone(fence), sends: 0, timerId: null }
+      pendingExecutionReleases.set(key, record)
+    }
+    if (record.sends >= RELEASE_SEND_LIMIT) {
+      pendingExecutionReleases.delete(key)
+      return
+    }
+    record.sends += 1
+    post({ type: 'EXECUTION_RELEASED', fence: record.fence })
+    if (record.sends < RELEASE_SEND_LIMIT) {
+      record.timerId = setTimer(() => sendRelease(record.fence), RELEASE_RETRY_MS)
     }
   }
 
-  function requestSourceRefresh({ owner, taskId, expectedVideoId, reason }) {
-    const boundOwner = getBoundOwner({
-      taskId,
-      platform: owner?.platform,
-      videoId: owner?.videoId,
-      owner,
-    })
-    if (!boundOwner) return Promise.reject(new Error('VIDEO_SUMMARY_OWNER_MISMATCH'))
+  function release(fence) {
+    const key = fenceKey(fence)
+    const attempt = attempts.get(key)
+    if (attempt?.authorizationTimerId != null) clearTimer(attempt.authorizationTimerId)
+    attempts.delete(key)
+    if (fencesEqual(taskFences.get(fence.taskId), fence)) taskFences.delete(fence.taskId)
+    runner.releaseAttempt(fence)
+    sendRelease(fence)
+  }
+
+  function requestSourceRefresh({ owner, taskId, reason }) {
+    const fence = currentFence(taskId)
+    const attempt = fence && attempts.get(fenceKey(fence))
+    if (!fence || !attempt || !ownersEqual(fence.owner, owner)) {
+      return Promise.reject(new Error('VIDEO_SUMMARY_OWNER_MISMATCH'))
+    }
     const requestId = createRequestId()
     return new Promise((resolve, reject) => {
-      pendingSourceRefreshes.set(requestId, { resolve, reject, owner: boundOwner, taskId })
-      postMessage({
-        type: VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.sourceRefreshRequest,
+      pendingSourceRefreshes.set(requestId, { resolve, reject, fence })
+      post({
+        type: 'SOURCE_REFRESH_REQUEST',
         requestId,
-        taskId,
-        platform: boundOwner.platform,
-        videoId: boundOwner.videoId,
-        owner: cloneSerializable(boundOwner),
-        expectedVideoId: expectedVideoId ?? null,
-        reason: reason ?? null,
+        fence,
+        expectedPageIdentity: attempt.pageIdentity,
+        reason,
       })
     })
   }
 
-  function handleGatewayResponse(message) {
-    const requestId = normalizeId(message?.requestId)
-    if (!requestId) return
-    const pending = pendingGatewayRequests.get(requestId)
-    if (!pending) return
-    pendingGatewayRequests.delete(requestId)
-
-    if (message.ok) {
-      pending.resolve(message.result)
-      return
-    }
-
-    pending.reject(createRpcError(message.error))
-  }
-
-  function handleSourceRefreshResult(message) {
-    const requestId = normalizeId(message?.requestId)
-    if (!requestId) return
-    const pending = pendingSourceRefreshes.get(requestId)
-    if (!pending) return
-    const taskId = normalizeId(message?.taskId)
-    let owner
+  function register(command) {
     try {
-      owner = normalizeOwner(message?.owner)
-    } catch {
-      return
-    }
-    if (taskId !== pending.taskId || !ownersEqual(owner, pending.owner)) return
-    pendingSourceRefreshes.delete(requestId)
-
-    if (message.errorCode) {
-      const error = new Error(message.errorCode)
-      error.code = message.errorCode
-      pending.reject(error)
-      return
-    }
-
-    pending.resolve(message.sourceSnapshot)
-  }
-
-  function handleCommand(message) {
-    if (!message || typeof message !== 'object') return
-
-    if (message.type === VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES.gatewayResponse) {
-      handleGatewayResponse(message)
-      return
-    }
-    if (message.type === 'SOURCE_REFRESH_RESULT') {
-      handleSourceRefreshResult(message)
-      return
-    }
-    if (!VIDEO_SUMMARY_OFFSCREEN_COMMAND_TYPES.includes(message.type)) return
-
-    switch (message.type) {
-      case 'START_TASK': {
-        const taskId = normalizeId(message.taskId)
-        if (!taskId) return
-        let owner
-        try {
-          owner = normalizeOwner(message.owner)
-        } catch {
-          return
-        }
-        if (message.platform !== owner.platform || message.videoId !== owner.videoId) return
-        const existingOwner = taskOwners.get(taskId)
-        if (existingOwner && !ownersEqual(existingOwner, owner)) return
-        taskOwners.set(taskId, owner)
-        void Promise.resolve(
-          runtimeTaskRunner.start(
-            {
-              ...message,
-              taskId,
-              platform: owner.platform,
-              videoId: owner.videoId,
-              owner,
-              requestSourceRefresh,
-            },
-            emitTaskEvent,
-          ),
-        ).catch((error) => {
-          logWarn({
-            event: 'video-summary-offscreen.start-failed',
-            taskId,
-            error: error?.code || error?.message || 'VIDEO_SUMMARY_OFFSCREEN_START_FAILED',
-          })
-        })
-        return
+      const emit = (event) =>
+        post({ type: 'TASK_EVENT', fence: command.fence, event: normalizeEvent(event) })
+      runner.registerAttempt({
+        requestId: command.requestId,
+        fence: command.fence,
+        mode: command.mode,
+        payload: { ...command.payload, requestSourceRefresh },
+        emit,
+      })
+      const record = {
+        requestId: command.requestId,
+        fence: command.fence,
+        modelSnapshot: clone(command.payload.modelSnapshot ?? {}),
+        pageIdentity: clone(command.payload.sourceSnapshot?.pageIdentity),
+        authorizationTimerId: null,
       }
-      case 'RETRY_TASK': {
-        const owner = getBoundOwner(message)
-        if (!owner) return
-        void Promise.resolve(runtimeTaskRunner.retry(message.taskId, { ...message, owner })).catch(
-          (error) => {
-            logWarn({
-              event: 'video-summary-offscreen.retry-failed',
-              taskId: normalizeId(message.taskId),
-              error: error?.code || error?.message || 'VIDEO_SUMMARY_OFFSCREEN_RETRY_FAILED',
-            })
-          },
-        )
-        return
-      }
-      case 'CANCEL_TASK': {
-        const owner = getBoundOwner(message)
-        if (!owner) return
-        runtimeTaskRunner.cancel(message.taskId)
-        taskOwners.delete(message.taskId)
-        return
-      }
-      case 'ATTACH_TASK':
-        getBoundOwner(message)
-        return
-      default:
-        return
-    }
-  }
-
-  const onMessage = (message) => {
-    try {
-      handleCommand(message)
+      attempts.set(fenceKey(command.fence), record)
+      post({ type: 'ATTEMPT_ACCEPTED', requestId: command.requestId, fence: command.fence })
+      record.authorizationTimerId = setTimer(() => {
+        if (attempts.get(fenceKey(command.fence)) !== record) return
+        runner.cancelGeneration(generationKey(command.fence))
+        release(command.fence)
+      }, AUTHORIZATION_TIMEOUT_MS)
     } catch (error) {
-      logError({
-        event: 'video-summary-offscreen.command-failed',
-        type: message?.type ?? null,
-        error: error?.code || error?.message || 'VIDEO_SUMMARY_OFFSCREEN_COMMAND_FAILED',
+      post({
+        type: 'ATTEMPT_REJECTED',
+        requestId: command.requestId,
+        fence: command.fence,
+        errorCode: error?.message || 'VIDEO_SUMMARY_ATTEMPT_REJECTED',
       })
     }
   }
+
+  function authorize(command) {
+    const record = attempts.get(fenceKey(command.fence))
+    if (!record || record.requestId !== command.requestId) return
+    clearTimer(record.authorizationTimerId)
+    record.authorizationTimerId = null
+    taskFences.set(command.fence.taskId, command.fence)
+    void Promise.resolve(
+      runner.authorizeAttempt({ requestId: command.requestId, fence: command.fence }),
+    )
+      .catch(() => {})
+      .finally(() => release(command.fence))
+  }
+
+  function handleGatewayResponse(command) {
+    const pending = pendingGatewayRequests.get(command.requestId)
+    if (!pending || !fencesEqual(pending.fence, command.fence)) return
+    pendingGatewayRequests.delete(command.requestId)
+    if (command.ok) pending.resolve(command.result)
+    else pending.reject(createRpcError(command.error))
+  }
+
+  function handleRefreshResult(command) {
+    const pending = pendingSourceRefreshes.get(command.requestId)
+    if (!pending || !fencesEqual(pending.fence, currentFence(command.taskId))) return
+    pendingSourceRefreshes.delete(command.requestId)
+    if (command.errorCode) pending.reject(new Error(command.errorCode))
+    else pending.resolve(command.sourceSnapshot)
+  }
+
+  function handleCommand(value) {
+    let command
+    try {
+      command = parseOffscreenCommand(value)
+    } catch {
+      return
+    }
+    if (command.type === 'START_ATTEMPT') register(command)
+    else if (command.type === 'ATTEMPT_AUTHORIZED') authorize(command)
+    else if (command.type === 'CANCEL_TASK') runner.cancelGeneration(generationKey(command.fence))
+    else if (command.type === 'EXECUTION_RELEASED_ACK') {
+      const record = pendingExecutionReleases.get(fenceKey(command.fence))
+      if (record) clearTimer(record.timerId)
+      pendingExecutionReleases.delete(fenceKey(command.fence))
+    } else if (command.type === 'DELETE_TASK') {
+      runner.deleteTask(command)
+      post({
+        type: 'TASK_DELETED',
+        owner: command.owner,
+        taskId: command.taskId,
+        generation: command.generation,
+      })
+    } else if (command.type === 'GATEWAY_RESPONSE') handleGatewayResponse(command)
+    else handleRefreshResult(command)
+  }
+
   const onDisconnect = () => {
     stopped = true
-    port.onMessage.removeListener(onMessage)
+    for (const record of attempts.values()) clearTimer(record.authorizationTimerId)
+    for (const record of pendingExecutionReleases.values()) clearTimer(record.timerId)
+    const error = new Error('VIDEO_SUMMARY_OFFSCREEN_DISCONNECTED')
+    for (const pending of [
+      ...pendingGatewayRequests.values(),
+      ...pendingSourceRefreshes.values(),
+    ]) {
+      pending.reject(error)
+    }
+    pendingGatewayRequests.clear()
+    pendingSourceRefreshes.clear()
+    port.onMessage.removeListener(handleCommand)
     port.onDisconnect.removeListener(onDisconnect)
-    rejectPendingRequests()
   }
-
-  port.onMessage.addListener(onMessage)
+  port.onMessage.addListener(handleCommand)
   port.onDisconnect.addListener(onDisconnect)
-
-  return {
-    mediaKitGateway: runtimeMediaKitGateway,
-    modelGateway: runtimeModelGateway,
-  }
+  return { mediaKitGateway, modelGateway: runtimeModelGateway }
 }

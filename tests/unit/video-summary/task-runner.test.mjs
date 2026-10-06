@@ -70,6 +70,63 @@ function createInitialPayload() {
   }
 }
 
+const runnerTasks = new WeakMap()
+
+function normalizedOwner(command) {
+  return {
+    tabId: Number.isInteger(command.owner?.tabId) ? command.owner.tabId : 1,
+    documentId: command.owner?.documentId || 'doc-1',
+    platform: command.owner?.platform || 'bilibili',
+    mediaId: command.owner?.mediaId || command.owner?.videoId || command.taskId,
+  }
+}
+
+async function runInitial(runner, command, emit) {
+  const fence = {
+    owner: normalizedOwner(command),
+    taskId: command.taskId,
+    generation: 1,
+    attempt: 1,
+  }
+  const requestId = `start-${command.taskId}`
+  runner.registerAttempt({
+    requestId,
+    fence,
+    mode: 'initial',
+    payload: {
+      sourceChoice: command.sourceChoice,
+      subtitleTrackId: command.subtitleTrackId,
+      settingsSnapshot: command.settingsSnapshot,
+      modelSnapshot: command.modelSnapshot,
+    },
+    transientPayload: {
+      sourceSnapshot: command.sourceSnapshot,
+      requestSourceRefresh: command.requestSourceRefresh,
+    },
+    emit,
+  })
+  runnerTasks.set(runner, { fence, emit, attempt: 1 })
+  return runner.authorizeAttempt({ requestId, fence })
+}
+
+async function runRetry(runner, taskId, payload) {
+  const task = runnerTasks.get(runner)
+  if (!task || task.fence.taskId !== taskId) throw new Error('VIDEO_SUMMARY_TASK_NOT_FOUND')
+  const fence = { ...task.fence, attempt: ++task.attempt }
+  const requestId = `retry-${taskId}-${task.attempt}`
+  runner.registerAttempt({ requestId, fence, mode: 'retry-summary', payload, emit: task.emit })
+  task.fence = fence
+  return runner.authorizeAttempt({ requestId, fence })
+}
+
+function cancelRunner(runner) {
+  const task = runnerTasks.get(runner)
+  if (!task) return
+  runner.cancelGeneration(task.fence)
+  runner.deleteTask(task.fence)
+  runnerTasks.delete(runner)
+}
+
 function createRunnerFixture() {
   const mediaCalls = []
   const modelCalls = []
@@ -187,7 +244,7 @@ test('retry registration requires an existing transcription checkpoint', () => {
         payload: { fromStage: 'synthesis', modelSnapshot: { modelName: 'customModel' } },
         emit: () => {},
       }),
-    /VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND/,
+    /VIDEO_SUMMARY_(TASK_NOT_FOUND|CHECKPOINT_NOT_FOUND)/,
   )
 })
 
@@ -303,7 +360,8 @@ test('runner uses staged Markdown text generation without tool calls', async () 
   })
   const emitted = []
 
-  await runner.start(
+  await runInitial(
+    runner,
     {
       taskId: 'task-markdown-generation',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1markdown' },
@@ -366,7 +424,8 @@ test('article-only final Markdown output is preserved as an unanchored complete 
   })
   const emitted = []
 
-  await runner.start(
+  await runInitial(
+    runner,
     {
       taskId: 'task-article-only',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1article' },
@@ -413,7 +472,8 @@ test('synthesis generation failure falls back to local chunk summaries', async (
   })
   const emitted = []
 
-  await runner.start(
+  await runInitial(
+    runner,
     {
       taskId: 'task-synthesis-fallback',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1fallback' },
@@ -474,7 +534,8 @@ test('one failed chunk is checkpointed while successful chunks still synthesize 
   })
   const emitted = []
 
-  await runner.start(
+  await runInitial(
+    runner,
     {
       taskId: 'task-one-failed-chunk',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1partial' },
@@ -528,7 +589,8 @@ test('temporarily unavailable model capability fails with a transcript checkpoin
 
   await assert.rejects(
     () =>
-      runner.start(
+      runInitial(
+        runner,
         {
           taskId: 'task-temporary-unavailable',
           owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1unavailable' },
@@ -583,7 +645,8 @@ test('length-truncated final Markdown keeps parseable content and adds incomplet
   })
   const emitted = []
 
-  await runner.start(
+  await runInitial(
+    runner,
     {
       taskId: 'task-length-warning',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1length' },
@@ -663,7 +726,7 @@ test('retry from summarizing reruns only failed ranges when a checkpoint has fai
     },
   }
 
-  await runner.start(command, emit)
+  await runInitial(runner, command, emit)
 
   const firstResult = emitted.findLast((event) => event.type === 'TASK_RESULT')
   assert.equal(firstResult.result.status, 'partial')
@@ -673,7 +736,7 @@ test('retry from summarizing reruns only failed ranges when a checkpoint has fai
   assert.equal(mediaPipelineCalls.length, 1)
 
   shouldFailSecondChunk = false
-  await runner.retry('task-7', { fromStage: 'summarizing' })
+  await runRetry(runner, 'task-7', { fromStage: 'summarizing' })
 
   const secondResult = emitted.findLast((event) => event.type === 'TASK_RESULT')
   assert.equal(secondResult.result.status, 'complete')
@@ -723,7 +786,8 @@ test('retry from synthesis falls back to stored local chunks when final generati
   })
   const emitted = []
 
-  await runner.start(
+  await runInitial(
+    runner,
     {
       taskId: 'task-synthesis-retry-fallback',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1synthesisfallback' },
@@ -736,7 +800,7 @@ test('retry from synthesis falls back to stored local chunks when final generati
   )
 
   failSynthesis = true
-  const result = await runner.retry('task-synthesis-retry-fallback', { fromStage: 'synthesis' })
+  const result = await runRetry(runner, 'task-synthesis-retry-fallback', { fromStage: 'synthesis' })
 
   assert.deepEqual(
     calls.map((call) => call.requestId),
@@ -785,7 +849,8 @@ test('retry from synthesis calls only final generation with stored chunk results
   })
   const emitted = []
 
-  await runner.start(
+  await runInitial(
+    runner,
     {
       taskId: 'task-synthesis-retry',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1synthesisretry' },
@@ -797,7 +862,7 @@ test('retry from synthesis calls only final generation with stored chunk results
     (event) => emitted.push(event),
   )
 
-  await runner.retry('task-synthesis-retry', { fromStage: 'synthesis' })
+  await runRetry(runner, 'task-synthesis-retry', { fromStage: 'synthesis' })
 
   assert.deepEqual(
     calls.map((call) => call.requestId),
@@ -821,7 +886,8 @@ test('Bilibili subtitle choice uses the requested track and never calls MediaKit
   })
   const emitted = []
 
-  await runner.start(
+  await runInitial(
+    runner,
     {
       taskId: 'task-ai-subtitle',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1ai' },
@@ -868,7 +934,8 @@ test('native subtitle choice rejects a missing requested track without MediaKit 
 
   await assert.rejects(
     () =>
-      runner.start(
+      runInitial(
+        runner,
         {
           taskId: 'task-missing-track',
           owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1ai' },
@@ -896,7 +963,8 @@ test('successful tasks retain retry state until cancelled', async () => {
   })
   const emitted = []
 
-  await runner.start(
+  await runInitial(
+    runner,
     {
       taskId: 'task-release-complete',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1release' },
@@ -911,13 +979,13 @@ test('successful tasks retain retry state until cancelled', async () => {
     (event) => emitted.push(event),
   )
 
-  await runner.retry('task-release-complete', { fromStage: 'summarizing' })
+  await runRetry(runner, 'task-release-complete', { fromStage: 'summarizing' })
   assert.equal(emitted.filter((event) => event.type === 'TASK_RESULT').length, 2)
 
-  runner.cancel('task-release-complete')
+  cancelRunner(runner, 'task-release-complete')
   await assert.rejects(
-    () => runner.retry('task-release-complete', { fromStage: 'summarizing' }),
-    /VIDEO_SUMMARY_TASK_NOT_FOUND/,
+    () => runRetry(runner, 'task-release-complete', { fromStage: 'summarizing' }),
+    /VIDEO_SUMMARY_(TASK_NOT_FOUND|CHECKPOINT_NOT_FOUND)/,
   )
 })
 
@@ -952,7 +1020,8 @@ test('checkpointed failures retain retry state without cloning source data or ca
 
   await assert.rejects(
     () =>
-      runner.start(
+      runInitial(
+        runner,
         {
           taskId: 'task-checkpoint-retained',
           owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1checkpoint' },
@@ -968,7 +1037,7 @@ test('checkpointed failures retain retry state without cloning source data or ca
   )
 
   capabilityAvailable = true
-  const result = await runner.retry('task-checkpoint-retained', { fromStage: 'summarizing' })
+  const result = await runRetry(runner, 'task-checkpoint-retained', { fromStage: 'summarizing' })
   assert.equal(result.status, 'degraded')
 })
 
@@ -990,7 +1059,8 @@ test('pre-transcription failures and cancellation release all retry state', asyn
 
   await assert.rejects(
     () =>
-      runner.start(
+      runInitial(
+        runner,
         {
           taskId: 'task-before-checkpoint',
           owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1failure' },
@@ -1005,11 +1075,12 @@ test('pre-transcription failures and cancellation release all retry state', asyn
     /VIDEO_NATIVE_SUBTITLES_NOT_FOUND/,
   )
   await assert.rejects(
-    () => runner.retry('task-before-checkpoint', { fromStage: 'summarizing' }),
-    /VIDEO_SUMMARY_TASK_NOT_FOUND/,
+    () => runRetry(runner, 'task-before-checkpoint', { fromStage: 'summarizing' }),
+    /VIDEO_SUMMARY_(TASK_NOT_FOUND|CHECKPOINT_NOT_FOUND)/,
   )
 
-  const startPromise = runner.start(
+  const startPromise = runInitial(
+    runner,
     {
       taskId: 'task-cancel-release',
       owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1cancel' },
@@ -1021,11 +1092,11 @@ test('pre-transcription failures and cancellation release all retry state', asyn
     () => {},
   )
   await Promise.resolve()
-  runner.cancel('task-cancel-release')
+  cancelRunner(runner, 'task-cancel-release')
   await assert.rejects(startPromise, { name: 'AbortError' })
   await assert.rejects(
-    () => runner.retry('task-cancel-release', { fromStage: 'summarizing' }),
-    /VIDEO_SUMMARY_TASK_NOT_FOUND/,
+    () => runRetry(runner, 'task-cancel-release', { fromStage: 'summarizing' }),
+    /VIDEO_SUMMARY_(TASK_NOT_FOUND|CHECKPOINT_NOT_FOUND)/,
   )
   rejectTranscription?.(new Error('unused'))
 })
@@ -1045,7 +1116,8 @@ test('unsupported source choice cannot fall through to paid ASR', async () => {
 
   await assert.rejects(
     () =>
-      runner.start(
+      runInitial(
+        runner,
         {
           taskId: 'task-invalid-source',
           owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1ai' },

@@ -406,9 +406,9 @@ test('source snapshot skips AI conclusion when a player subtitle is usable', asy
     videoId: 'BVTESTCASE01',
     mediaId: '111001',
   })
-  assert.equal(snapshot.platform, 'bilibili')
-  assert.equal(snapshot.videoId, 'BVTESTCASE01')
-  assert.equal(snapshot.pageId, '111001')
+  assert.equal('platform' in snapshot, false)
+  assert.equal('videoId' in snapshot, false)
+  assert.equal('pageId' in snapshot, false)
   assert.equal(conclusionCalls, 0)
   assert.equal(snapshot.subtitleDiscovery.conclusionStatus, 'not-needed')
   assert.equal(snapshot.nativeSubtitleTracks[0].sourceKind, 'author')

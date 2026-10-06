@@ -79,9 +79,11 @@ test('source snapshot resolves the selected page through INITIAL_STATE then play
     }),
   })
 
-  assert.equal(snapshot.platform, 'bilibili')
-  assert.equal(snapshot.videoId, 'BV1test')
-  assert.equal(snapshot.pageId, '2002')
+  assert.deepEqual(snapshot.pageIdentity, {
+    platform: 'bilibili',
+    videoId: 'BV1test',
+    mediaId: '2002',
+  })
   assert.equal(snapshot.nativeSubtitleTracks.length, 1)
   assert.equal(snapshot.mediaCandidates.length, 1)
   assert.doesNotThrow(() => structuredClone(snapshot))
@@ -528,9 +530,11 @@ test('refreshSnapshot works when called without a bound this', async () => {
     expectedVideoId: 'BV1unbound',
   })
 
-  assert.equal(snapshot.platform, 'bilibili')
-  assert.equal(snapshot.videoId, 'BV1unbound')
-  assert.equal(snapshot.pageId, '99001')
+  assert.deepEqual(snapshot.pageIdentity, {
+    platform: 'bilibili',
+    videoId: 'BV1unbound',
+    mediaId: '99001',
+  })
   assert.equal(snapshot.mediaCandidates.length, 1)
   assert.equal(snapshot.nativeSubtitleTracks.length, 1)
 })

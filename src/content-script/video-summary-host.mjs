@@ -7,6 +7,7 @@ import '../components/VideoSummaryView/styles.scss'
 import { buildVideoSummaryMarkdown } from '../video-summary/markdown-export.mjs'
 import { createVideoSummarySettingsSnapshot } from '../video-summary/settings.mjs'
 import { selectPreferredSubtitleTrack } from '../video-summary/subtitle-tracks.mjs'
+import { pageIdentitiesEqual } from '../video-summary/protocol.mjs'
 import { createElementAtPosition } from '../utils'
 import { createSession, initDefaultSession } from '../services/local-session.mjs'
 import { getPreferredLanguageKey, getUserConfig } from '../config/index.mjs'
@@ -17,10 +18,10 @@ const PLATFORM_METADATA = Object.freeze({
   bilibili: Object.freeze({ productName: 'Bilibili', fileNameFallback: 'bilibili-summary' }),
   youtube: Object.freeze({ productName: 'YouTube', fileNameFallback: 'youtube-video-summary' }),
 })
-const TASK_ID_BY_OWNER = new Map()
+const TASK_BY_PAGE = new Map()
 
-function createOwnerKey(documentId, platform, videoId) {
-  return `${documentId || 'unknown-document'}:${platform}:${videoId}`
+function createPageKey(pageIdentity) {
+  return `${pageIdentity.platform}:${pageIdentity.mediaId}`
 }
 
 function sanitizeFileName(value, fallback) {
@@ -107,8 +108,10 @@ export function mountVideoSummaryHost({
   const metadata = PLATFORM_METADATA[platform]
   if (!metadata) throw new Error('VIDEO_SUMMARY_PLATFORM_REQUIRED')
   if (!bridge || !targetElement) throw new Error('VIDEO_SUMMARY_HOST_TARGET_REQUIRED')
-  const videoId = bridge.getCurrentVideoId?.()
-  if (!videoId) throw new Error('VIDEO_SUMMARY_VIDEO_ID_REQUIRED')
+  const pageIdentity = bridge.getCurrentPageIdentity?.()
+  if (!pageIdentity) throw new Error('VIDEO_SUMMARY_PAGE_IDENTITY_REQUIRED')
+  const videoId = pageIdentity.videoId
+  const pageGeneration = 0
 
   const container = document.createElement('div')
   container.className = 'video-summary-host'
@@ -171,8 +174,8 @@ export function mountVideoSummaryHost({
   }
 
   const client = createVideoSummaryPortClient({
-    platform,
-    videoId,
+    pageIdentity,
+    pageGeneration,
     pageBridge: bridge,
     connect,
     onEvent(event) {
@@ -184,7 +187,7 @@ export function mountVideoSummaryHost({
           checkpointAvailable: event.checkpointAvailable === true,
           errorMessage: null,
         }
-      } else if (event.type === 'TASK_RESULT') {
+      } else if (event.type === 'TASK_COMPLETED') {
         state.taskState = {
           phase: 'complete',
           activeStage: null,
@@ -192,7 +195,7 @@ export function mountVideoSummaryHost({
           result: event.result || null,
           errorMessage: null,
         }
-        TASK_ID_BY_OWNER.delete(ownerKey)
+        TASK_BY_PAGE.delete(pageKey)
       } else if (event.type === 'TASK_ERROR' || event.type === 'TASK_FAILED') {
         state.taskState = {
           ...state.taskState,
@@ -200,7 +203,7 @@ export function mountVideoSummaryHost({
           activeStage: null,
           errorMessage: event.errorCode || event.message || 'VIDEO_SUMMARY_TASK_FAILED',
         }
-        TASK_ID_BY_OWNER.delete(ownerKey)
+        TASK_BY_PAGE.delete(pageKey)
       }
       rerender()
     },
@@ -212,7 +215,7 @@ export function mountVideoSummaryHost({
       rerender()
     },
   })
-  const ownerKey = createOwnerKey(client.getDocumentId(), platform, videoId)
+  const pageKey = createPageKey(pageIdentity)
 
   const snapshotNeedsRetry = (snapshot) => {
     const tracks = snapshot?.nativeSubtitleTracks
@@ -224,12 +227,14 @@ export function mountVideoSummaryHost({
   }
 
   async function applySnapshot(sourceSnapshot) {
-    if (disposed || bridge.getCurrentVideoId?.() !== videoId) return false
+    if (disposed || !pageIdentitiesEqual(bridge.getCurrentPageIdentity?.(), pageIdentity))
+      return false
     const selectedSubtitleTrackId = selectPreferredSubtitleTrack(
       sourceSnapshot?.nativeSubtitleTracks,
       await getPreferredLanguageKey(),
     )?.id
-    if (disposed || bridge.getCurrentVideoId?.() !== videoId) return false
+    if (disposed || !pageIdentitiesEqual(bridge.getCurrentPageIdentity?.(), pageIdentity))
+      return false
     state.sourceSnapshot = sourceSnapshot
     state.videoTitle = sourceSnapshot?.title || state.videoTitle
     state.selectedSubtitleTrackId = selectedSubtitleTrackId
@@ -239,7 +244,7 @@ export function mountVideoSummaryHost({
 
   async function retryInitialSnapshot() {
     snapshotRetryTimer = null
-    if (disposed || bridge.getCurrentVideoId?.() !== videoId) return
+    if (disposed || !pageIdentitiesEqual(bridge.getCurrentPageIdentity?.(), pageIdentity)) return
     try {
       await applySnapshot(await bridge.getSnapshot())
     } catch {
@@ -255,7 +260,7 @@ export function mountVideoSummaryHost({
         snapshotRetryTimer = setTimeoutFn(() => void retryInitialSnapshot(), 1000)
       }
     } catch (error) {
-      if (disposed || bridge.getCurrentVideoId?.() !== videoId) return
+      if (disposed || !pageIdentitiesEqual(bridge.getCurrentPageIdentity?.(), pageIdentity)) return
       state.taskState = {
         ...state.taskState,
         phase: 'failed',
@@ -284,7 +289,7 @@ export function mountVideoSummaryHost({
   }
 
   async function ensureSourceSnapshot() {
-    if (state.sourceSnapshot?.platform === platform && state.sourceSnapshot?.videoId === videoId) {
+    if (pageIdentitiesEqual(state.sourceSnapshot?.pageIdentity, pageIdentity)) {
       return state.sourceSnapshot
     }
     state.sourceSnapshot = await bridge.getSnapshot()
@@ -300,7 +305,7 @@ export function mountVideoSummaryHost({
       activeStage: 'resolving-source',
     }
     rerender()
-    const taskId = await client.startTask({
+    const started = await client.startTask({
       sourceChoice: choice,
       subtitleTrackId:
         choice === 'native-subtitle' ? state.selectedSubtitleTrackId || undefined : undefined,
@@ -308,7 +313,7 @@ export function mountVideoSummaryHost({
       settingsSnapshot: await getSettingsSnapshot(),
       modelSnapshot: await getModelSnapshot(),
     })
-    TASK_ID_BY_OWNER.set(ownerKey, taskId)
+    TASK_BY_PAGE.set(pageKey, { taskId: started.taskId, generation: started.generation })
   }
 
   async function retrySummary() {
@@ -318,7 +323,14 @@ export function mountVideoSummaryHost({
       activeStage: 'synthesizing-summary',
     }
     rerender()
-    await client.retryTask({ fromStage: 'synthesis', modelSnapshot: await getModelSnapshot() })
+    const task = TASK_BY_PAGE.get(pageKey)
+    if (!task) return
+    await client.retryTask({
+      taskId: task.taskId,
+      generation: task.generation,
+      fromStage: 'synthesis',
+      modelSnapshot: await getModelSnapshot(),
+    })
   }
 
   async function archiveSummary() {
@@ -356,9 +368,9 @@ export function mountVideoSummaryHost({
 
   rerender()
   void loadInitialSnapshot()
-  const previousTaskId = TASK_ID_BY_OWNER.get(ownerKey)
-  if (previousTaskId) {
-    void client.attachTask({ taskId: previousTaskId })
+  const previousTask = TASK_BY_PAGE.get(pageKey)
+  if (previousTask) {
+    void client.attachTask(previousTask)
     state.taskState = { ...state.taskState, phase: 'reattaching' }
     rerender()
   }
