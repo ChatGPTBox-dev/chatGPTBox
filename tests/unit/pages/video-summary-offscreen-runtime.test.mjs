@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { startVideoSummaryOffscreenRuntime } from '../../../src/pages/VideoSummaryOffscreen/runtime.mjs'
+import {
+  bootstrapVideoSummaryOffscreenRuntime,
+  startVideoSummaryOffscreenRuntime,
+} from '../../../src/pages/VideoSummaryOffscreen/runtime.mjs'
 import { createFakePort } from '../helpers/port.mjs'
 
 const owner = { tabId: 7, documentId: 'doc-7', platform: 'youtube', mediaId: 'abcdefghijk' }
@@ -63,9 +66,107 @@ function createFixture() {
       calls.delete.push(value)
     },
   }
-  startVideoSummaryOffscreenRuntime({ port, taskRunner: runner, logger: {}, clock })
+  startVideoSummaryOffscreenRuntime({
+    port,
+    taskRunner: runner,
+    logger: {},
+    clock,
+    cleanupTask: async () => {},
+  })
   return { port, clock, calls }
 }
+
+test('bootstrap clears every root child before connecting', async () => {
+  const order = []
+  await bootstrapVideoSummaryOffscreenRuntime({
+    cleanupRoot: async () => {
+      order.push('remove-one', 'remove-two', 'remove-three')
+    },
+    connect() {
+      order.push('connect')
+      return createFakePort({ name: 'video-summary-offscreen' })
+    },
+    startRuntime() {
+      order.push('start')
+    },
+  })
+  assert.deepEqual(order, ['remove-one', 'remove-two', 'remove-three', 'connect', 'start'])
+})
+
+test('bootstrap cleanup failure prevents connection', async () => {
+  let connected = false
+  await assert.rejects(
+    bootstrapVideoSummaryOffscreenRuntime({
+      cleanupRoot: async () => {
+        throw new Error('DELETE_FAILED')
+      },
+      connect() {
+        connected = true
+      },
+      startRuntime() {},
+    }),
+    /DELETE_FAILED/,
+  )
+  assert.equal(connected, false)
+})
+
+test('runtime cleans media on command rejection, cancel, delete, and disconnect', async () => {
+  const port = createFakePort({ name: 'video-summary-offscreen' })
+  const cleaned = []
+  const runner = {
+    registerAttempt() {
+      throw new Error('REJECTED')
+    },
+    authorizeAttempt() {},
+    cancelGeneration() {},
+    releaseAttempt() {},
+    deleteTask() {},
+  }
+  startVideoSummaryOffscreenRuntime({
+    port,
+    taskRunner: runner,
+    logger: {},
+    cleanupTask: async ({ taskId, signal }) => {
+      assert.equal(signal.aborted, false)
+      cleaned.push(taskId)
+    },
+  })
+  port.emitMessage({ type: 'START_ATTEMPT', requestId: 'start-1', fence, mode: 'initial', payload })
+  port.emitMessage({ type: 'CANCEL_TASK', fence })
+  port.emitMessage({ type: 'DELETE_TASK', owner, taskId: 'task-2', generation: 1 })
+  port.emitDisconnect()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(cleaned.sort(), ['task-1', 'task-1', 'task-2'])
+})
+
+test('cleanup failure resets runtime instead of claiming task deletion', async () => {
+  const port = createFakePort({ name: 'video-summary-offscreen' })
+  let resets = 0
+  startVideoSummaryOffscreenRuntime({
+    port,
+    taskRunner: {
+      registerAttempt() {},
+      authorizeAttempt() {},
+      cancelGeneration() {},
+      releaseAttempt() {},
+      deleteTask() {},
+    },
+    logger: {},
+    cleanupTask: async () => {
+      throw new Error('DELETE_FAILED')
+    },
+    resetRuntime() {
+      resets += 1
+    },
+  })
+  port.emitMessage({ type: 'DELETE_TASK', owner, taskId: 'task-1', generation: 1 })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(resets, 1)
+  assert.equal(
+    port.postedMessages.some(({ type }) => type === 'TASK_DELETED'),
+    false,
+  )
+})
 
 test('Offscreen accepts registration before authorization and releases after terminal event', async () => {
   const fixture = createFixture()
@@ -141,11 +242,12 @@ test('release retransmits at most ten total times and ACK clears the tombstone',
   )
 })
 
-test('generation cancel and idempotent delete use fenced runner interfaces', () => {
+test('generation cancel and idempotent delete use fenced runner interfaces', async () => {
   const fixture = createFixture()
   fixture.port.emitMessage({ type: 'CANCEL_TASK', fence })
   fixture.port.emitMessage({ type: 'DELETE_TASK', owner, taskId: 'task-1', generation: 1 })
   fixture.port.emitMessage({ type: 'DELETE_TASK', owner, taskId: 'task-1', generation: 1 })
+  await new Promise((resolve) => setTimeout(resolve, 0))
   assert.deepEqual(fixture.calls.cancel, [{ owner, taskId: 'task-1', generation: 1 }])
   assert.equal(fixture.calls.delete.length, 2)
   assert.equal(

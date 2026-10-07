@@ -1,5 +1,9 @@
 import { createMediaPipeline } from '../../video-summary/media-pipeline.mjs'
-import { createTaskOpfsStore } from '../../video-summary/opfs.mjs'
+import {
+  cleanupVideoSummaryTaskDirectory,
+  cleanupVideoSummaryTasksRoot,
+  createTaskOpfsStore,
+} from '../../video-summary/opfs.mjs'
 import {
   fencesEqual,
   ownersEqual,
@@ -66,6 +70,16 @@ function defaultRequestId() {
   return crypto.randomUUID()
 }
 
+export async function bootstrapVideoSummaryOffscreenRuntime({
+  cleanupRoot = cleanupVideoSummaryTasksRoot,
+  connect,
+  startRuntime = startVideoSummaryOffscreenRuntime,
+}) {
+  await cleanupRoot()
+  const port = connect()
+  return startRuntime({ port })
+}
+
 export function startVideoSummaryOffscreenRuntime({
   port,
   taskRunner,
@@ -74,6 +88,8 @@ export function startVideoSummaryOffscreenRuntime({
   logger,
   clock = {},
   createRequestId = defaultRequestId,
+  cleanupTask = cleanupVideoSummaryTaskDirectory,
+  resetRuntime = () => {},
 }) {
   const setTimer = clock.setTimeout?.bind(clock) ?? setTimeout
   const clearTimer = clock.clearTimeout?.bind(clock) ?? clearTimeout
@@ -83,6 +99,27 @@ export function startVideoSummaryOffscreenRuntime({
   const pendingSourceRefreshes = new Map()
   const pendingExecutionReleases = new Map()
   let stopped = false
+
+  async function cleanupTaskMedia(key) {
+    const controller = new AbortController()
+    const timer = setTimer(() => controller.abort(createAbortError()), 10_000)
+    try {
+      await cleanupTask({ ...key, signal: controller.signal })
+    } finally {
+      clearTimer(timer)
+    }
+  }
+
+  function scheduleTaskCleanup(key) {
+    return cleanupTaskMedia(key).then(
+      () => true,
+      () => {
+        post({ type: 'RUNTIME_ERROR', errorCode: 'VIDEO_SUMMARY_OPFS_CLEANUP_FAILED' })
+        resetRuntime('VIDEO_SUMMARY_OPFS_CLEANUP_FAILED')
+        return false
+      },
+    )
+  }
 
   function post(message) {
     if (!stopped) port.postMessage(clone(message))
@@ -232,6 +269,8 @@ export function startVideoSummaryOffscreenRuntime({
       modelGateway: runtimeModelGateway,
       logger,
       clock,
+      cleanupTask,
+      onCleanupFailure: resetRuntime,
     })
 
   function normalizeEvent(event) {
@@ -343,6 +382,7 @@ export function startVideoSummaryOffscreenRuntime({
         release(command.fence)
       }, AUTHORIZATION_TIMEOUT_MS)
     } catch (error) {
+      scheduleTaskCleanup(generationKey(command.fence))
       post({
         type: 'ATTEMPT_REJECTED',
         requestId: command.requestId,
@@ -408,17 +448,21 @@ export function startVideoSummaryOffscreenRuntime({
       const key = generationKey(command.fence)
       cancelPendingGatewayRequests(key)
       runner.cancelGeneration(key)
+      scheduleTaskCleanup(key)
     } else if (command.type === 'EXECUTION_RELEASED_ACK') {
       const record = pendingExecutionReleases.get(fenceKey(command.fence))
       if (record) clearTimer(record.timerId)
       pendingExecutionReleases.delete(fenceKey(command.fence))
     } else if (command.type === 'DELETE_TASK') {
       runner.deleteTask(command)
-      post({
-        type: 'TASK_DELETED',
-        owner: command.owner,
-        taskId: command.taskId,
-        generation: command.generation,
+      void scheduleTaskCleanup(command).then((cleaned) => {
+        if (!cleaned) return
+        post({
+          type: 'TASK_DELETED',
+          owner: command.owner,
+          taskId: command.taskId,
+          generation: command.generation,
+        })
       })
     } else if (command.type === 'GATEWAY_RESPONSE') handleGatewayResponse(command)
     else handleRefreshResult(command)
@@ -426,7 +470,13 @@ export function startVideoSummaryOffscreenRuntime({
 
   const onDisconnect = () => {
     stopped = true
-    for (const record of attempts.values()) clearTimer(record.authorizationTimerId)
+    const generationKeys = new Map()
+    for (const record of attempts.values()) {
+      clearTimer(record.authorizationTimerId)
+      const key = generationKey(record.fence)
+      generationKeys.set(JSON.stringify(key), key)
+    }
+    for (const key of generationKeys.values()) scheduleTaskCleanup(key)
     for (const record of pendingExecutionReleases.values()) clearTimer(record.timerId)
     const error = new Error('VIDEO_SUMMARY_OFFSCREEN_DISCONNECTED')
     for (const tabMap of pendingGatewayRequests.values())

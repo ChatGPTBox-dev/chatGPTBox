@@ -462,9 +462,35 @@ async function summarizeChunks({
   return result
 }
 
-export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clock }) {
+export function createVideoTaskRunner({
+  mediaPipeline,
+  modelGateway,
+  logger,
+  clock,
+  cleanupTask = async () => {},
+  cleanupTimeoutMs = 10_000,
+  onCleanupFailure = () => {},
+}) {
   const generations = new Map()
   const logInfo = createInfoLogger(logger)
+
+  async function cleanupTerminalMedia(state) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(createAbortError()), cleanupTimeoutMs)
+    try {
+      await cleanupTask({
+        owner: state.owner,
+        taskId: state.taskId,
+        generation: state.generation,
+        signal: controller.signal,
+      })
+    } catch {
+      onCleanupFailure('VIDEO_SUMMARY_OPFS_CLEANUP_FAILED')
+      throw new Error('VIDEO_SUMMARY_OPFS_CLEANUP_FAILED')
+    } finally {
+      clearTimeout(timer)
+    }
+  }
 
   function ownerPath(owner) {
     return [owner.tabId, owner.documentId, owner.platform, owner.mediaId]
@@ -756,6 +782,7 @@ export function createVideoTaskRunner({ mediaPipeline, modelGateway, logger, clo
       throw error
     } finally {
       attempt.state = 'finished'
+      await cleanupTerminalMedia(state)
     }
   }
 

@@ -8,6 +8,9 @@ import {
 const VIDEO_SUMMARY_TASKS_DIR = 'video-summary-tasks'
 const DEFAULT_TASK_FILE_NAME = 'media.bin'
 const CLEANUP_RETRY_DELAY_MS = 25
+const DEFAULT_CANDIDATE_BITRATE = 320_000
+export const VIDEO_SUMMARY_OPFS_RESERVE_BYTES = 64 * 1024 * 1024
+export const VIDEO_SUMMARY_OPFS_TASK_LIMIT_BYTES = 1024 * 1024 * 1024
 
 function waitFor(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -20,6 +23,20 @@ function createQuotaExceededError({ availableBytes, requiredBytes, quotaBytes, u
   error.quotaBytes = quotaBytes
   error.usageBytes = usageBytes
   return error
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
+}
+
+function createTaskSizeLimitError() {
+  const error = new Error('OPFS_TASK_SIZE_LIMIT_EXCEEDED')
+  error.code = 'OPFS_TASK_SIZE_LIMIT_EXCEEDED'
+  return error
+}
+
+function isNotFoundError(error) {
+  return error?.name === 'NotFoundError'
 }
 
 async function getRootDirectory(rootDirectory) {
@@ -39,29 +56,64 @@ async function getTasksDirectory(rootDirectory, create) {
   return rootDirectory.getDirectoryHandle(VIDEO_SUMMARY_TASKS_DIR, { create })
 }
 
-async function writeResponseBodyToFile({ response, writable, signal, onProgress }) {
+export function estimateCandidateBytes(candidate) {
+  const metadata = candidate?.mediaMetadata || {}
+  if (Number.isFinite(metadata.contentLength) && metadata.contentLength > 0) {
+    return Math.ceil(metadata.contentLength)
+  }
+  if (!Number.isFinite(metadata.durationMs) || metadata.durationMs <= 0) {
+    return VIDEO_SUMMARY_OPFS_TASK_LIMIT_BYTES
+  }
+  const bitrate =
+    Number.isFinite(metadata.bandwidth) && metadata.bandwidth > 0
+      ? metadata.bandwidth
+      : DEFAULT_CANDIDATE_BITRATE
+  return Math.ceil((metadata.durationMs / 1000) * (bitrate / 8))
+}
+
+async function getWritableBudget(estimateStorage) {
+  if (typeof estimateStorage !== 'function') {
+    return { quotaBytes: null, usageBytes: null, reserveBytes: null, availableBytes: null }
+  }
+  const estimate = await estimateStorage()
+  const quotaBytes = Number.isFinite(estimate?.quota) ? estimate.quota : null
+  const usageBytes = Number.isFinite(estimate?.usage) ? estimate.usage : null
+  const reserveBytes =
+    quotaBytes === null ? null : Math.max(VIDEO_SUMMARY_OPFS_RESERVE_BYTES, quotaBytes * 0.1)
+  const availableBytes =
+    quotaBytes !== null && usageBytes !== null
+      ? Math.max(0, quotaBytes - usageBytes - reserveBytes)
+      : null
+  return { quotaBytes, usageBytes, reserveBytes, availableBytes }
+}
+
+function requireWithinBudget(requiredBytes, budget) {
+  if (requiredBytes > VIDEO_SUMMARY_OPFS_TASK_LIMIT_BYTES) throw createTaskSizeLimitError()
+  if (budget.availableBytes !== null && requiredBytes > budget.availableBytes) {
+    throw createQuotaExceededError({ ...budget, requiredBytes })
+  }
+}
+
+async function writeResponseBodyToFile({ response, writable, signal, onProgress, budget }) {
   const reader = response.body.getReader()
   let bytesWritten = 0
   const totalBytes = Number.parseInt(response.headers.get('content-length') || '', 10) || null
-  let done = false
 
   try {
-    while (!done) {
-      if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
+    for (;;) {
+      throwIfAborted(signal)
       const chunk = await reader.read()
-      done = chunk.done
-      if (done) break
-      const { value } = chunk
-      await writable.write(value)
-      bytesWritten += value.byteLength
-      onProgress?.({
-        bytesWritten,
-        totalBytes: totalBytes ?? bytesWritten,
-      })
+      if (chunk.done) break
+      const nextBytes = bytesWritten + chunk.value.byteLength
+      requireWithinBudget(nextBytes, budget)
+      await writable.write(chunk.value)
+      bytesWritten = nextBytes
+      onProgress?.({ bytesWritten, totalBytes: totalBytes ?? bytesWritten })
     }
     await writable.close()
   } catch (error) {
-    await writable.abort?.().catch?.(() => {})
+    await reader.cancel?.(error).catch?.(() => {})
+    await writable.abort?.(error).catch?.(() => {})
     throw error
   }
 
@@ -73,6 +125,40 @@ async function writeResponseBodyToFile({ response, writable, signal, onProgress 
   }
 }
 
+export async function cleanupVideoSummaryTaskDirectory({ rootDirectory, taskId, signal } = {}) {
+  throwIfAborted(signal)
+  const root = await getRootDirectory(rootDirectory)
+  let tasksDirectory
+  try {
+    tasksDirectory = await getTasksDirectory(root, false)
+  } catch (error) {
+    if (isNotFoundError(error)) return
+    throw error
+  }
+  throwIfAborted(signal)
+  try {
+    await tasksDirectory.removeEntry(taskId, { recursive: true })
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error
+  }
+}
+
+export async function cleanupVideoSummaryTasksRoot({ rootDirectory, signal } = {}) {
+  throwIfAborted(signal)
+  const root = await getRootDirectory(rootDirectory)
+  let tasksDirectory
+  try {
+    tasksDirectory = await getTasksDirectory(root, false)
+  } catch (error) {
+    if (isNotFoundError(error)) return
+    throw error
+  }
+  for await (const entry of tasksDirectory.values()) {
+    throwIfAborted(signal)
+    if (entry?.name) await tasksDirectory.removeEntry(entry.name, { recursive: true })
+  }
+}
+
 export function createTaskOpfsStore({
   rootDirectory,
   taskId,
@@ -81,52 +167,26 @@ export function createTaskOpfsStore({
   wait = waitFor,
   taskFileName = DEFAULT_TASK_FILE_NAME,
 } = {}) {
-  async function ensureQuota({ requiredBytes } = {}) {
+  async function ensureQuota({ requiredBytes, candidate } = {}) {
     const normalizedRequiredBytes =
-      Number.isFinite(requiredBytes) && requiredBytes > 0 ? requiredBytes : 0
-
-    if (!normalizedRequiredBytes || typeof estimateStorage !== 'function') {
-      return {
-        quotaBytes: null,
-        usageBytes: null,
-        availableBytes: null,
-      }
-    }
-
-    const estimate = await estimateStorage()
-    const quotaBytes = Number.isFinite(estimate?.quota) ? estimate.quota : null
-    const usageBytes = Number.isFinite(estimate?.usage) ? estimate.usage : null
-    const availableBytes =
-      quotaBytes !== null && usageBytes !== null ? Math.max(0, quotaBytes - usageBytes) : null
-
-    if (availableBytes !== null && availableBytes < normalizedRequiredBytes) {
-      throw createQuotaExceededError({
-        availableBytes,
-        requiredBytes: normalizedRequiredBytes,
-        quotaBytes,
-        usageBytes,
-      })
-    }
-
-    return { quotaBytes, usageBytes, availableBytes }
+      Number.isFinite(requiredBytes) && requiredBytes > 0
+        ? requiredBytes
+        : estimateCandidateBytes(candidate)
+    const budget = await getWritableBudget(estimateStorage)
+    requireWithinBudget(normalizedRequiredBytes, budget)
+    return budget
   }
 
   async function downloadCandidate({ platform, candidate, signal, onProgress } = {}) {
     const recipe = validateLocalFetchRecipe({ platform, recipe: candidate?.localFetchRecipe })
     const urls = [recipe.primaryUrl, ...recipe.backupUrls]
 
-    if (urls.length === 0) {
-      throw new Error('VIDEO_MEDIA_CANDIDATE_NOT_FOUND')
-    }
-
-    const root = await getRootDirectory(rootDirectory)
-    const tasksDirectory = await getTasksDirectory(root, true)
-    const taskDirectory = await tasksDirectory.getDirectoryHandle(taskId, { create: true })
-    const fileHandle = await taskDirectory.getFileHandle(taskFileName, { create: true })
+    if (urls.length === 0) throw new Error('VIDEO_MEDIA_CANDIDATE_NOT_FOUND')
 
     let lastError = null
     for (const url of urls) {
-      if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
+      throwIfAborted(signal)
+      let taskDirectoryCreated = false
 
       try {
         let currentUrl = url
@@ -151,12 +211,24 @@ export function createTaskOpfsStore({
           throw new Error(`MEDIA_DOWNLOAD_${response?.status || 'FAILED'}`)
         }
 
+        const contentLength = Number.parseInt(response.headers.get('content-length') || '', 10)
+        const requiredBytes =
+          Number.isFinite(contentLength) && contentLength > 0
+            ? contentLength
+            : estimateCandidateBytes(candidate)
+        const budget = await ensureQuota({ requiredBytes, candidate })
+        const root = await getRootDirectory(rootDirectory)
+        const tasksDirectory = await getTasksDirectory(root, true)
+        const taskDirectory = await tasksDirectory.getDirectoryHandle(taskId, { create: true })
+        taskDirectoryCreated = true
+        const fileHandle = await taskDirectory.getFileHandle(taskFileName, { create: true })
         const writable = await fileHandle.createWritable()
         const writeResult = await writeResponseBodyToFile({
           response,
           writable,
           signal,
           onProgress,
+          budget,
         })
         const blob = await fileHandle.getFile()
         return {
@@ -168,7 +240,14 @@ export function createTaskOpfsStore({
           contentType: writeResult.contentType,
         }
       } catch (error) {
-        if (error?.name === 'AbortError' || String(error?.message).startsWith('VIDEO_MEDIA_')) {
+        if (taskDirectoryCreated) {
+          await cleanupVideoSummaryTaskDirectory({ rootDirectory, taskId }).catch(() => {})
+        }
+        if (
+          error?.name === 'AbortError' ||
+          String(error?.message).startsWith('VIDEO_MEDIA_') ||
+          String(error?.message).startsWith('OPFS_')
+        ) {
           throw error
         }
         lastError = error
@@ -189,43 +268,19 @@ export function createTaskOpfsStore({
       signal,
     })
     if (!response?.ok) throw new Error(`MEDIA_UPLOAD_${response?.status || 'FAILED'}`)
-    onProgress?.({
-      bytesWritten: blob?.size ?? 0,
-      totalBytes: blob?.size ?? 0,
-    })
+    onProgress?.({ bytesWritten: blob?.size ?? 0, totalBytes: blob?.size ?? 0 })
   }
 
-  async function cleanup() {
-    const root = await getRootDirectory(rootDirectory)
-    let tasksDirectory
-
+  async function cleanup({ signal } = {}) {
     try {
-      tasksDirectory = await getTasksDirectory(root, false)
-    } catch (error) {
-      if (error?.name === 'NotFoundError') {
-        return { attempts: 1, retrySucceeded: false, initialError: null }
-      }
-      throw error
-    }
-
-    try {
-      await tasksDirectory.removeEntry(taskId, { recursive: true })
+      await cleanupVideoSummaryTaskDirectory({ rootDirectory, taskId, signal })
       return { attempts: 1, retrySucceeded: false, initialError: null }
     } catch (error) {
-      if (error?.name === 'NotFoundError') {
-        return { attempts: 1, retrySucceeded: false, initialError: null }
-      }
-
-      await wait(CLEANUP_RETRY_DELAY_MS)
-      await tasksDirectory.removeEntry(taskId, { recursive: true })
+      await wait(CLEANUP_RETRY_DELAY_MS, { signal })
+      await cleanupVideoSummaryTaskDirectory({ rootDirectory, taskId, signal })
       return { attempts: 2, retrySucceeded: true, initialError: error }
     }
   }
 
-  return {
-    ensureQuota,
-    downloadCandidate,
-    uploadBlob,
-    cleanup,
-  }
+  return { ensureQuota, downloadCandidate, uploadBlob, cleanup }
 }

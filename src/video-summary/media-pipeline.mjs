@@ -252,7 +252,6 @@ async function runLocalUploadFallback({
   mediaKitGateway,
   pollMediaKitTask,
   opfsStoreFactory,
-  logger,
   taskId,
   owner,
   candidate,
@@ -263,67 +262,46 @@ async function runLocalUploadFallback({
 }) {
   const opfsStore = opfsStoreFactory({ taskId, owner })
 
+  await opfsStore.ensureQuota({
+    requiredBytes: candidate?.mediaMetadata?.contentLength ?? null,
+    candidate,
+  })
+
+  const download = await opfsStore.downloadCandidate({
+    platform,
+    candidate,
+    signal,
+    onProgress(progress) {
+      emitEvent(onEvent, { stage: 'downloading', ...progress })
+    },
+  })
+
+  const target = validateUploadTarget(await mediaKitGateway.requestUploadTarget())
+  await opfsStore.uploadBlob({
+    target,
+    blob: download.blob,
+    signal,
+    onProgress(progress) {
+      emitEvent(onEvent, { stage: 'uploading', ...progress })
+    },
+  })
+
+  emitEvent(onEvent, { stage: 'submitting-upload' })
+  let submission
   try {
-    await opfsStore.ensureQuota({
-      requiredBytes: candidate?.mediaMetadata?.contentLength ?? null,
-      candidate,
-    })
-
-    const download = await opfsStore.downloadCandidate({
-      platform,
-      candidate,
+    submission = await mediaKitGateway.submitDirectAsr({
+      audioUrl: target.fileReference,
+      clientToken: taskId,
+      speakerIdentification: settingsSnapshot?.speakerIdentification === true,
+      confirmed: true,
       signal,
-      onProgress(progress) {
-        emitEvent(onEvent, { stage: 'downloading', ...progress })
-      },
     })
-
-    const target = validateUploadTarget(await mediaKitGateway.requestUploadTarget())
-    await opfsStore.uploadBlob({
-      target,
-      blob: download.blob,
-      signal,
-      onProgress(progress) {
-        emitEvent(onEvent, { stage: 'uploading', ...progress })
-      },
-    })
-
-    emitEvent(onEvent, { stage: 'submitting-upload' })
-    let submission
-    try {
-      submission = await mediaKitGateway.submitDirectAsr({
-        audioUrl: target.fileReference,
-        clientToken: taskId,
-        speakerIdentification: settingsSnapshot?.speakerIdentification === true,
-        confirmed: true,
-        signal,
-      })
-    } catch (error) {
-      if (isAmbiguousSubmissionFailure(error)) throw toSubmissionUnknownError(error)
-      throw error
-    }
-
-    return settleTranscription({ pollMediaKitTask, submission, signal, onEvent })
-  } finally {
-    try {
-      const cleanup = await opfsStore.cleanup()
-      logPipelineEvent(logger, 'info', {
-        event: 'video-summary-media-pipeline.cleanup',
-        taskId,
-        cleanup: {
-          attempts: cleanup?.attempts ?? null,
-          retrySucceeded: cleanup?.retrySucceeded ?? false,
-          initialError: serializePipelineError(cleanup?.initialError),
-        },
-      })
-    } catch (cleanupError) {
-      logPipelineEvent(logger, 'warn', {
-        event: 'video-summary-media-pipeline.cleanup-failed',
-        taskId,
-        error: serializePipelineError(cleanupError),
-      })
-    }
+  } catch (error) {
+    if (isAmbiguousSubmissionFailure(error)) throw toSubmissionUnknownError(error)
+    throw error
   }
+
+  return settleTranscription({ pollMediaKitTask, submission, signal, onEvent })
 }
 
 export function createMediaPipeline({
@@ -423,7 +401,6 @@ export function createMediaPipeline({
               mediaKitGateway,
               pollMediaKitTask,
               opfsStoreFactory,
-              logger,
               taskId,
               owner,
               candidate: currentCandidate,
@@ -440,7 +417,6 @@ export function createMediaPipeline({
           mediaKitGateway,
           pollMediaKitTask,
           opfsStoreFactory,
-          logger,
           taskId,
           owner,
           candidate: currentCandidate,

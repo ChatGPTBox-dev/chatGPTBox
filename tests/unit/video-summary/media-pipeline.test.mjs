@@ -527,7 +527,6 @@ test('pipeline performs one signed upload fallback after a documented direct-dow
     ['request-upload-target'],
     ['upload', 'mediakit://file-42', 64],
     ['submit', 'mediakit://file-42'],
-    ['cleanup'],
   ])
   assert.deepEqual(events, [
     { stage: 'submitting-url' },
@@ -587,7 +586,7 @@ test('pipeline checks quota before downloading during the local fallback', async
     { message: 'OPFS_QUOTA_EXCEEDED' },
   )
 
-  assert.deepEqual(calls, [['ensure-quota', 64], ['cleanup']])
+  assert.deepEqual(calls, [['ensure-quota', 64]])
 })
 
 test('pipeline cleans up task files when cancellation interrupts the local fallback', async () => {
@@ -648,8 +647,41 @@ test('pipeline cleans up task files when cancellation interrupts the local fallb
     ],
     ['ensure-quota'],
     ['download'],
-    ['cleanup'],
   ])
+})
+
+test('stream overflow fails before upload target request', async () => {
+  let uploadTargetCalls = 0
+  const pipeline = createMediaPipeline({
+    mediaKitGateway: {
+      async submitDirectAsr() {
+        throw createFallbackError()
+      },
+      async requestUploadTarget() {
+        uploadTargetCalls += 1
+      },
+    },
+    opfsStoreFactory() {
+      return {
+        async ensureQuota() {},
+        async downloadCandidate() {
+          throw new Error('OPFS_TASK_SIZE_LIMIT_EXCEEDED')
+        },
+      }
+    },
+    logger: {},
+    clock: createClock(),
+  })
+  await assert.rejects(
+    pipeline.transcribeFromSource({
+      taskId: 'task-stream-overflow',
+      owner: { platform: 'bilibili', videoId: 'BV1task6001' },
+      sourceSnapshot: createSnapshot(),
+      requestSourceRefresh: async () => createSnapshot(),
+    }),
+    /OPFS_TASK_SIZE_LIMIT_EXCEEDED/,
+  )
+  assert.equal(uploadTargetCalls, 0)
 })
 
 test('pipeline rejects refreshed snapshots that change platform or video identity', async (t) => {

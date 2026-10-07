@@ -157,6 +157,57 @@ function createRunnerFixture() {
   return { runner, mediaCalls, modelCalls, events }
 }
 
+test('terminal cleanup uses a fresh non-aborted signal after success and failure', async (t) => {
+  for (const [name, mediaPipeline] of [
+    [
+      'success',
+      {
+        async transcribeFromSource() {
+          return createTranscription()
+        },
+      },
+    ],
+    [
+      'failure',
+      {
+        async transcribeFromSource() {
+          throw new Error('TRANSCRIPTION_FAILED')
+        },
+      },
+    ],
+  ]) {
+    await t.test(name, async () => {
+      const cleanupSignals = []
+      const runner = createVideoTaskRunner({
+        mediaPipeline,
+        modelGateway: createUnsupportedModelGateway(),
+        logger: createLogger(),
+        clock: { now: () => 0 },
+        async cleanupTask({ taskId, signal }) {
+          assert.equal(taskId, `cleanup-${name}`)
+          cleanupSignals.push(signal)
+        },
+      })
+      const promise = runInitial(
+        runner,
+        {
+          taskId: `cleanup-${name}`,
+          owner: { tabId: 1, documentId: 'doc-1', videoId: `BV1${name}` },
+          sourceChoice: 'asr',
+          sourceSnapshot: {},
+          settingsSnapshot: {},
+          modelSnapshot: {},
+        },
+        () => {},
+      )
+      if (name === 'failure') await assert.rejects(promise, /TRANSCRIPTION_FAILED/)
+      else await promise
+      assert.equal(cleanupSignals.length, 1)
+      assert.equal(cleanupSignals[0].aborted, false)
+    })
+  }
+})
+
 test('registerAttempt accepts locally without beginning provider work', () => {
   const fixture = createRunnerFixture()
   const fence = createFence()
