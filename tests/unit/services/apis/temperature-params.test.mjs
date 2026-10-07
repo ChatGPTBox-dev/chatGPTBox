@@ -39,6 +39,10 @@ test('temperature overrides omit known Anthropic models across provider ID forma
     'claude-opus-5',
     'claude-opus-5-5',
     'anthropic/claude-opus-5.5',
+    'claude-haiku-5-5',
+    'anthropic/claude-haiku-5.5',
+    'claude-haiku-5-5-20261007',
+    'anthropic/claude-haiku-5.5:free',
     'claude-fable-5',
     'claude-fable-5-1',
     'anthropic/claude-fable-5.1',
@@ -51,6 +55,8 @@ test('temperature overrides omit known Anthropic models across provider ID forma
     )
   }
   assert.equal(canApplyTemperatureOverride('claude-opus-4-6'), true)
+  assert.equal(canApplyTemperatureOverride('claude-haiku-5-50'), true)
+  assert.equal(canApplyTemperatureOverride('my-claude-haiku-5-5'), true)
 })
 
 test('temperature overrides omit Gemini models with deprecated sampling parameters', () => {
