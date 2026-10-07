@@ -8,6 +8,7 @@ import {
 } from './summary-markdown.mjs'
 import { createTaskFence, fencesEqual } from './protocol.mjs'
 import { normalizeVideoSummaryMaxOutputTokens } from './settings.mjs'
+import { validateChunkSummaryOutput, validateFinalSummaryOutput } from './output-validity.mjs'
 
 const CHUNK_MAX_OUTPUT_TOKENS = 1200
 const FINAL_MAX_OUTPUT_TOKENS = 4000
@@ -243,7 +244,7 @@ async function summarizeChunk({
   modelGateway,
   controller,
 }) {
-  const { text } = await generateTextOnce({
+  const { text, finishReason } = await generateTextOnce({
     modelGateway,
     taskId: command.taskId,
     requestId: `chunk-${chunkIndex + 1}`,
@@ -259,6 +260,12 @@ async function summarizeChunk({
   const parsed = parseChunkSummaryMarkdown(text, {
     allowedSegmentIds: new Set(chunk.primarySegmentIds),
   })
+  const validity = validateChunkSummaryOutput({ parsed, finishReason })
+  if (!validity.valid) {
+    const error = new Error(validity.reason)
+    error.code = validity.reason
+    throw error
+  }
 
   return {
     primaryStartSegmentId: chunk.primaryStartSegmentId,
@@ -426,7 +433,7 @@ async function summarizeChunks({
   checkpoint.failedRanges = failedRanges
 
   let synthesisResult = null
-  let synthesisFinishReason = null
+  let invalidSynthesis = false
   try {
     const synthesis = await synthesizeSummary({
       localChunkResults: sortedChunkResults,
@@ -436,8 +443,12 @@ async function summarizeChunks({
       modelGateway,
       controller,
     })
-    synthesisResult = synthesis.result
-    synthesisFinishReason = synthesis.finishReason
+    const validity = validateFinalSummaryOutput({
+      parsed: synthesis.result,
+      finishReason: synthesis.finishReason,
+    })
+    if (validity.valid) synthesisResult = synthesis.result
+    else invalidSynthesis = true
   } catch (error) {
     if (isAbortError(error) || isActionableModelError(error)) throw error
     synthesisResult = null
@@ -449,9 +460,7 @@ async function summarizeChunks({
     synthesisResult,
     failedRanges,
   })
-  if (synthesisResult && synthesisFinishReason === 'length') {
-    result = appendResultWarning(result, 'MODEL_OUTPUT_INCOMPLETE')
-  }
+  if (invalidSynthesis) result = appendResultWarning(result, 'MODEL_OUTPUT_INCOMPLETE')
 
   emitEvent(emit, {
     type: 'TASK_RESULT',
@@ -578,7 +587,7 @@ export function createVideoTaskRunner({
     }
 
     let synthesisResult = null
-    let synthesisFinishReason = null
+    let invalidSynthesis = false
     if (capabilities?.supported) {
       try {
         const synthesis = await synthesizeSummary({
@@ -589,8 +598,12 @@ export function createVideoTaskRunner({
           modelGateway,
           controller,
         })
-        synthesisResult = synthesis.result
-        synthesisFinishReason = synthesis.finishReason
+        const validity = validateFinalSummaryOutput({
+          parsed: synthesis.result,
+          finishReason: synthesis.finishReason,
+        })
+        if (validity.valid) synthesisResult = synthesis.result
+        else invalidSynthesis = true
       } catch (error) {
         if (isAbortError(error)) throw error
         synthesisResult = null
@@ -603,9 +616,7 @@ export function createVideoTaskRunner({
       synthesisResult,
       failedRanges: checkpoint.failedRanges,
     })
-    if (synthesisResult && synthesisFinishReason === 'length') {
-      result = appendResultWarning(result, 'MODEL_OUTPUT_INCOMPLETE')
-    }
+    if (invalidSynthesis) result = appendResultWarning(result, 'MODEL_OUTPUT_INCOMPLETE')
     emitEvent(emit, {
       type: 'TASK_RESULT',
       taskId,

@@ -627,6 +627,68 @@ test('one failed chunk is checkpointed while successful chunks still synthesize 
   )
 })
 
+test('empty, heading-only, and truncated chunks become failed ranges', async (t) => {
+  const cases = [
+    ['empty', '', 'stop', 'MODEL_OUTPUT_EMPTY'],
+    [
+      'heading-only',
+      '## Chunk Summary\n## Chunk Key Points\n## Candidate Locations',
+      'stop',
+      'MODEL_OUTPUT_EMPTY',
+    ],
+    ['truncated', '## Chunk Summary\nusable but incomplete', 'length', 'MODEL_OUTPUT_INCOMPLETE'],
+  ]
+
+  for (const [name, invalidText, finishReason, reason] of cases) {
+    await t.test(name, async () => {
+      const transcription = createTranscription()
+      const runner = createVideoTaskRunner({
+        mediaPipeline: {
+          async transcribeFromSource() {
+            return transcription
+          },
+        },
+        modelGateway: {
+          async describeCapabilities() {
+            return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
+          },
+          async generateText(args) {
+            if (args.requestId === 'chunk-1') return { text: invalidText, finishReason }
+            if (args.requestId === 'chunk-2') {
+              return {
+                text: '## Chunk Summary\nusable local summary',
+                finishReason: 'stop',
+              }
+            }
+            return { text: '## Overview\npartial final', finishReason: 'stop' }
+          },
+        },
+        logger: createLogger(),
+        clock: { now: () => 1234 },
+      })
+      const emitted = []
+
+      await runInitial(
+        runner,
+        {
+          taskId: `task-invalid-chunk-${name}`,
+          owner: { tabId: 1, documentId: 'doc-1', videoId: `BV1${name}` },
+          sourceChoice: 'asr',
+          sourceSnapshot: { mediaCandidates: [{ id: 'c1' }] },
+          settingsSnapshot: { preferredLanguage: 'en' },
+          modelSnapshot: { modelName: 'customModel' },
+        },
+        (event) => emitted.push(event),
+      )
+
+      const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
+      assert.equal(result.status, 'partial')
+      assert.deepEqual(result.failedRanges, [{ startSegmentId: 's1', endSegmentId: 's6', reason }])
+      assert.equal(result.overview, 'partial final')
+    })
+  }
+})
+
 test('temporarily unavailable model capability fails with a transcript checkpoint', async () => {
   const transcription = createTranscription()
   const generated = []
@@ -683,54 +745,65 @@ test('temporarily unavailable model capability fails with a transcript checkpoin
   assert.equal(failure.checkpointAvailable, true)
 })
 
-test('length-truncated final Markdown keeps parseable content and adds incomplete warning', async () => {
-  const transcription = createTranscription()
-  const runner = createVideoTaskRunner({
-    mediaPipeline: {
-      async transcribeFromSource() {
-        return transcription
-      },
-    },
-    modelGateway: {
-      async describeCapabilities() {
-        return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
-      },
-      async generateText(args) {
-        if (args.requestId.startsWith('chunk-')) {
-          return {
-            text: `## Chunk Summary\nlocal ${args.requestId}\n## Chunk Key Points\n- point\n## Candidate Locations\n- [segment:s1] candidate`,
-            finishReason: 'stop',
-          }
-        }
-        return {
-          text: '## Overview\ntruncated but parseable\n## Key Points\n- point\n## Chapters\n- [segment:s1] Opening — intro',
-          finishReason: 'length',
-        }
-      },
-      cancel() {},
-    },
-    logger: createLogger(),
-    clock: { now: () => 1234 },
-  })
-  const emitted = []
+test('invalid final Markdown falls back to local summaries with an incomplete warning', async (t) => {
+  const cases = [
+    ['empty', '', 'stop'],
+    ['heading-only', '## Overview\n## Key Points\n## Chapters\n## Key Moments', 'stop'],
+    [
+      'truncated',
+      '## Overview\ntruncated but parseable\n## Key Points\n- point\n## Chapters\n- [segment:s1] Opening — intro',
+      'length',
+    ],
+  ]
 
-  await runInitial(
-    runner,
-    {
-      taskId: 'task-length-warning',
-      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1length' },
-      sourceChoice: 'asr',
-      sourceSnapshot: { videoId: 'BV1length', mediaCandidates: [{ id: 'c1' }] },
-      settingsSnapshot: { preferredLanguage: 'en' },
-      modelSnapshot: { modelName: 'customModel', apiMode: null },
-    },
-    (event) => emitted.push(event),
-  )
+  for (const [name, invalidText, finishReason] of cases) {
+    await t.test(name, async () => {
+      const transcription = createTranscription()
+      const runner = createVideoTaskRunner({
+        mediaPipeline: {
+          async transcribeFromSource() {
+            return transcription
+          },
+        },
+        modelGateway: {
+          async describeCapabilities() {
+            return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
+          },
+          async generateText(args) {
+            if (args.requestId.startsWith('chunk-')) {
+              return {
+                text: `## Chunk Summary\nlocal ${args.requestId}\n## Chunk Key Points\n- point`,
+                finishReason: 'stop',
+              }
+            }
+            return { text: invalidText, finishReason }
+          },
+        },
+        logger: createLogger(),
+        clock: { now: () => 1234 },
+      })
+      const emitted = []
 
-  const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
-  assert.equal(result.status, 'complete')
-  assert.equal(result.overview, 'truncated but parseable')
-  assert.equal(result.warnings.includes('MODEL_OUTPUT_INCOMPLETE'), true)
+      await runInitial(
+        runner,
+        {
+          taskId: `task-invalid-final-${name}`,
+          owner: { tabId: 1, documentId: 'doc-1', videoId: `BV1final${name}` },
+          sourceChoice: 'asr',
+          sourceSnapshot: { mediaCandidates: [{ id: 'c1' }] },
+          settingsSnapshot: { preferredLanguage: 'en' },
+          modelSnapshot: { modelName: 'customModel' },
+        },
+        (event) => emitted.push(event),
+      )
+
+      const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
+      assert.equal(result.status, 'degraded')
+      assert.equal(result.overview.includes('local chunk-1'), true)
+      assert.equal(result.overview.includes('truncated but parseable'), false)
+      assert.equal(result.warnings.includes('MODEL_OUTPUT_INCOMPLETE'), true)
+    })
+  }
 })
 
 test('retry from summarizing reruns only failed ranges when a checkpoint has failures', async () => {
@@ -883,6 +956,70 @@ test('retry from synthesis falls back to stored local chunks when final generati
     ),
     true,
   )
+})
+
+test('retry from synthesis rejects invalid final output and falls back to stored local chunks', async () => {
+  const transcription = createTranscription()
+  const calls = []
+  let retrying = false
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      async transcribeFromSource() {
+        return transcription
+      },
+    },
+    modelGateway: {
+      async describeCapabilities() {
+        return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
+      },
+      async generateText(args) {
+        calls.push(args)
+        if (args.requestId.startsWith('chunk-')) {
+          return {
+            text: `## Chunk Summary\nlocal ${args.requestId}`,
+            finishReason: 'stop',
+          }
+        }
+        if (retrying) {
+          return {
+            text: '## Overview\ntruncated retry',
+            finishReason: 'length',
+          }
+        }
+        return { text: '## Overview\ninitial final', finishReason: 'stop' }
+      },
+    },
+    logger: createLogger(),
+    clock: { now: () => 1234 },
+  })
+  const emitted = []
+
+  await runInitial(
+    runner,
+    {
+      taskId: 'task-invalid-synthesis-retry',
+      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1invalidretry' },
+      sourceChoice: 'asr',
+      sourceSnapshot: { mediaCandidates: [{ id: 'c1' }] },
+      settingsSnapshot: { preferredLanguage: 'en' },
+      modelSnapshot: { modelName: 'customModel' },
+    },
+    (event) => emitted.push(event),
+  )
+
+  retrying = true
+  const result = await runRetry(runner, 'task-invalid-synthesis-retry', {
+    fromStage: 'synthesis',
+  })
+
+  assert.deepEqual(
+    calls.map((call) => call.requestId),
+    ['chunk-1', 'chunk-2', 'synthesis', 'synthesis'],
+  )
+  assert.equal(result.status, 'degraded')
+  assert.equal(result.overview.includes('local chunk-1'), true)
+  assert.equal(result.overview.includes('truncated retry'), false)
+  assert.equal(result.warnings.includes('MODEL_OUTPUT_INCOMPLETE'), true)
 })
 
 test('retry from synthesis calls only final generation with stored chunk results', async () => {
