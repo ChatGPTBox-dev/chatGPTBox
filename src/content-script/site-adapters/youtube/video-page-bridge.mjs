@@ -119,8 +119,6 @@ export async function resolveYouTubeSourceSnapshot({
               language: panel?.language || 'und',
               label: panel?.label || 'Transcript',
               sourceKind: 'unknown',
-              isTranslatable: false,
-              translationLanguages: [],
               cues,
             },
           ],
@@ -152,8 +150,6 @@ export async function resolveYouTubeSourceSnapshot({
         language: descriptor.language,
         label: descriptor.label,
         sourceKind: descriptor.sourceKind,
-        isTranslatable: descriptor.isTranslatable,
-        translationLanguages: descriptor.translationLanguages,
         cues,
       })
     } catch (error) {
@@ -173,8 +169,6 @@ export async function resolveYouTubeSourceSnapshot({
           language: transcript?.language || 'und',
           label: transcript?.label || 'Transcript',
           sourceKind: 'unknown',
-          isTranslatable: false,
-          translationLanguages: [],
           cues,
         })
       }

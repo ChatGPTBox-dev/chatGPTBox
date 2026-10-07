@@ -5,6 +5,7 @@ import {
   createYouTubeVideoPageBridge,
   resolveYouTubeSourceSnapshot,
 } from '../../../src/content-script/site-adapters/youtube/video-page-bridge.mjs'
+import { parseContentCommand } from '../../../src/video-summary/protocol.mjs'
 
 const fixtureUrl = (name) => new URL(`../../fixtures/youtube/${name}`, import.meta.url)
 const loadJson = async (name) => JSON.parse(await readFile(fixtureUrl(name), 'utf8'))
@@ -63,6 +64,29 @@ test('resolves page player data and preserves caption query while reusing observ
   assert.equal(captionRequests[0].searchParams.get('pot'), 'observed-integrity')
   assert.equal(captionRequests[1].searchParams.get('kind'), 'asr')
   assert.doesNotThrow(() => structuredClone(snapshot))
+})
+
+test('YouTube snapshot is accepted by the strict START_TASK protocol', async () => {
+  const snapshot = await resolveYouTubeSourceSnapshot({
+    url: pageUrl,
+    playerResponse: await loadJson('player-response-authored-auto.json'),
+    getPerformanceEntries: () => integrityEntries(),
+    loadCaption: async () => loadJson('timed-text-events.json'),
+  })
+
+  assert.doesNotThrow(() =>
+    parseContentCommand({
+      type: 'START_TASK',
+      requestId: 'start-youtube',
+      taskId: 'task-youtube',
+      pageIdentity: snapshot.pageIdentity,
+      sourceChoice: 'native-subtitle',
+      subtitleTrackId: snapshot.nativeSubtitleTracks[0].id,
+      sourceSnapshot: snapshot,
+      settingsSnapshot: { preferredLanguage: 'en' },
+      modelSnapshot: { modelName: 'gpt-4o-mini' },
+    }),
+  )
 })
 
 test('copies runtime caption client parameters from the latest matching language request', async () => {
