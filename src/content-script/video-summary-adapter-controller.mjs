@@ -1,113 +1,123 @@
-import { mountVideoSummaryHost } from './video-summary-host.mjs'
+import { pageIdentitiesEqual } from '../video-summary/protocol.mjs'
 
 export function createVideoSummaryAdapterController({
-  platform,
-  createBridge,
+  getPageIdentity,
+  resolveMode,
+  mountEnhanced,
+  mountLegacy,
+  subscribeToPageChanges,
   findTargetElement,
   waitForTargetElement,
-  isPageSupported,
-  mountHost = mountVideoSummaryHost,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
 }) {
-  let bridge = null
-  let unsubscribe = null
-  let host = null
-  let hostBridge = null
+  let pageIdentity = null
+  let pageGeneration = 0
+  let reconciliationRevision = 0
+  let mode = 'none'
+  let handle = null
   let targetElement = null
-  let videoId = null
+  let unsubscribe = null
   let monitor = null
-  let generation = 0
   let disposed = false
-  let pendingReconciliation = null
+  let requested = false
   let reconciliation = null
 
-  function disposeHost() {
-    host?.dispose()
-    host = null
-    hostBridge = null
+  const identitiesEqual = (left, right) =>
+    (left === null && right === null) || pageIdentitiesEqual(left, right)
+
+  function isCurrentPage(expectedIdentity, expectedGeneration) {
+    return (
+      !disposed &&
+      pageGeneration === expectedGeneration &&
+      identitiesEqual(pageIdentity, expectedIdentity)
+    )
+  }
+
+  function disposeHandle() {
+    handle?.dispose()
+    handle = null
     targetElement = null
-    videoId = null
   }
 
-  function replaceBridge() {
-    unsubscribe?.()
-    bridge = createBridge()
-    generation += 1
-    unsubscribe = bridge.subscribeToVideoChanges(() => {
-      void requestReconciliation({ replaceBridge: true })
+  async function mountMode({ expectedIdentity, expectedGeneration, expectedMode, target }) {
+    const mount = expectedMode === 'enhanced' ? mountEnhanced : mountLegacy
+    const nextHandle = await mount({
+      pageIdentity: expectedIdentity,
+      pageGeneration: expectedGeneration,
+      targetElement: target,
+      isCurrentPage: () => isCurrentPage(expectedIdentity, expectedGeneration),
     })
-  }
-
-  function waitForRecovery(expectedGeneration, expectedBridge, expectedVideoId) {
-    void Promise.resolve(waitForTargetElement()).then((nextTarget) => {
-      if (
-        disposed ||
-        generation !== expectedGeneration ||
-        bridge !== expectedBridge ||
-        bridge.getCurrentVideoId?.() !== expectedVideoId
-      ) {
-        return
-      }
-      void requestReconciliation({ targetElement: nextTarget })
-    })
-  }
-
-  async function reconcile(options) {
-    if (disposed) return
-    if (options.replaceBridge || !bridge) replaceBridge()
-
-    const expectedGeneration = generation
-    const expectedBridge = bridge
-    const expectedVideoId = bridge.getCurrentVideoId?.()
-    if (!(await isPageSupported())) {
-      disposeHost()
+    if (!isCurrentPage(expectedIdentity, expectedGeneration) || mode !== expectedMode) {
+      nextHandle?.dispose()
       return
     }
     if (
-      disposed ||
-      generation !== expectedGeneration ||
-      bridge !== expectedBridge ||
-      bridge.getCurrentVideoId?.() !== expectedVideoId
+      !nextHandle ||
+      typeof nextHandle.dispose !== 'function' ||
+      typeof nextHandle.isConnected !== 'function'
     ) {
-      return
+      nextHandle?.dispose?.()
+      throw new Error('VIDEO_SUMMARY_PAGE_HANDLE_INVALID')
+    }
+    handle = nextHandle
+    targetElement = target
+  }
+
+  async function reconcile(expectedRevision) {
+    const nextIdentity = (await getPageIdentity()) || null
+    if (disposed || reconciliationRevision !== expectedRevision) return
+    const nextMode = await resolveMode({ pageIdentity: nextIdentity })
+    if (disposed || reconciliationRevision !== expectedRevision) return
+    if (!['enhanced', 'legacy', 'none'].includes(nextMode)) {
+      throw new Error('VIDEO_SUMMARY_PAGE_MODE_INVALID')
     }
 
-    const nextTarget = options.targetElement || findTargetElement()
+    const identityChanged = !identitiesEqual(pageIdentity, nextIdentity)
+    const modeChanged = mode !== nextMode
+    const disconnected = Boolean(handle && !handle.isConnected())
+    const nextTarget = nextMode === 'none' ? null : findTargetElement()
+    const targetChanged = targetElement !== nextTarget
+    if (!identityChanged && !modeChanged && !disconnected && !targetChanged) return
+
+    pageGeneration += 1
+    const expectedGeneration = pageGeneration
+    pageIdentity = nextIdentity
+    mode = nextMode
+    disposeHandle()
+    if (nextMode === 'none' || !nextIdentity) return
+
     if (!nextTarget) {
-      disposeHost()
-      waitForRecovery(expectedGeneration, expectedBridge, expectedVideoId)
-      return
-    }
-    if (
-      host &&
-      hostBridge === expectedBridge &&
-      targetElement === nextTarget &&
-      videoId === expectedVideoId
-    ) {
+      void Promise.resolve(waitForTargetElement()).then((resolvedTarget) => {
+        if (!resolvedTarget || !isCurrentPage(nextIdentity, expectedGeneration)) return
+        return mountMode({
+          expectedIdentity: nextIdentity,
+          expectedGeneration,
+          expectedMode: nextMode,
+          target: resolvedTarget,
+        })
+      })
       return
     }
 
-    disposeHost()
-    host = mountHost({ platform, bridge: expectedBridge, targetElement: nextTarget })
-    hostBridge = expectedBridge
-    targetElement = nextTarget
-    videoId = expectedVideoId
+    await mountMode({
+      expectedIdentity: nextIdentity,
+      expectedGeneration,
+      expectedMode: nextMode,
+      target: nextTarget,
+    })
   }
 
-  function requestReconciliation(options = {}) {
+  function requestReconciliation() {
     if (disposed) return Promise.resolve()
-    pendingReconciliation = {
-      replaceBridge:
-        pendingReconciliation?.replaceBridge === true || options.replaceBridge === true,
-      targetElement: options.targetElement || pendingReconciliation?.targetElement || null,
-    }
+    reconciliationRevision += 1
+    requested = true
     if (!reconciliation) {
       reconciliation = Promise.resolve().then(async () => {
-        while (pendingReconciliation && !disposed) {
-          const nextOptions = pendingReconciliation
-          pendingReconciliation = null
-          await reconcile(nextOptions)
+        while (requested && !disposed) {
+          requested = false
+          const expectedRevision = reconciliationRevision
+          await reconcile(expectedRevision)
         }
       })
       reconciliation = reconciliation.finally(() => {
@@ -120,9 +130,13 @@ export function createVideoSummaryAdapterController({
   return {
     async start() {
       if (disposed) return
+      if (!unsubscribe) unsubscribe = subscribeToPageChanges(() => void requestReconciliation())
       if (monitor === null) {
         monitor = setIntervalFn(() => {
-          if (findTargetElement() !== targetElement) void requestReconciliation()
+          const nextTarget = mode === 'none' ? null : findTargetElement()
+          if (nextTarget !== targetElement || (handle && !handle.isConnected())) {
+            void requestReconciliation()
+          }
         }, 500)
       }
       await requestReconciliation()
@@ -130,16 +144,13 @@ export function createVideoSummaryAdapterController({
     dispose() {
       if (disposed) return
       disposed = true
-      generation += 1
-      pendingReconciliation = null
-      if (monitor !== null) {
-        clearIntervalFn(monitor)
-        monitor = null
-      }
-      disposeHost()
+      pageGeneration += 1
+      requested = false
+      if (monitor !== null) clearIntervalFn(monitor)
+      monitor = null
       unsubscribe?.()
       unsubscribe = null
-      bridge = null
+      disposeHandle()
     },
   }
 }

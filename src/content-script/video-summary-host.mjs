@@ -56,7 +56,9 @@ function buildAskPrompt({ title, result }) {
 function createToolbarLauncher() {
   let toolbarContainer = null
   return {
-    async open(prompt) {
+    async open(prompt, isCurrent = () => true) {
+      const session = await initDefaultSession()
+      if (!isCurrent()) return
       if (toolbarContainer?.isConnected) {
         render(null, toolbarContainer)
         toolbarContainer.remove()
@@ -68,7 +70,7 @@ function createToolbarLauncher() {
       toolbarContainer.className = 'chatgptbox-toolbar-container-not-queryable'
       render(
         h(FloatingToolbar, {
-          session: await initDefaultSession(),
+          session,
           selection: '',
           container: toolbarContainer,
           triggered: true,
@@ -100,6 +102,9 @@ function createInitialTaskState() {
 export function mountVideoSummaryHost({
   platform,
   bridge,
+  pageIdentity: mountedPageIdentity,
+  pageGeneration = 0,
+  isPageCurrent = () => true,
   targetElement,
   connect = Browser.runtime.connect.bind(Browser.runtime),
   setTimeoutFn = setTimeout,
@@ -108,10 +113,9 @@ export function mountVideoSummaryHost({
   const metadata = PLATFORM_METADATA[platform]
   if (!metadata) throw new Error('VIDEO_SUMMARY_PLATFORM_REQUIRED')
   if (!bridge || !targetElement) throw new Error('VIDEO_SUMMARY_HOST_TARGET_REQUIRED')
-  const pageIdentity = bridge.getCurrentPageIdentity?.()
+  const pageIdentity = mountedPageIdentity || bridge.getCurrentPageIdentity?.()
   if (!pageIdentity) throw new Error('VIDEO_SUMMARY_PAGE_IDENTITY_REQUIRED')
   const videoId = pageIdentity.videoId
-  const pageGeneration = 0
 
   const container = document.createElement('div')
   container.className = 'video-summary-host'
@@ -129,7 +133,13 @@ export function mountVideoSummaryHost({
   let disposed = false
   let snapshotRetryTimer = null
 
+  const isCurrentPage = () =>
+    !disposed &&
+    isPageCurrent(pageIdentity, pageGeneration) &&
+    pageIdentitiesEqual(bridge.getCurrentPageIdentity?.(), pageIdentity)
+
   const rerender = () => {
+    if (!isCurrentPage()) return
     render(
       h(VideoSummaryView, {
         platform,
@@ -141,10 +151,12 @@ export function mountVideoSummaryHost({
         asrConfirmationVisible: state.asrConfirmationVisible,
         taskState: state.taskState,
         onSelectSubtitleTrack: (trackId) => {
+          if (!isCurrentPage()) return
           state.selectedSubtitleTrackId = trackId
           rerender()
         },
         onChooseSource: async (choice) => {
+          if (!isCurrentPage()) return
           state.sourceChoice = choice
           if (choice === 'asr') {
             state.asrConfirmationVisible = true
@@ -155,18 +167,22 @@ export function mountVideoSummaryHost({
           await startTask(choice)
         },
         onConfirmAsr: async () => {
+          if (!isCurrentPage()) return
           state.asrConfirmationVisible = false
           rerender()
           await startTask('asr')
         },
         onCancelAsrConfirmation: () => {
+          if (!isCurrentPage()) return
           state.asrConfirmationVisible = false
           rerender()
         },
         onArchive: archiveSummary,
         onAskAboutVideo: askAboutVideo,
         onDownloadMarkdown: downloadMarkdown,
-        onSeekTo: (startMs) => bridge.seekTo(startMs),
+        onSeekTo: (startMs) => {
+          if (isCurrentPage()) bridge.seekTo(startMs)
+        },
         onRetrySummary: retrySummary,
       }),
       container,
@@ -179,6 +195,7 @@ export function mountVideoSummaryHost({
     pageBridge: bridge,
     connect,
     onEvent(event) {
+      if (!isCurrentPage()) return
       if (event.type === 'TASK_STATUS') {
         state.taskState = {
           ...state.taskState,
@@ -208,6 +225,7 @@ export function mountVideoSummaryHost({
       rerender()
     },
     onDisconnect() {
+      if (!isCurrentPage()) return
       state.taskState = {
         ...state.taskState,
         phase: state.taskState.phase === 'complete' ? 'complete' : 'disconnected',
@@ -227,14 +245,12 @@ export function mountVideoSummaryHost({
   }
 
   async function applySnapshot(sourceSnapshot) {
-    if (disposed || !pageIdentitiesEqual(bridge.getCurrentPageIdentity?.(), pageIdentity))
-      return false
+    if (!isCurrentPage()) return false
     const selectedSubtitleTrackId = selectPreferredSubtitleTrack(
       sourceSnapshot?.nativeSubtitleTracks,
       await getPreferredLanguageKey(),
     )?.id
-    if (disposed || !pageIdentitiesEqual(bridge.getCurrentPageIdentity?.(), pageIdentity))
-      return false
+    if (!isCurrentPage()) return false
     state.sourceSnapshot = sourceSnapshot
     state.videoTitle = sourceSnapshot?.title || state.videoTitle
     state.selectedSubtitleTrackId = selectedSubtitleTrackId
@@ -244,7 +260,7 @@ export function mountVideoSummaryHost({
 
   async function retryInitialSnapshot() {
     snapshotRetryTimer = null
-    if (disposed || !pageIdentitiesEqual(bridge.getCurrentPageIdentity?.(), pageIdentity)) return
+    if (!isCurrentPage()) return
     try {
       await applySnapshot(await bridge.getSnapshot())
     } catch {
@@ -260,7 +276,7 @@ export function mountVideoSummaryHost({
         snapshotRetryTimer = setTimeoutFn(() => void retryInitialSnapshot(), 1000)
       }
     } catch (error) {
-      if (disposed || !pageIdentitiesEqual(bridge.getCurrentPageIdentity?.(), pageIdentity)) return
+      if (!isCurrentPage()) return
       state.taskState = {
         ...state.taskState,
         phase: 'failed',
@@ -289,34 +305,45 @@ export function mountVideoSummaryHost({
   }
 
   async function ensureSourceSnapshot() {
+    if (!isCurrentPage()) return null
     if (pageIdentitiesEqual(state.sourceSnapshot?.pageIdentity, pageIdentity)) {
       return state.sourceSnapshot
     }
-    state.sourceSnapshot = await bridge.getSnapshot()
-    state.videoTitle = state.sourceSnapshot?.title || state.videoTitle
-    return state.sourceSnapshot
+    const sourceSnapshot = await bridge.getSnapshot()
+    if (!isCurrentPage()) return null
+    state.sourceSnapshot = sourceSnapshot
+    state.videoTitle = sourceSnapshot?.title || state.videoTitle
+    return sourceSnapshot
   }
 
   async function startTask(choice) {
+    if (!isCurrentPage()) return
     const sourceSnapshot = await ensureSourceSnapshot()
+    if (!sourceSnapshot || !isCurrentPage()) return
     state.taskState = {
       ...createInitialTaskState(),
       phase: 'starting',
       activeStage: 'resolving-source',
     }
     rerender()
+    const settingsSnapshot = await getSettingsSnapshot()
+    if (!isCurrentPage()) return
+    const modelSnapshot = await getModelSnapshot()
+    if (!isCurrentPage()) return
     const started = await client.startTask({
       sourceChoice: choice,
       subtitleTrackId:
         choice === 'native-subtitle' ? state.selectedSubtitleTrackId || undefined : undefined,
       sourceSnapshot,
-      settingsSnapshot: await getSettingsSnapshot(),
-      modelSnapshot: await getModelSnapshot(),
+      settingsSnapshot,
+      modelSnapshot,
     })
+    if (!isCurrentPage()) return
     TASK_BY_PAGE.set(pageKey, { taskId: started.taskId, generation: started.generation })
   }
 
   async function retrySummary() {
+    if (!isCurrentPage()) return
     state.taskState = {
       ...state.taskState,
       phase: 'running',
@@ -325,42 +352,51 @@ export function mountVideoSummaryHost({
     rerender()
     const task = TASK_BY_PAGE.get(pageKey)
     if (!task) return
+    const modelSnapshot = await getModelSnapshot()
+    if (!isCurrentPage()) return
     await client.retryTask({
       taskId: task.taskId,
       generation: task.generation,
       fromStage: 'synthesis',
-      modelSnapshot: await getModelSnapshot(),
+      modelSnapshot,
     })
   }
 
   async function archiveSummary() {
-    if (!state.taskState.result) return
+    if (!isCurrentPage() || !state.taskState.result) return
     const session = await initDefaultSession()
+    if (!isCurrentPage()) return
+    const preferredLanguage = await getPreferredLanguageKey()
+    if (!isCurrentPage()) return
     const markdown = buildVideoSummaryMarkdown({
       title: state.videoTitle,
       result: state.taskState.result,
-      preferredLanguage: await getPreferredLanguageKey(),
+      preferredLanguage,
     })
     const displayTitle = state.videoTitle || videoId
     session.sessionName = `${metadata.productName} summary: ${displayTitle}`
     session.question = `Summarize the ${metadata.productName} video "${displayTitle}".`
     session.conversationRecords = [{ question: session.question, answer: markdown }]
+    if (!isCurrentPage()) return
     await createSession(session)
   }
 
   async function askAboutVideo() {
-    if (!state.taskState.result) return
+    if (!isCurrentPage() || !state.taskState.result) return
     await toolbarLauncher.open(
       buildAskPrompt({ title: state.videoTitle, result: state.taskState.result }),
+      isCurrentPage,
     )
   }
 
   async function downloadMarkdown() {
-    if (!state.taskState.result) return
+    if (!isCurrentPage() || !state.taskState.result) return
+    const preferredLanguage = await getPreferredLanguageKey()
+    if (!isCurrentPage()) return
     const markdown = buildVideoSummaryMarkdown({
       title: state.videoTitle,
       result: state.taskState.result,
-      preferredLanguage: await getPreferredLanguageKey(),
+      preferredLanguage,
     })
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
     FileSaver.saveAs(blob, `${sanitizeFileName(state.videoTitle, metadata.fileNameFallback)}.md`)
@@ -376,6 +412,9 @@ export function mountVideoSummaryHost({
   }
 
   return {
+    isConnected() {
+      return !disposed && container.isConnected
+    },
     dispose() {
       disposed = true
       if (snapshotRetryTimer !== null) {

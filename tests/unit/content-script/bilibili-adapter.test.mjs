@@ -8,39 +8,46 @@ const stubs = new Map([
   ['../index.mjs', 'test:bilibili-site-adapters'],
   ['../../video-summary-capability.mjs', 'test:bilibili-capability'],
   ['../../video-summary-adapter-controller.mjs', 'test:bilibili-controller'],
+  ['../../video-summary-page-mode.mjs', 'test:bilibili-page-mode'],
+  ['../../video-summary-host.mjs', 'test:bilibili-host'],
   ['./video-page-bridge.mjs', 'test:bilibili-bridge'],
 ])
 const sources = {
   'test:bilibili-utils': \`
     export const cropText = async (value) => value
-    export const waitForElementToExistAndSelect = async (selector) => {
-      globalThis.__BILIBILI_ADAPTER_TEST__.waitSelectors.push(selector)
-      return globalThis.__BILIBILI_ADAPTER_TEST__.targetElement
-    }
+    export const waitForElementToExistAndSelect = async () => globalThis.__BILIBILI_ADAPTER_TEST__.target
   \`,
   'test:bilibili-site-adapters': \`export const config = { bilibili: {} }\`,
   'test:bilibili-capability': \`
-    export const isEnhancedVideoSummaryAvailable = (config) => {
-      const state = globalThis.__BILIBILI_ADAPTER_TEST__
-      state.capabilityConfigs.push(config)
-      return state.capabilityAvailable
-    }
+    export const isEnhancedVideoSummaryAvailable = () => globalThis.__BILIBILI_ADAPTER_TEST__.enhanced
   \`,
   'test:bilibili-controller': \`
     export const createVideoSummaryAdapterController = (options) => {
-      const state = globalThis.__BILIBILI_ADAPTER_TEST__
-      state.controllerOptions.push(options)
-      return {
-        async start() {
-          state.startCount += 1
-        },
-      }
+      globalThis.__BILIBILI_ADAPTER_TEST__.options = options
+      return { async start() { globalThis.__BILIBILI_ADAPTER_TEST__.starts += 1 } }
+    }
+  \`,
+  'test:bilibili-page-mode': \`
+    export const resolvePageMode = ({ pageIdentity, pageState, capabilities }) =>
+      pageIdentity && pageState.enhancedSupported && capabilities.enhanced
+        ? 'enhanced'
+        : pageState.legacySupported ? 'legacy' : 'none'
+  \`,
+  'test:bilibili-host': \`
+    export const mountVideoSummaryHost = (options) => {
+      let connected = true
+      return { ...options, dispose() { connected = false }, isConnected: () => connected }
     }
   \`,
   'test:bilibili-bridge': \`
     export const createBilibiliVideoPageBridge = (options) => {
-      const bridge = { options }
-      globalThis.__BILIBILI_ADAPTER_TEST__.bridges.push(bridge)
+      const state = globalThis.__BILIBILI_ADAPTER_TEST__
+      const bridge = {
+        options,
+        resolveCurrentPageIdentity: async () => state.identity,
+        subscribeToVideoChanges: () => () => {},
+      }
+      state.bridges.push(bridge)
       return bridge
     }
   \`,
@@ -53,47 +60,34 @@ export async function resolve(specifier, context, nextResolve) {
   return nextResolve(specifier, context)
 }
 export async function load(url, context, nextLoad) {
-  if (url.startsWith('test:bilibili-')) {
-    return { format: 'module', source: sources[url], shortCircuit: true }
-  }
+  if (url.startsWith('test:bilibili-')) return { format: 'module', source: sources[url], shortCircuit: true }
   return nextLoad(url, context)
 }
 `
 register(`data:text/javascript,${encodeURIComponent(hookSource)}`)
 
-const originalDescriptors = new Map()
-const globals = ['location', 'document', 'window']
+const originals = new Map()
 let adapter
 
 before(async () => {
-  for (const name of globals) {
-    originalDescriptors.set(name, Object.getOwnPropertyDescriptor(globalThis, name))
+  for (const name of ['location', 'document', 'window']) {
+    originals.set(name, Object.getOwnPropertyDescriptor(globalThis, name))
   }
-
   Object.defineProperties(globalThis, {
     location: {
       configurable: true,
-      value: {
-        href: 'https://www.bilibili.com/video/BV1test?p=1',
-        pathname: '/video/BV1test',
-        search: '?p=1',
-      },
+      value: { href: 'https://www.bilibili.com/video/BV1test?p=1', pathname: '/video/BV1test' },
     },
     document: {
       configurable: true,
       value: {
-        querySelector: (selector) => {
-          const state = globalThis.__BILIBILI_ADAPTER_TEST__
-          if (selector === '#danmukuBox') return state.targetElement
-          if (selector === 'video') return state.videoElement
-          return null
-        },
+        documentElement: {},
+        querySelector: (selector) =>
+          selector === '#danmukuBox' ? globalThis.__BILIBILI_ADAPTER_TEST__.target : null,
+        querySelectorAll: () => [{ remove() {} }],
       },
     },
-    window: {
-      configurable: true,
-      value: { setInterval: () => 1 },
-    },
+    window: { configurable: true, value: { setInterval: () => 1, clearInterval() {} } },
   })
   ;({ default: adapter } = await import(
     '../../../src/content-script/site-adapters/bilibili/index.mjs'
@@ -101,84 +95,61 @@ before(async () => {
 })
 
 beforeEach(() => {
-  location.href = 'https://www.bilibili.com/video/BV1test?p=1'
   location.pathname = '/video/BV1test'
-  location.search = '?p=1'
   globalThis.__BILIBILI_ADAPTER_TEST__ = {
-    capabilityAvailable: true,
-    capabilityConfigs: [],
-    controllerOptions: [],
-    startCount: 0,
+    enhanced: true,
+    identity: { platform: 'bilibili', videoId: 'BV1test', mediaId: '100' },
+    target: {},
+    starts: 0,
+    options: null,
     bridges: [],
-    waitSelectors: [],
-    targetElement: { id: 'danmuku' },
-    videoElement: {},
   }
 })
 
 after(() => {
   delete globalThis.__BILIBILI_ADAPTER_TEST__
-  for (const [name, descriptor] of originalDescriptors) {
+  for (const [name, descriptor] of originals) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor)
     else delete globalThis[name]
   }
 })
 
-test('enhanced mode configures and starts the shared Bilibili controller', async () => {
-  const state = globalThis.__BILIBILI_ADAPTER_TEST__
-  const userConfig = { videoTranscriptionEnabled: true }
-
-  const result = await adapter.init(
-    'www.bilibili.com',
-    userConfig,
-    () => {},
-    () => {},
+test('Bilibili uses one controller whose identity includes BVID and CID', async () => {
+  assert.equal(
+    await adapter.init(
+      'www.bilibili.com',
+      {},
+      () => {},
+      async () => {},
+    ),
+    false,
   )
-
-  assert.equal(result, false)
-  assert.deepEqual(state.capabilityConfigs, [userConfig])
-  assert.equal(state.controllerOptions.length, 1)
-  assert.equal(state.startCount, 1)
-  const options = state.controllerOptions[0]
-  assert.equal(options.platform, 'bilibili')
-  assert.equal(options.findTargetElement(), state.targetElement)
-  assert.equal(await options.waitForTargetElement(), state.targetElement)
-  assert.deepEqual(state.waitSelectors, ['img.bili-avatar-img', '#danmukuBox'])
-  assert.equal(await options.isPageSupported(), true)
-  const bridge = options.createBridge()
-  assert.equal(bridge, state.bridges[0])
-  assert.equal(bridge.options.getLocationHref(), location.href)
-  assert.equal(bridge.options.getVideoElement(), state.videoElement)
-})
-
-test('unavailable enhanced mode preserves the legacy adapter path', async () => {
   const state = globalThis.__BILIBILI_ADAPTER_TEST__
-  state.capabilityAvailable = false
+  assert.equal(state.starts, 1)
+  assert.deepEqual(await state.options.getPageIdentity(), state.identity)
+  assert.equal(await state.options.resolveMode({ pageIdentity: state.identity }), 'enhanced')
 
-  const result = await adapter.init(
-    'www.bilibili.com',
-    { videoTranscriptionEnabled: true },
-    () => {},
-    () => {},
-  )
-
-  assert.equal(result, true)
-  assert.equal(state.controllerOptions.length, 0)
-  assert.equal(state.startCount, 0)
-})
-
-test('bangumi pages remain excluded before capability or controller setup', async () => {
-  const state = globalThis.__BILIBILI_ADAPTER_TEST__
+  state.identity = { platform: 'bilibili', videoId: 'BV1test', mediaId: '200' }
+  assert.deepEqual(await state.options.getPageIdentity(), state.identity)
   location.pathname = '/bangumi/play/ep1'
+  assert.equal(await state.options.resolveMode({ pageIdentity: null }), 'none')
+})
 
-  const result = await adapter.init(
+test('legacy mode preserves the existing prompt mount', async () => {
+  const mounts = []
+  globalThis.__BILIBILI_ADAPTER_TEST__.enhanced = false
+  await adapter.init(
     'www.bilibili.com',
-    { videoTranscriptionEnabled: true },
+    {},
     () => {},
-    () => {},
+    async (...args) => mounts.push(args),
   )
-
-  assert.equal(result, false)
-  assert.equal(state.capabilityConfigs.length, 0)
-  assert.equal(state.controllerOptions.length, 0)
+  const options = globalThis.__BILIBILI_ADAPTER_TEST__.options
+  const pageIdentity = await options.getPageIdentity()
+  assert.equal(await options.resolveMode({ pageIdentity }), 'legacy')
+  const handle = await options.mountLegacy({ pageIdentity, pageGeneration: 2, targetElement: {} })
+  assert.deepEqual(mounts, [['bilibili', {}]])
+  assert.equal(handle.isConnected(), true)
+  handle.dispose()
+  assert.equal(handle.isConnected(), false)
 })

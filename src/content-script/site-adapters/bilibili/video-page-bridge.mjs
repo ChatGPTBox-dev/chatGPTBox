@@ -226,6 +226,15 @@ export function createBilibiliVideoPageBridge({
     return { status: 'unavailable', tracks: [] }
   }
 
+  const resolveCurrentPageIdentity = async () => {
+    const href = getLocationHref()
+    await loadHtml(href)
+    return resolveBilibiliSelectedPageMetadata({
+      url: href,
+      initialState: cachedInitialState,
+    }).pageIdentity
+  }
+
   const getSnapshot = async () => {
     const href = getLocationHref()
     const html = await loadHtml(href)
@@ -250,6 +259,7 @@ export function createBilibiliVideoPageBridge({
 
   return {
     getSnapshot,
+    resolveCurrentPageIdentity,
     async refreshSnapshot(options) {
       const { expectedPageIdentity, pageGeneration, expectedPlatform, expectedVideoId } = options
       const currentPageIdentity = getCurrentPageIdentity()

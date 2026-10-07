@@ -64,6 +64,14 @@ function createPort() {
   }
 }
 
+function deferred() {
+  let resolve
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 test('host constructs the Content client from canonical page identity', async () => {
   const identity = { platform: 'youtube', videoId: 'abcdefghijk', mediaId: 'abcdefghijk' }
   const port = createPort()
@@ -90,6 +98,48 @@ test('host constructs the Content client from canonical page identity', async ()
   })
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(target.querySelector('.video-summary-host') !== null, true)
+  assert.equal(host.isConnected(), true)
+  target.querySelector('.video-summary-host').remove()
+  assert.equal(host.isConnected(), false)
   host.dispose()
   assert.equal(target.querySelector('.video-summary-host'), null)
+})
+
+test('page generation blocks late snapshots and actions after disposal', async () => {
+  const identity = { platform: 'youtube', videoId: 'abcdefghijk', mediaId: 'abcdefghijk' }
+  const snapshot = deferred()
+  const seeks = []
+  const port = createPort()
+  const target = document.createElement('div')
+  document.body.append(target)
+  const host = mountVideoSummaryHost({
+    platform: 'youtube',
+    pageIdentity: identity,
+    pageGeneration: 9,
+    bridge: {
+      getCurrentPageIdentity: () => identity,
+      getSnapshot: () => snapshot.promise,
+      refreshSnapshot: () => snapshot.promise,
+      seekTo: (startMs) => seeks.push(startMs),
+    },
+    targetElement: target,
+    connect: () => port,
+  })
+  const staleProps = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  host.dispose()
+  snapshot.resolve({
+    pageIdentity: identity,
+    title: 'late title',
+    nativeSubtitleTracks: [],
+    mediaCandidates: [],
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  staleProps.onSeekTo(1000)
+  await staleProps.onChooseSource('native-subtitle')
+
+  assert.deepEqual(seeks, [])
+  assert.equal(
+    port.messages.some((message) => message.type === 'START_TASK'),
+    false,
+  )
 })

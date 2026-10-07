@@ -28,62 +28,57 @@ function deferred() {
   return { promise, resolve }
 }
 
-function createHarness({ target = { id: 'target-1' }, supported = true } = {}) {
+function identity(platform, videoId, mediaId = videoId) {
+  return { platform, videoId, mediaId }
+}
+
+function createHarness({ initialIdentity = null, initialMode = 'none', target = null } = {}) {
   const state = {
+    identity: initialIdentity,
+    mode: initialMode,
     target,
-    supported,
-    bridges: [],
+    listeners: new Set(),
     mounts: [],
+    waitResults: [],
     intervals: new Map(),
     nextIntervalId: 1,
-    waitCalls: [],
   }
 
-  function createBridge() {
-    const bridge = {
-      id: `bridge-${state.bridges.length + 1}`,
-      videoId: `video-${state.bridges.length + 1}`,
-      listener: null,
-      unsubscribeCount: 0,
-      getCurrentVideoId() {
-        return this.videoId
+  const mount = (mode) => async (options) => {
+    const handle = {
+      ...options,
+      mode,
+      connected: true,
+      disposeCount: 0,
+      dispose() {
+        this.disposeCount += 1
+        this.connected = false
       },
-      subscribeToVideoChanges(listener) {
-        this.listener = listener
-        return () => {
-          this.unsubscribeCount += 1
-          this.listener = null
-        }
+      isConnected() {
+        return this.connected
       },
     }
-    state.bridges.push(bridge)
-    return bridge
+    state.mounts.push(handle)
+    return handle
   }
 
   const controller = createVideoSummaryAdapterController({
-    platform: 'youtube',
-    createBridge,
+    getPageIdentity: () => state.identity,
+    resolveMode: () => state.mode,
+    mountEnhanced: mount('enhanced'),
+    mountLegacy: mount('legacy'),
+    subscribeToPageChanges(listener) {
+      state.listeners.add(listener)
+      return () => state.listeners.delete(listener)
+    },
     findTargetElement: () => state.target,
     waitForTargetElement: async () => {
-      const pending = deferred()
-      state.waitCalls.push(pending)
-      return pending.promise
-    },
-    isPageSupported: () => state.supported,
-    mountHost(options) {
-      const mount = {
-        ...options,
-        disposed: false,
-        dispose() {
-          this.disposed = true
-        },
-      }
-      state.mounts.push(mount)
-      return mount
+      const result = deferred()
+      state.waitResults.push(result)
+      return result.promise
     },
     setIntervalFn(callback, delay) {
-      const id = state.nextIntervalId
-      state.nextIntervalId += 1
+      const id = state.nextIntervalId++
       state.intervals.set(id, { callback, delay })
       return id
     },
@@ -92,130 +87,136 @@ function createHarness({ target = { id: 'target-1' }, supported = true } = {}) {
     },
   })
 
-  return { controller, state }
+  const navigate = async ({ pageIdentity, mode, nextTarget = state.target }) => {
+    state.identity = pageIdentity
+    state.mode = mode
+    state.target = nextTarget
+    for (const listener of state.listeners) listener()
+    await waitFor(
+      () =>
+        (mode === 'none' && liveHandles(state).length === 0) ||
+        state.mounts.some(
+          (handle) =>
+            handle.mode === mode &&
+            handle.pageIdentity?.mediaId === pageIdentity?.mediaId &&
+            handle.disposeCount === 0,
+        ),
+      'navigation did not reconcile',
+    )
+  }
+
+  return { controller, navigate, state }
 }
 
-test('starts one healthy host and does not remount unchanged identity and target', async () => {
-  const { controller, state } = createHarness()
+function liveHandles(state) {
+  return state.mounts.filter((handle) => handle.disposeCount === 0)
+}
 
+test('owns one handle across YouTube home, watch, live, Shorts, and unsupported transitions', async () => {
+  const watchA = identity('youtube', 'SYNTHVID01A')
+  const watchB = identity('youtube', 'SYNTHVID01B')
+  const { controller, navigate, state } = createHarness()
   await controller.start()
-  await controller.start()
-  state.intervals.values().next().value.callback()
-  await nextTask()
-
-  assert.equal(state.bridges.length, 1)
-  assert.equal(state.mounts.length, 1)
-  assert.equal(state.mounts[0].platform, 'youtube')
-  assert.equal(state.mounts[0].bridge, state.bridges[0])
-  assert.equal(state.mounts[0].targetElement, state.target)
-  assert.deepEqual(
-    [...state.intervals.values()].map(({ delay }) => delay),
-    [500],
-  )
-})
-
-test('navigation replaces the bridge, subscription, and host', async () => {
-  const { controller, state } = createHarness()
-  await controller.start()
-
-  state.bridges[0].listener()
-  await waitFor(() => state.mounts.length === 2, 'navigation did not replace the host')
-
-  assert.equal(state.bridges.length, 2)
-  assert.equal(state.bridges[0].unsubscribeCount, 1)
-  assert.equal(state.mounts[0].disposed, true)
-  assert.equal(state.mounts[1].bridge, state.bridges[1])
-})
-
-test('target replacement remounts with the existing bridge', async () => {
-  const { controller, state } = createHarness()
-  await controller.start()
-  state.target = { id: 'target-2' }
-
-  state.intervals.values().next().value.callback()
-  await waitFor(() => state.mounts.length === 2, 'target replacement did not remount')
-
-  assert.equal(state.bridges.length, 1)
-  assert.equal(state.mounts[0].disposed, true)
-  assert.equal(state.mounts[1].bridge, state.bridges[0])
-  assert.equal(state.mounts[1].targetElement, state.target)
-})
-
-test('temporary target absence disposes the host and recovery reuses the bridge', async () => {
-  const { controller, state } = createHarness()
-  await controller.start()
-  state.target = null
-
-  state.intervals.values().next().value.callback()
-  await waitFor(() => state.waitCalls.length === 1, 'target absence did not start a wait')
-  assert.equal(state.mounts[0].disposed, true)
-
-  state.target = { id: 'target-2' }
-  state.waitCalls[0].resolve(state.target)
-  await waitFor(() => state.mounts.length === 2, 'target recovery did not remount')
-
-  assert.equal(state.bridges.length, 1)
-  assert.equal(state.mounts[1].bridge, state.bridges[0])
-})
-
-test('coalesces concurrent reconciliation and rejects a stale target wait', async () => {
-  const { controller, state } = createHarness({ target: null })
-  const start = controller.start()
-  await waitFor(() => state.waitCalls.length === 1, 'initial target wait did not start')
-
-  state.bridges[0].listener()
-  state.bridges[0].listener()
-  await waitFor(() => state.bridges.length === 2, 'navigation reconciliation did not run')
-  assert.equal(state.waitCalls.length, 2)
-
-  const staleTarget = { id: 'stale' }
-  state.waitCalls[0].resolve(staleTarget)
-  await nextTask()
   assert.equal(state.mounts.length, 0)
 
-  state.target = { id: 'current' }
-  state.waitCalls[1].resolve(state.target)
-  await start
-  await waitFor(() => state.mounts.length === 1, 'current target wait did not mount')
+  await navigate({ pageIdentity: watchA, mode: 'enhanced', nextTarget: { id: 'secondary' } })
+  assert.equal(liveHandles(state).length, 1)
+  const first = liveHandles(state)[0]
 
-  assert.equal(state.bridges.length, 2)
-  assert.equal(state.mounts[0].bridge, state.bridges[1])
-  assert.equal(state.mounts[0].targetElement, state.target)
-})
-
-test('unsupported pages tear down and later recover with a replacement bridge', async () => {
-  const { controller, state } = createHarness()
-  await controller.start()
-  state.supported = false
-
-  state.bridges[0].listener()
-  await waitFor(() => state.mounts[0].disposed, 'unsupported page did not tear down host')
-  assert.equal(state.bridges[0].unsubscribeCount, 1)
+  for (const listener of state.listeners) listener()
+  await nextTask()
   assert.equal(state.mounts.length, 1)
 
-  state.supported = true
-  state.bridges[1].listener()
-  await waitFor(() => state.mounts.length === 2, 'supported page did not recover')
-  assert.equal(state.mounts[1].bridge, state.bridges[2])
+  await navigate({ pageIdentity: watchB, mode: 'enhanced' })
+  assert.equal(first.disposeCount, 1)
+  assert.equal(liveHandles(state).length, 1)
+
+  await navigate({ pageIdentity: watchB, mode: 'legacy' })
+  assert.equal(liveHandles(state).length, 1)
+  assert.equal(liveHandles(state)[0].mode, 'legacy')
+
+  await navigate({ pageIdentity: watchB, mode: 'none' })
+  assert.equal(liveHandles(state).length, 0)
+  controller.dispose()
 })
 
-test('dispose releases host, subscription, monitor, and pending waits', async () => {
-  const { controller, state } = createHarness()
+test('Bilibili BVID plus CID identity replacement disposes exactly once', async () => {
+  const { controller, navigate, state } = createHarness({
+    initialIdentity: identity('bilibili', 'BV1test', 'BV1test:100'),
+    initialMode: 'enhanced',
+    target: { id: 'danmuku' },
+  })
   await controller.start()
-  const callback = state.intervals.values().next().value.callback
-  state.target = null
-  callback()
-  await waitFor(() => state.waitCalls.length === 1, 'target wait did not start before disposal')
+  const first = state.mounts[0]
 
+  await navigate({
+    pageIdentity: identity('bilibili', 'BV1test', 'BV1test:200'),
+    mode: 'enhanced',
+  })
+
+  assert.equal(first.disposeCount, 1)
+  assert.equal(liveHandles(state).length, 1)
+  assert.equal(liveHandles(state)[0].pageIdentity.mediaId, 'BV1test:200')
   controller.dispose()
-  callback()
-  state.bridges[0].listener?.()
-  state.waitCalls[0].resolve({ id: 'late-target' })
+  assert.equal(first.disposeCount, 1)
+})
+
+test('remounts when only the mounted host child becomes disconnected', async () => {
+  const { controller, state } = createHarness({
+    initialIdentity: identity('youtube', 'SYNTHVID01A'),
+    initialMode: 'enhanced',
+    target: { id: 'secondary' },
+  })
+  await controller.start()
+  const first = state.mounts[0]
+  first.connected = false
+
+  state.intervals.values().next().value.callback()
+  await waitFor(() => state.mounts.length === 2, 'disconnected child did not remount')
+
+  assert.equal(first.disposeCount, 1)
+  assert.equal(liveHandles(state).length, 1)
+  assert.equal(state.mounts[1].pageGeneration > first.pageGeneration, true)
+})
+
+test('page generation rejects stale target waits and stale async mounts', async () => {
+  const watchA = identity('youtube', 'SYNTHVID01A')
+  const watchB = identity('youtube', 'SYNTHVID01B')
+  const { controller, navigate, state } = createHarness({
+    initialIdentity: watchA,
+    initialMode: 'enhanced',
+  })
+  const start = controller.start()
+  await waitFor(() => state.waitResults.length === 1, 'target wait did not start')
+
+  state.identity = watchB
+  state.target = { id: 'current' }
+  for (const listener of state.listeners) listener()
+  await waitFor(() => state.mounts.length === 1, 'current page did not mount')
+
+  state.waitResults[0].resolve({ id: 'stale' })
+  await start
   await nextTask()
 
-  assert.equal(state.mounts[0].disposed, true)
-  assert.equal(state.bridges[0].unsubscribeCount, 1)
-  assert.equal(state.intervals.size, 0)
-  assert.equal(state.bridges.length, 1)
   assert.equal(state.mounts.length, 1)
+  assert.equal(state.mounts[0].pageIdentity.mediaId, watchB.mediaId)
+  assert.equal(liveHandles(state).length, 1)
+  await navigate({ pageIdentity: watchB, mode: 'enhanced' })
+  assert.equal(state.mounts.length, 1)
+})
+
+test('dispose invalidates pending work and releases subscription and monitor', async () => {
+  const { controller, state } = createHarness({
+    initialIdentity: identity('youtube', 'SYNTHVID01A'),
+    initialMode: 'enhanced',
+  })
+  const start = controller.start()
+  await waitFor(() => state.waitResults.length === 1, 'target wait did not start')
+  controller.dispose()
+  state.waitResults[0].resolve({ id: 'late' })
+  await start
+
+  assert.equal(state.mounts.length, 0)
+  assert.equal(state.listeners.size, 0)
+  assert.equal(state.intervals.size, 0)
 })

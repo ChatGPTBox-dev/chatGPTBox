@@ -2,46 +2,73 @@ import { cropText, waitForElementToExistAndSelect } from '../../../utils'
 import { config } from '../index.mjs'
 import { createVideoSummaryAdapterController } from '../../video-summary-adapter-controller.mjs'
 import { isEnhancedVideoSummaryAvailable } from '../../video-summary-capability.mjs'
+import { resolvePageMode } from '../../video-summary-page-mode.mjs'
+import { mountVideoSummaryHost } from '../../video-summary-host.mjs'
 import { createBilibiliVideoPageBridge } from './video-page-bridge.mjs'
 
 export default {
   init: async (hostname, userConfig, getInput, mountComponent) => {
-    if (location.pathname.includes('/bangumi')) return false
-    try {
-      // B站页面是SSR的，如果插入过早，页面 js 检测到实际 Dom 和期望 Dom 不一致，会导致重新渲染
-      await waitForElementToExistAndSelect('img.bili-avatar-img')
-
-      if (isEnhancedVideoSummaryAvailable(userConfig)) {
-        const controller = createVideoSummaryAdapterController({
-          platform: 'bilibili',
-          createBridge: () =>
-            createBilibiliVideoPageBridge({
-              getLocationHref: () => location.href,
-              getVideoElement: () => document.querySelector('video'),
-            }),
-          findTargetElement: () => document.querySelector('#danmukuBox'),
-          waitForTargetElement: () => waitForElementToExistAndSelect('#danmukuBox'),
-          isPageSupported: () => !location.pathname.includes('/bangumi'),
-        })
-        await controller.start()
-        return false
-      }
-
-      const getVideoPath = () =>
-        location.pathname + `?p=${new URLSearchParams(location.search).get('p') || 1}`
-      let oldPath = getVideoPath()
-      const checkPathChange = async () => {
-        const newPath = getVideoPath()
-        if (newPath !== oldPath) {
-          oldPath = newPath
-          mountComponent('bilibili', config.bilibili)
+    const enhancedAvailable = isEnhancedVideoSummaryAvailable(userConfig)
+    const bridge = createBilibiliVideoPageBridge({
+      getLocationHref: () => location.href,
+      getVideoElement: () => document.querySelector('video'),
+    })
+    let currentMode = 'none'
+    const controller = createVideoSummaryAdapterController({
+      getPageIdentity: async () => {
+        if (!location.pathname.startsWith('/video/')) return null
+        try {
+          return await bridge.resolveCurrentPageIdentity()
+        } catch {
+          return null
         }
-      }
-      window.setInterval(checkPathChange, 500)
-    } catch (e) {
-      /* empty */
-    }
-    return true
+      },
+      resolveMode: ({ pageIdentity }) => {
+        const supported = location.pathname.startsWith('/video/') && Boolean(pageIdentity)
+        currentMode = resolvePageMode({
+          config: userConfig,
+          capabilities: { enhanced: enhancedAvailable },
+          pageIdentity,
+          pageState: { enhancedSupported: supported, legacySupported: supported },
+        })
+        return currentMode
+      },
+      mountEnhanced: ({ pageIdentity, pageGeneration, targetElement, isCurrentPage }) =>
+        mountVideoSummaryHost({
+          platform: 'bilibili',
+          bridge,
+          pageIdentity,
+          pageGeneration,
+          isPageCurrent: isCurrentPage,
+          targetElement,
+        }),
+      async mountLegacy() {
+        await mountComponent('bilibili', config.bilibili)
+        let connected = true
+        return {
+          dispose() {
+            connected = false
+            document
+              .querySelectorAll('.chatgptbox-container,#chatgptbox-container')
+              .forEach((element) => element.remove())
+          },
+          isConnected: () =>
+            connected &&
+            document.querySelectorAll('.chatgptbox-container,#chatgptbox-container').length > 0,
+        }
+      },
+      subscribeToPageChanges: (listener) => bridge.subscribeToVideoChanges(listener),
+      findTargetElement: () =>
+        currentMode === 'enhanced'
+          ? document.querySelector('#danmukuBox')
+          : document.documentElement,
+      waitForTargetElement: () =>
+        currentMode === 'enhanced'
+          ? waitForElementToExistAndSelect('#danmukuBox')
+          : document.documentElement,
+    })
+    await controller.start()
+    return false
   },
   inputQuery: async () => {
     try {
