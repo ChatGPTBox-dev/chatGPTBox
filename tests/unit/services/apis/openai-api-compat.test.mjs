@@ -6,6 +6,7 @@ import {
   generateAnswersWithGptCompletionApi,
   generateAnswersWithOpenAICompatibleApi,
 } from '../../../../src/services/apis/openai-api.mjs'
+import { generateAnswersWithOpenAICompatible } from '../../../../src/services/apis/openai-compatible-core.mjs'
 import { claimLatestPortSessionRequest } from '../../../../src/services/wrappers.mjs'
 import { FETCH_REQUEST_FAILED } from '../../../../src/utils/fetch-sse.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
@@ -110,6 +111,48 @@ test('openai-compatible: isolated diagnostics do not emit raw parse errors throu
   assert.equal(JSON.stringify(diagnostics).includes('SECRET_PROMPT'), false)
   assert.equal(JSON.stringify(diagnostics).includes('SECRET_ANSWER'), false)
   assert.equal(diagnostics.length > 0, true)
+})
+
+test('openai-compatible video-summary body preserves roles and removes every tool field', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const port = createFakePort()
+  const session = { modelName: 'chatgptApi4oMini', conversationRecords: [], isRetry: false }
+  const requestMessages = [
+    { role: 'system', content: 'fixed instruction' },
+    { role: 'user', content: '{"transcript":"untrusted"}' },
+  ]
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithOpenAICompatible({
+    port,
+    question: 'flattened question must not be used',
+    session,
+    endpointType: 'chat',
+    requestUrl: 'https://api.example.com/v1/chat/completions',
+    model: 'model',
+    apiKey: 'key',
+    config: { maxConversationContextLength: 3, maxResponseTokenLength: 256 },
+    extraBody: {
+      tools: [{ type: 'function' }],
+      tool_choice: 'auto',
+      toolChoice: 'auto',
+      functions: [{ name: 'unsafe' }],
+      function_call: 'auto',
+    },
+    adapterOptions: { requestMessages, toolPolicy: 'none' },
+  })
+
+  const body = JSON.parse(capturedInit.body)
+  assert.deepEqual(body.messages, requestMessages)
+  for (const field of ['tools', 'tool_choice', 'toolChoice', 'functions', 'function_call']) {
+    assert.equal(field in body, false)
+  }
 })
 
 test('generateAnswersWithOpenAiApiCompat sends expected request and aggregates SSE deltas', async (t) => {

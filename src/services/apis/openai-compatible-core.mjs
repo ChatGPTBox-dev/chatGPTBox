@@ -83,7 +83,12 @@ export async function generateAnswersWithOpenAICompatible({
   session.conversationRecords = conversationRecords
   const safeExtraBody = { ...extraBody }
   delete safeExtraBody.temperature
-  if (endpointType === 'completion') {
+  if (adapterOptions?.toolPolicy === 'none') {
+    for (const field of ['tools', 'tool_choice', 'toolChoice', 'functions', 'function_call']) {
+      delete safeExtraBody[field]
+    }
+  }
+  if (endpointType === 'completion' && !adapterOptions?.requestMessages) {
     const prompt =
       (await getCompletionPromptBase()) +
       getConversationPairs(conversationRecords.slice(-config.maxConversationContextLength), true) +
@@ -98,11 +103,10 @@ export async function generateAnswersWithOpenAICompatible({
       ...safeExtraBody,
     }
   } else {
-    const messages = getConversationPairs(
-      conversationRecords.slice(-config.maxConversationContextLength),
-      false,
-    )
-    messages.push({ role: 'user', content: question })
+    const messages = adapterOptions?.requestMessages
+      ? adapterOptions.requestMessages.map(({ role, content }) => ({ role, content }))
+      : getConversationPairs(conversationRecords.slice(-config.maxConversationContextLength), false)
+    if (!adapterOptions?.requestMessages) messages.push({ role: 'user', content: question })
     const tokenParams = getChatCompletionsTokenParams(
       provider,
       model,

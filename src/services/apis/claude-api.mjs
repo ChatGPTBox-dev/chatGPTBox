@@ -29,11 +29,16 @@ export async function generateAnswersWithClaudeApi(
   const apiUrl = config.customAnthropicApiUrl
   const model = getModelValue(session)
 
-  const prompt = getConversationPairs(
-    session.conversationRecords.slice(-config.maxConversationContextLength),
-    false,
-  )
-  prompt.push({ role: 'user', content: question })
+  const requestMessages = adapterOptions?.requestMessages
+  const prompt = requestMessages
+    ? requestMessages
+        .filter(({ role }) => role === 'user')
+        .map(({ role, content }) => ({ role, content }))
+    : getConversationPairs(
+        session.conversationRecords.slice(-config.maxConversationContextLength),
+        false,
+      )
+  if (!requestMessages) prompt.push({ role: 'user', content: question })
 
   const body = {
     model,
@@ -41,6 +46,12 @@ export async function generateAnswersWithClaudeApi(
     stream: true,
     max_tokens: config.maxResponseTokenLength,
     ...getTemperatureParams(config, model),
+  }
+  if (requestMessages) {
+    body.system = requestMessages
+      .filter(({ role }) => role === 'system')
+      .map(({ content }) => content)
+      .join('\n\n')
   }
   const thinking = getThinkingConfig(model)
   if (thinking) body.thinking = thinking

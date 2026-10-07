@@ -50,6 +50,44 @@ test('azure-openai: composes URL, strips trailing slash, sends api-key header', 
   assert.equal(capturedInit.headers['Content-Type'], 'application/json')
 })
 
+test('azure-openai: video-summary body preserves roles and has no tool fields', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const config = {
+    azureEndpoint: 'https://myinstance.openai.azure.com',
+    azureApiKey: 'az-key',
+    azureDeploymentName: 'gpt-4o',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+  }
+  const session = { modelName: 'azureOpenAi', conversationRecords: [], isRetry: false }
+  const port = createFakePort()
+  const requestMessages = [
+    { role: 'system', content: 'fixed instruction' },
+    { role: 'user', content: '{"transcript":"untrusted"}' },
+  ]
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithAzureOpenaiApi(
+    port,
+    'flattened question must not be used',
+    session,
+    config,
+    { requestMessages, toolPolicy: 'none' },
+  )
+
+  const body = JSON.parse(capturedInit.body)
+  assert.deepEqual(body.messages, requestMessages)
+  assert.equal('tools' in body, false)
+  assert.equal('tool_choice' in body, false)
+  assert.equal('toolChoice' in body, false)
+})
+
 test('azure-openai: endpoint without trailing slash works', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({

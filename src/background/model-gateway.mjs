@@ -23,6 +23,24 @@ function cloneSerializable(value, fallback) {
   }
 }
 
+function normalizeVideoSummaryMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error('MODEL_GATEWAY_MESSAGES_INVALID')
+  }
+  return messages.map((message) => {
+    const keys = Object.keys(message || {}).sort()
+    if (
+      keys.join(',') !== 'content,role' ||
+      !['system', 'user'].includes(message.role) ||
+      typeof message.content !== 'string' ||
+      !message.content.trim()
+    ) {
+      throw new Error('MODEL_GATEWAY_MESSAGES_INVALID')
+    }
+    return { role: message.role, content: message.content }
+  })
+}
+
 function normalizeMaxOutputTokens(value) {
   const requested = Number(value)
   if (!Number.isFinite(requested)) return DEFAULT_CAPABILITIES.maxOutputTokens
@@ -104,15 +122,19 @@ export function createModelGateway({
       }
     },
     async generateText(
-      { requestId, taskId, modelSnapshot, messages, maxOutputTokens },
+      { requestId, taskId, modelSnapshot, messages, maxOutputTokens, requestKind, toolPolicy },
       { signal } = {},
     ) {
       throwIfAborted(signal)
+      if (requestKind !== 'video-summary' || toolPolicy !== 'none') {
+        throw new Error('MODEL_GATEWAY_POLICY_INVALID')
+      }
+      const normalizedMessages = normalizeVideoSummaryMessages(messages)
       const key = `${taskId}:${requestId}`
       const controller = signal ? null : new AbortController()
       const requestSignal = signal || controller.signal
       const immutableSnapshot = cloneSerializable(modelSnapshot, {})
-      const immutableMessages = cloneSerializable(Array.isArray(messages) ? messages : [], [])
+      const immutableMessages = cloneSerializable(normalizedMessages, [])
       const boundedOutputTokens = normalizeMaxOutputTokens(maxOutputTokens)
       if (controller) controllers.set(key, controller)
 
@@ -126,12 +148,17 @@ export function createModelGateway({
             maxOutputTokens: boundedOutputTokens,
           }),
         )
-        const response = await generateTextWithModel({
-          modelSnapshot: immutableSnapshot,
-          messages: immutableMessages,
-          maxOutputTokens: boundedOutputTokens,
-          signal: requestSignal,
-        })
+        const response = await generateTextWithModel(
+          {
+            modelSnapshot: immutableSnapshot,
+            messages: immutableMessages,
+            maxOutputTokens: boundedOutputTokens,
+            requestKind,
+            toolPolicy,
+            signal: requestSignal,
+          },
+          { signal: requestSignal },
+        )
         throwIfAborted(requestSignal)
         const result = {
           text: typeof response?.text === 'string' ? response.text : '',

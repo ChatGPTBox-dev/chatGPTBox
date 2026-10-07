@@ -429,6 +429,24 @@ test('runner uses staged Markdown text generation without tool calls', async () 
     calls.some((call) => 'tool' in call),
     false,
   )
+  assert.equal(
+    calls.every((call) => call.requestKind === 'video-summary'),
+    true,
+  )
+  assert.equal(
+    calls.every((call) => call.toolPolicy === 'none'),
+    true,
+  )
+  assert.equal(
+    calls.every((call) =>
+      call.messages.every(
+        (message) =>
+          Object.keys(message).sort().join(',') === 'content,role' &&
+          ['system', 'user'].includes(message.role),
+      ),
+    ),
+    true,
+  )
   assert.deepEqual(
     calls.map((call) => call.maxOutputTokens),
     [1200, 1200, 4000],

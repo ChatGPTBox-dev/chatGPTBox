@@ -122,8 +122,8 @@ test('generateText forwards immutable inputs, bounded output tokens, and an abor
   const entries = []
   let capturedArgs
   const gateway = createGateway({
-    generateTextWithModel: async (args) => {
-      capturedArgs = args
+    generateTextWithModel: async (args, options) => {
+      capturedArgs = { ...args, ...options }
       args.modelSnapshot.modelName = 'mutated'
       args.messages[0].content = 'mutated'
       return { text: 'private returned summary', finishReason: 'length', raw: 'private payload' }
@@ -135,6 +135,7 @@ test('generateText forwards immutable inputs, bounded output tokens, and an abor
     apiMode: Object.freeze({ groupName: 'web', providerId: 'kimi' }),
   })
   const messages = Object.freeze([
+    Object.freeze({ role: 'system', content: 'fixed instruction' }),
     Object.freeze({ role: 'user', content: 'private transcript content' }),
   ])
 
@@ -144,24 +145,65 @@ test('generateText forwards immutable inputs, bounded output tokens, and an abor
     modelSnapshot,
     messages,
     maxOutputTokens: 50_000,
+    requestKind: 'video-summary',
+    toolPolicy: 'none',
   })
 
   assert.deepEqual(result, { text: 'private returned summary', finishReason: 'length' })
   assert.notEqual(capturedArgs.modelSnapshot, modelSnapshot)
   assert.notEqual(capturedArgs.messages, messages)
   assert.equal(capturedArgs.maxOutputTokens, 20_000)
+  assert.equal(capturedArgs.requestKind, 'video-summary')
+  assert.equal(capturedArgs.toolPolicy, 'none')
   assert.equal(typeof capturedArgs.signal?.aborted, 'boolean')
   assert.deepEqual(modelSnapshot, {
     modelName: 'moonshotWebFree',
     apiMode: { groupName: 'web', providerId: 'kimi' },
   })
-  assert.deepEqual(messages, [{ role: 'user', content: 'private transcript content' }])
+  assert.deepEqual(messages, [
+    { role: 'system', content: 'fixed instruction' },
+    { role: 'user', content: 'private transcript content' },
+  ])
   const logs = JSON.stringify(entries)
   assert.equal(logs.includes('private transcript content'), false)
   assert.equal(logs.includes('private returned summary'), false)
   assert.equal(logs.includes('private payload'), false)
   assert.equal(logs.includes('"messages"'), false)
   assert.equal(logs.includes('length'), true)
+})
+
+test('generateText rejects malformed video-summary messages and policies before dispatch', async () => {
+  let dispatchCalls = 0
+  const gateway = createGateway({
+    generateTextWithModel: async () => {
+      dispatchCalls += 1
+      return { text: 'unreachable', finishReason: 'stop' }
+    },
+  })
+  const baseRequest = {
+    requestId: 'request-invalid',
+    taskId: 'task-invalid',
+    modelSnapshot: {},
+    messages: [{ role: 'user', content: 'data' }],
+    maxOutputTokens: 100,
+    requestKind: 'video-summary',
+    toolPolicy: 'none',
+  }
+
+  for (const override of [
+    { messages: [] },
+    { messages: [{ role: 'assistant', content: 'not accepted' }] },
+    { messages: [{ role: 'user', content: 'data', name: 'extra' }] },
+    { messages: [{ role: 'user', content: '   ' }] },
+    { requestKind: 'chat' },
+    { toolPolicy: 'auto' },
+  ]) {
+    await assert.rejects(gateway.generateText({ ...baseRequest, ...override }), {
+      message:
+        'messages' in override ? 'MODEL_GATEWAY_MESSAGES_INVALID' : 'MODEL_GATEWAY_POLICY_INVALID',
+    })
+  }
+  assert.equal(dispatchCalls, 0)
 })
 
 test('generateText logs safe metadata when generation fails', async () => {
@@ -184,6 +226,8 @@ test('generateText logs safe metadata when generation fails', async () => {
         modelSnapshot: { modelName: 'moonshotWebFree' },
         messages: [{ role: 'user', content: 'private transcript' }],
         maxOutputTokens: 200,
+        requestKind: 'video-summary',
+        toolPolicy: 'none',
       }),
     { code: 'MODEL_LOGIN_REQUIRED' },
   )
@@ -202,7 +246,7 @@ test('model operations use the caller signal and check it before work', async ()
       configCalls += 1
       return {}
     },
-    generateTextWithModel: async ({ signal }) => {
+    generateTextWithModel: async (_args, { signal }) => {
       signals.push(signal)
       return { text: 'ok', finishReason: 'stop' }
     },
@@ -214,7 +258,9 @@ test('model operations use the caller signal and check it before work', async ()
       requestId: 'request-1',
       taskId: 'task-1',
       modelSnapshot: { modelName: 'test' },
-      messages: [],
+      messages: [{ role: 'user', content: 'data' }],
+      requestKind: 'video-summary',
+      toolPolicy: 'none',
     },
     { signal: controller.signal },
   )
@@ -231,7 +277,7 @@ test('model operations use the caller signal and check it before work', async ()
 test('cancel aborts only the matching in-flight generateText request', async () => {
   const signals = []
   const gateway = createGateway({
-    generateTextWithModel: ({ signal }) =>
+    generateTextWithModel: (_args, { signal }) =>
       new Promise((resolve, reject) => {
         signals.push(signal)
         signal.addEventListener('abort', () => reject(new Error('request aborted')), { once: true })
@@ -244,6 +290,8 @@ test('cancel aborts only the matching in-flight generateText request', async () 
     modelSnapshot: { modelName: 'moonshotWebFree' },
     messages: [{ role: 'user', content: 'private transcript' }],
     maxOutputTokens: 200,
+    requestKind: 'video-summary',
+    toolPolicy: 'none',
   })
   await Promise.resolve()
 

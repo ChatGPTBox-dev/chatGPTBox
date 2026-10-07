@@ -24,11 +24,13 @@ export async function generateAnswersWithAzureOpenaiApi(
   let deploymentName = getModelValue(session)
   if (!deploymentName) deploymentName = config.azureDeploymentName
 
-  const prompt = getConversationPairs(
-    session.conversationRecords.slice(-config.maxConversationContextLength),
-    false,
-  )
-  prompt.push({ role: 'user', content: question })
+  const prompt = adapterOptions?.requestMessages
+    ? adapterOptions.requestMessages.map(({ role, content }) => ({ role, content }))
+    : getConversationPairs(
+        session.conversationRecords.slice(-config.maxConversationContextLength),
+        false,
+      )
+  if (!adapterOptions?.requestMessages) prompt.push({ role: 'user', content: question })
 
   let answer = ''
   await fetchSSE(

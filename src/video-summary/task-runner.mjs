@@ -183,6 +183,8 @@ async function generateTextOnce({
         modelSnapshot,
         messages: stripAssistantMessages(messages),
         maxOutputTokens,
+        requestKind: 'video-summary',
+        toolPolicy: 'none',
       },
       { signal },
     )

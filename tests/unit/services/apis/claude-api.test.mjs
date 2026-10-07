@@ -69,6 +69,35 @@ test('claude-api: sends correct URL and headers', async (t) => {
   assert.equal(capturedInit.headers['Content-Type'], 'application/json')
 })
 
+test('claude-api: video-summary uses top-level system and tool-free user messages', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const { session, port } = setupCompletionTest()
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ])
+  })
+
+  await generateAnswersWithClaudeApi(port, 'flattened question must not be used', session, null, {
+    requestMessages: [
+      { role: 'system', content: 'fixed instruction' },
+      { role: 'user', content: '{"transcript":"untrusted"}' },
+    ],
+    toolPolicy: 'none',
+  })
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(body.system, 'fixed instruction')
+  assert.deepEqual(body.messages, [{ role: 'user', content: '{"transcript":"untrusted"}' }])
+  assert.equal('tools' in body, false)
+  assert.equal('tool_choice' in body, false)
+  assert.equal('toolChoice' in body, false)
+})
+
 test('claude-api: sends model, max_tokens, temperature in body', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
