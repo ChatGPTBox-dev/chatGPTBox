@@ -9,6 +9,11 @@ import {
 import { createTaskFence, fencesEqual } from './protocol.mjs'
 import { normalizeVideoSummaryMaxOutputTokens } from './settings.mjs'
 import { validateChunkSummaryOutput, validateFinalSummaryOutput } from './output-validity.mjs'
+import {
+  failedRangesOutsideRetry,
+  selectRetryChunks,
+  successfulResultsOutsideRetry,
+} from './retry-ranges.mjs'
 
 const CHUNK_MAX_OUTPUT_TOKENS = 1200
 const FINAL_MAX_OUTPUT_TOKENS = 4000
@@ -199,29 +204,15 @@ async function generateTextOnce({
   }
 }
 
-function chunkRangeKeyFromIds(startSegmentId, endSegmentId) {
-  return `${startSegmentId || ''}\u0000${endSegmentId || ''}`
-}
-
-function chunkRangeKey(chunk) {
-  return chunkRangeKeyFromIds(chunk?.primaryStartSegmentId, chunk?.primaryEndSegmentId)
-}
-
-function failedRangeKey(range) {
-  return chunkRangeKeyFromIds(range?.startSegmentId, range?.endSegmentId)
-}
-
-function sortChunkResults(localChunkResults, chunks) {
-  const orderByRange = new Map(chunks.map((chunk, index) => [chunkRangeKey(chunk), index]))
-  return [...localChunkResults].sort((left, right) => {
-    const leftOrder = orderByRange.get(
-      chunkRangeKeyFromIds(left.primaryStartSegmentId, left.primaryEndSegmentId),
-    )
-    const rightOrder = orderByRange.get(
-      chunkRangeKeyFromIds(right.primaryStartSegmentId, right.primaryEndSegmentId),
-    )
-    return (leftOrder ?? Number.MAX_SAFE_INTEGER) - (rightOrder ?? Number.MAX_SAFE_INTEGER)
-  })
+function sortChunkResults(localChunkResults, transcription) {
+  const orderBySegment = new Map(
+    (transcription?.segments || []).map((segment, index) => [segment.id, index]),
+  )
+  return [...localChunkResults].sort(
+    (left, right) =>
+      (orderBySegment.get(left.primaryStartSegmentId) ?? Number.MAX_SAFE_INTEGER) -
+      (orderBySegment.get(right.primaryStartSegmentId) ?? Number.MAX_SAFE_INTEGER),
+  )
 }
 
 function buildFinalAllowedSegmentIds(localChunkResults) {
@@ -361,31 +352,36 @@ async function summarizeChunks({
     transcription,
     inputTokenBudget: capabilities.inputTokenBudget,
   })
-  const failedKeysToRetry = retryFailedRanges
-    ? new Set((checkpoint.failedRanges || []).map(failedRangeKey))
-    : new Set()
-  const chunkEntries = chunks.map((chunk, index) => ({ chunk, index }))
-  const selectedEntries =
-    failedKeysToRetry.size > 0
-      ? chunkEntries.filter(({ chunk }) => failedKeysToRetry.has(chunkRangeKey(chunk)))
-      : chunkEntries
-  const selectedKeys = new Set(selectedEntries.map(({ chunk }) => chunkRangeKey(chunk)))
-  const localChunkResults =
-    failedKeysToRetry.size > 0
-      ? (checkpoint.successfulChunkResults || []).filter(
-          (chunkResult) =>
-            !selectedKeys.has(
-              chunkRangeKeyFromIds(
-                chunkResult.primaryStartSegmentId,
-                chunkResult.primaryEndSegmentId,
-              ),
-            ),
-        )
-      : []
-  const failedRanges =
-    failedKeysToRetry.size > 0
-      ? (checkpoint.failedRanges || []).filter((range) => !selectedKeys.has(failedRangeKey(range)))
-      : []
+  if (!checkpoint.originalChunkPlan) {
+    checkpoint.originalChunkPlan = structuredClone(
+      chunks.map(({ primaryStartSegmentId, primaryEndSegmentId }) => ({
+        primaryStartSegmentId,
+        primaryEndSegmentId,
+      })),
+    )
+  }
+  const selectedEntries = retryFailedRanges
+    ? selectRetryChunks({
+        transcription,
+        chunks,
+        failedRanges: checkpoint.failedRanges,
+      })
+    : chunks.map((chunk, index) => ({ chunk, index }))
+  const selectedChunks = selectedEntries.map(({ chunk }) => chunk)
+  const localChunkResults = retryFailedRanges
+    ? successfulResultsOutsideRetry({
+        transcription,
+        successfulChunkResults: checkpoint.successfulChunkResults,
+        selectedChunks,
+      })
+    : []
+  const failedRanges = retryFailedRanges
+    ? failedRangesOutsideRetry({
+        transcription,
+        failedRanges: checkpoint.failedRanges,
+        selectedChunks,
+      })
+    : []
 
   emitEvent(emit, {
     type: 'TASK_STATUS',
@@ -428,7 +424,7 @@ async function summarizeChunks({
     })
   }
 
-  const sortedChunkResults = sortChunkResults(localChunkResults, chunks)
+  const sortedChunkResults = sortChunkResults(localChunkResults, transcription)
   checkpoint.successfulChunkResults = sortedChunkResults
   checkpoint.failedRanges = failedRanges
 
@@ -677,6 +673,7 @@ export function createVideoTaskRunner({
 
     state.checkpoint = {
       transcription,
+      originalChunkPlan: null,
       successfulChunkResults: [],
       failedRanges: [],
     }
@@ -732,6 +729,7 @@ export function createVideoTaskRunner({
         generation: fence.generation,
         checkpoint: {
           transcription: null,
+          originalChunkPlan: null,
           successfulChunkResults: [],
           failedRanges: [],
         },
@@ -834,14 +832,17 @@ export function createVideoTaskRunner({
     hasCheckpoint,
     debugState() {
       const attempts = []
+      const checkpoints = []
       for (const tabMap of generations.values())
         for (const documentMap of tabMap.values())
           for (const platformMap of documentMap.values())
             for (const taskMap of platformMap.values())
               for (const generationMap of taskMap.values())
-                for (const state of generationMap.values())
+                for (const state of generationMap.values()) {
+                  if (state.checkpoint) checkpoints.push(state.checkpoint)
                   for (const attempt of state.attempts.values()) attempts.push(attempt)
-      return { attempts }
+                }
+      return { attempts, checkpoints }
     },
   }
 

@@ -806,6 +806,114 @@ test('invalid final Markdown falls back to local summaries with an incomplete wa
   }
 })
 
+test('changed-budget retry replaces intersecting results and preserves the original chunk plan', async () => {
+  const transcription = {
+    durationMs: 24_000,
+    segments: Array.from({ length: 24 }, (_, index) => ({
+      id: `s${index + 1}`,
+      startMs: index * 1000,
+      endMs: (index + 1) * 1000,
+      text: `segment ${index + 1}`,
+    })),
+  }
+  const calls = []
+  const mediaCalls = []
+  let failInitialMiddle = true
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      async transcribeFromSource(args) {
+        mediaCalls.push(args)
+        return transcription
+      },
+    },
+    modelGateway: {
+      async describeCapabilities(modelSnapshot) {
+        return {
+          supported: true,
+          inputTokenBudget: modelSnapshot.inputTokenBudget,
+          maxOutputTokens: 20_000,
+        }
+      },
+      async generateText(args) {
+        calls.push(args)
+        if (failInitialMiddle && args.requestId === 'chunk-2') {
+          throw new Error('TRANSIENT_SUMMARY_FAILURE')
+        }
+        if (args.requestId.startsWith('chunk-')) {
+          return {
+            text: `## Chunk Summary\nsummary ${args.modelSnapshot.inputTokenBudget} ${args.requestId}`,
+            finishReason: 'stop',
+          }
+        }
+        return { text: '## Overview\nfinal', finishReason: 'stop' }
+      },
+    },
+    logger: createLogger(),
+    clock: { now: () => 1234 },
+  })
+  const emit = () => {}
+  let currentFence = createFence()
+  runner.registerAttempt({
+    requestId: 'initial-changed-budget',
+    fence: currentFence,
+    mode: 'initial',
+    payload: {
+      sourceChoice: 'asr',
+      settingsSnapshot: { preferredLanguage: 'en' },
+      modelSnapshot: { inputTokenBudget: 20 },
+    },
+    transientPayload: { sourceSnapshot: {} },
+    emit,
+  })
+  await runner.authorizeAttempt({ requestId: 'initial-changed-budget', fence: currentFence })
+
+  failInitialMiddle = false
+  currentFence = { ...currentFence, attempt: currentFence.attempt + 1 }
+  runner.registerAttempt({
+    requestId: 'retry-changed-budget',
+    fence: currentFence,
+    mode: 'retry-summary',
+    payload: { fromStage: 'summarizing', modelSnapshot: { inputTokenBudget: 40 } },
+    emit,
+  })
+  await runner.authorizeAttempt({ requestId: 'retry-changed-budget', fence: currentFence })
+
+  assert.deepEqual(
+    calls.map(({ requestId }) => requestId),
+    ['chunk-1', 'chunk-2', 'chunk-3', 'chunk-4', 'synthesis', 'chunk-1', 'synthesis'],
+  )
+  assert.equal(mediaCalls.length, 1)
+  const retryChunkResults = JSON.parse(calls.at(-1).messages.at(-1).content).chunkResults
+  assert.deepEqual(
+    retryChunkResults.map(({ localSummary }) => localSummary),
+    ['summary 40 chunk-1', 'summary 20 chunk-3', 'summary 20 chunk-4'],
+  )
+  assert.deepEqual(runner.debugState().checkpoints[0].originalChunkPlan, [
+    { primaryStartSegmentId: 's1', primaryEndSegmentId: 's6' },
+    { primaryStartSegmentId: 's7', primaryEndSegmentId: 's12' },
+    { primaryStartSegmentId: 's13', primaryEndSegmentId: 's18' },
+    { primaryStartSegmentId: 's19', primaryEndSegmentId: 's24' },
+  ])
+
+  const beforeRetry = calls.length
+  await runner.registerAttempt({
+    requestId: 'retry-synthesis',
+    fence: { ...currentFence, attempt: currentFence.attempt + 1 },
+    mode: 'retry-summary',
+    payload: { fromStage: 'synthesis', modelSnapshot: { inputTokenBudget: 10 } },
+    emit,
+  })
+  await runner.authorizeAttempt({
+    requestId: 'retry-synthesis',
+    fence: { ...currentFence, attempt: currentFence.attempt + 1 },
+  })
+  assert.deepEqual(
+    calls.slice(beforeRetry).map(({ requestId }) => requestId),
+    ['synthesis'],
+  )
+  assert.equal(mediaCalls.length, 1)
+})
+
 test('retry from summarizing reruns only failed ranges when a checkpoint has failures', async () => {
   const transcription = createTranscription()
   const mediaPipelineCalls = []
