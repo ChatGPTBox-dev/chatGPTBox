@@ -5,6 +5,7 @@ const MODELS_WITHOUT_CUSTOM_TEMPERATURE = new Set([
   'claude-sonnet-5-5',
   'claude-opus-5',
   'claude-opus-5-5',
+  'claude-haiku-5-5',
   'claude-fable-5',
   'claude-fable-5-1',
   'gpt-6-astra',

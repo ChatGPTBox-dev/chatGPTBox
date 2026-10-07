@@ -106,6 +106,7 @@ export const claudeApiModelKeys = [
   'claudeSonnet5Api',
   'claudeSonnet55Api',
   'claudeHaiku45Api',
+  'claudeHaiku55Api',
 ]
 export const chatglmApiModelKeys = [
   'chatglm52',
@@ -403,6 +404,10 @@ export const Models = {
   claudeHaiku45Api: {
     value: 'claude-haiku-4-5-20251001',
     desc: 'Anthropic (Claude Haiku 4.5)',
+  },
+  claudeHaiku55Api: {
+    value: 'claude-haiku-5-5',
+    desc: 'Anthropic (Claude Haiku 5.5)',
   },
 
   bingFree4: { value: '', desc: 'Bing (Web, GPT-4)' },
@@ -785,7 +790,7 @@ export const defaultApiModeIds = [
   'claudeFable51Api',
   'claudeOpus55Api',
   'claudeSonnet55Api',
-  'claudeHaiku45Api',
+  'claudeHaiku55Api',
   'googleGemini3_1Pro',
   'googleGemini3_8Flash',
   'mistralMediumLatest',
