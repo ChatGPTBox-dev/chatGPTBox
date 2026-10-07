@@ -1,0 +1,37 @@
+tests/unit/config/model-key-migrations.test.mjs
+  h_91c03fe45fa613 2-6,3-6,8-27,31-35,38-43,38-44,46-50,46-51,54-59,54-60,62-65,62-66,68-73,68-86,75-76,78-82,84-85,110-112,114-115
+  h_91c03fe45fa613 7,88-106,118-136,139-143,146-147,150-152
+tests/unit/utils/model-name-convert.test.mjs
+  h_91c03fe45fa613 37,41,44-45,67-68,77-78,107,111,116,779,783-784,791,832-833,889-890,900,906-907,914-915,920-921,928-929,933-934,954,959-960,968,1004,1253-1254,1267,1275-1276,1282-1283,1299-1301,1313,1317,1362-1363
+src/services/wrappers.mjs
+  h_91c03fe45fa613 144
+tests/unit/services/handle-port-error.test.mjs
+  h_91c03fe45fa613 424
+src/components/ConversationCard/index.jsx
+  h_91c03fe45fa613 28,308-315,362-364,586-590
+src/config/model-key-migrations.mjs
+  h_91c03fe45fa613 4-14,67,113-114,122-127,149-153,158
+  h_91c03fe45fa613 115-121,131-141,183-204,208-210,212-216,221
+tests/unit/config/migrate-user-config.test.mjs
+  h_91c03fe45fa613 6,2064-2103
+  h_91c03fe45fa613 2104-2140
+tests/unit/components/conversation-card-lifecycle.test.mjs
+  h_91c03fe45fa613 125,323,334,350,365,376,385
+src/services/apis/waylaidwanderer-api.mjs
+  h_91c03fe45fa613 26-32,57-60
+src/services/init-session.mjs
+  h_91c03fe45fa613 27-30,87-92
+tests/unit/services/apis/waylaidwanderer-api.test.mjs
+  h_91c03fe45fa613 2-14,17-28,32-36,38-44,46,48-58,61-76,80-85,88-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1b521ed55ed1caf362abee359d488ae59ed3769a",
+  "prompts": {},
+  "humans": {
+    "h_91c03fe45fa613": {
+      "author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
