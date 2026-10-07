@@ -377,6 +377,10 @@
   display: inline-block;
   position: relative;
 }
+.katex .smash {
+  display: inline;
+  line-height: 0;
+}
 .katex .hline,
 .katex .overline .overline-line,
 .katex .underline .underline-line {
