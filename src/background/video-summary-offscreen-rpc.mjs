@@ -2,6 +2,11 @@ import { VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS } from '../video-summary/con
 import { parseOffscreenCommand, parseOffscreenMessage } from '../video-summary/protocol.mjs'
 
 const SAFE_GATEWAY_CONDITIONS = new Set(['login-required', 'provider-page-required', 'temporary'])
+const SAFE_GATEWAY_OPERATIONS = new Set(
+  Object.values(VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS).flat(),
+)
+const SAFE_CODE = /^[A-Z][A-Z0-9_:-]{0,95}$/
+const SAFE_MODEL_NAME = /^[A-Za-z0-9_.:/-]{1,120}$/
 
 function ownerPath(owner) {
   return [owner.tabId, owner.documentId, owner.platform, owner.mediaId]
@@ -26,7 +31,7 @@ function createAbortError() {
 }
 
 function safeCode(value, fallback) {
-  return typeof value === 'string' && /^[A-Z0-9_:-]+$/.test(value) ? value : fallback
+  return typeof value === 'string' && SAFE_CODE.test(value) ? value : fallback
 }
 
 function serializeResult(result, operation) {
@@ -40,18 +45,20 @@ function serializeResult(result, operation) {
 function serializeError(error, operation) {
   const result = {
     code: safeCode(error?.code || error?.message, 'VIDEO_SUMMARY_GATEWAY_REQUEST_FAILED'),
-    operation,
-    httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
-    providerCode: typeof error?.providerCode === 'string' ? error.providerCode : null,
-    retryAfterMs: Number.isFinite(error?.retryAfterMs) ? error.retryAfterMs : null,
+    operation: SAFE_GATEWAY_OPERATIONS.has(operation) ? operation : 'generateText',
   }
-  if ('condition' in (error || {})) {
-    result.condition = SAFE_GATEWAY_CONDITIONS.has(error.condition) ? error.condition : null
+  if (Number.isInteger(error?.httpStatus) && error.httpStatus >= 100 && error.httpStatus <= 599) {
+    result.httpStatus = error.httpStatus
   }
-  if ('modelName' in (error || {})) {
-    const modelName = typeof error.modelName === 'string' ? error.modelName.trim() : ''
-    result.modelName = /^[A-Za-z0-9_.:/-]{1,120}$/.test(modelName) ? modelName : null
+  if (typeof error?.providerCode === 'string' && SAFE_CODE.test(error.providerCode)) {
+    result.providerCode = error.providerCode
   }
+  if (Number.isInteger(error?.retryAfterMs) && error.retryAfterMs >= 0) {
+    result.retryAfterMs = error.retryAfterMs
+  }
+  if (SAFE_GATEWAY_CONDITIONS.has(error?.condition)) result.condition = error.condition
+  const modelName = typeof error?.modelName === 'string' ? error.modelName.trim() : ''
+  if (SAFE_MODEL_NAME.test(modelName)) result.modelName = modelName
   return result
 }
 

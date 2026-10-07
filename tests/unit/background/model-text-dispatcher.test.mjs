@@ -721,6 +721,62 @@ test('prompt answer token and config values never appear in injected logger entr
   assert.equal(serializedLogs.includes('maxResponseTokenLength'), false)
 })
 
+test('video-summary dispatcher projects malicious diagnostics through the shared allowlist', async () => {
+  const entries = []
+  const dispatcher = createModelTextDispatcher(
+    createBaseDependencies({
+      getUserConfig: async () => ({ modelName: 'chatgptApi4oMini', apiMode: null }),
+      generateAnswersWithOpenAICompatibleApi: async () => {
+        throw Object.assign(new Error('SECRET_ERROR_MESSAGE'), {
+          code: 'MODEL_GATEWAY_PROVIDER_ERROR',
+          providerCode: 'PROVIDER_FAILED',
+          httpStatus: 502,
+          providerBody: 'SECRET_PROVIDER_BODY',
+          Authorization: 'SECRET_AUTHORIZATION',
+          nested: { transcript: 'SECRET_NESTED_TRANSCRIPT' },
+        })
+      },
+      logger: createLogger(entries),
+    }),
+  )
+
+  await assert.rejects(
+    dispatcher.generateText({
+      requestId: 'req_dispatcher-1',
+      modelSnapshot: { modelName: 'chatgptApi4oMini', apiMode: null },
+      messages: [{ role: 'user', content: 'SECRET_TRANSCRIPT' }],
+      maxOutputTokens: 200,
+      requestKind: 'video-summary',
+      toolPolicy: 'none',
+    }),
+    { code: 'MODEL_GATEWAY_PROVIDER_ERROR' },
+  )
+
+  assert.deepEqual(entries.at(-1), [
+    'warn',
+    {
+      event: 'video-summary.dispatcher.generate-text-failed',
+      operation: 'generateText',
+      code: 'MODEL_GATEWAY_PROVIDER_ERROR',
+      providerCode: 'PROVIDER_FAILED',
+      httpStatus: 502,
+      requestId: 'req_dispatcher-1',
+    },
+  ])
+  const logs = JSON.stringify(entries)
+  for (const sentinel of [
+    'SECRET_ERROR_MESSAGE',
+    'SECRET_PROVIDER_BODY',
+    'SECRET_AUTHORIZATION',
+    'SECRET_NESTED_TRANSCRIPT',
+    'SECRET_TRANSCRIPT',
+    'SECRET_GROUP',
+    'SECRET_PROVIDER_ID',
+  ]) {
+    assert.equal(logs.includes(sentinel), false, sentinel)
+  }
+})
+
 test('aborting during an async credential getter rejects promptly and prevents provider dispatch', async () => {
   const controller = new AbortController()
   let providerDispatched = false
@@ -974,7 +1030,7 @@ test('isolated routes receive safe diagnostic sinks without touching global cons
   assert.equal(serializedDiagnostics.includes('secret answer must not leak'), false)
   assert.equal(serializedDiagnostics.includes('secret-token'), false)
   assert.equal(serializedDiagnostics.includes('secret-config'), false)
-  assert.equal(serializedDiagnostics.includes('safe adapter event'), true)
+  assert.equal(serializedDiagnostics.includes('video-summary.dispatcher.adapter-diagnostic'), true)
 })
 
 test('thrown login and generic adapter errors keep trusted text non-enumerable', async () => {

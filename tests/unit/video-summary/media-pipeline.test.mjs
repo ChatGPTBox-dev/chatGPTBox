@@ -841,6 +841,75 @@ test('unsupported local transport fails before download and upload target reques
   assert.deepEqual(calls, [])
 })
 
+test('pipeline logs only allowlisted metadata at media failure boundaries', async () => {
+  const entries = []
+  const sensitiveError = Object.assign(new Error('SECRET_ERROR_MESSAGE'), {
+    code: 'VIDEO_SUMMARY_FETCH_FAILED',
+    operation: 'submitDirectAsr',
+    providerCode: 'DOWNLOAD_FAILED',
+    httpStatus: 503,
+    requestId: 'req_pipeline-1',
+    providerBody: 'SECRET_PROVIDER_BODY',
+    prompt: 'SECRET_PROMPT',
+    transcript: 'SECRET_TRANSCRIPT',
+    nested: { token: 'SECRET_TOKEN' },
+  })
+  const pipeline = createMediaPipeline({
+    mediaKitGateway: {
+      async submitDirectAsr() {
+        throw sensitiveError
+      },
+    },
+    opfsStoreFactory() {},
+    logger: {
+      info(entry) {
+        entries.push(entry)
+      },
+      warn(entry) {
+        entries.push(entry)
+      },
+    },
+    clock: createClock(),
+  })
+
+  await assert.rejects(
+    pipeline.transcribeFromSource({
+      taskId: 'task-SECRET_TASK_ID',
+      owner: { platform: 'bilibili', videoId: 'BV1task6001' },
+      sourceSnapshot: createSnapshot(),
+    }),
+    sensitiveError,
+  )
+
+  assert.deepEqual(entries, [
+    {
+      event: 'video-summary.media.submit-direct',
+      operation: 'submitDirectAsr',
+    },
+    {
+      event: 'video-summary.media.direct-failed',
+      operation: 'submitDirectAsr',
+      code: 'VIDEO_SUMMARY_FETCH_FAILED',
+      providerCode: 'DOWNLOAD_FAILED',
+      httpStatus: 503,
+      requestId: 'req_pipeline-1',
+      refreshed: false,
+    },
+  ])
+  const logs = JSON.stringify(entries)
+  for (const sentinel of [
+    'SECRET_ERROR_MESSAGE',
+    'SECRET_PROVIDER_BODY',
+    'SECRET_PROMPT',
+    'SECRET_TRANSCRIPT',
+    'SECRET_TOKEN',
+    'SECRET_TASK_ID',
+    'token=secret',
+  ]) {
+    assert.equal(logs.includes(sentinel), false, sentinel)
+  }
+})
+
 test('pipeline reports a generic error when no media candidate exists', async () => {
   const pipeline = createMediaPipeline({
     mediaKitGateway: {},

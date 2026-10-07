@@ -1,5 +1,5 @@
 import { normalizeMediaKitTranscription } from '../services/apis/volcengine-mediakit.mjs'
-import { logPipelineEvent, sanitizePipelineCandidate, serializePipelineError } from './logging.mjs'
+import { logPipelineEvent, serializePipelineError } from './logging.mjs'
 import {
   localFetchRequiresUnsupportedHeaders,
   validateCandidateDuration,
@@ -230,8 +230,8 @@ async function submitDirect({
   emitEvent(onEvent, { stage: 'submitting-url' })
 
   logPipelineEvent(logger, 'info', {
-    event: 'video-summary-media-pipeline.submit-direct',
-    candidate: sanitizePipelineCandidate(candidate),
+    event: 'video-summary.media.submit-direct',
+    operation: 'submitDirectAsr',
   })
 
   try {
@@ -355,10 +355,10 @@ export function createMediaPipeline({
         return settleTranscription({ pollMediaKitTask, submission, signal, onEvent })
       } catch (error) {
         logPipelineEvent(logger, 'warn', {
-          event: 'video-summary-media-pipeline.direct-failed',
-          taskId,
-          candidate: sanitizePipelineCandidate(currentCandidate),
-          error: serializePipelineError(error),
+          event: 'video-summary.media.direct-failed',
+          operation: 'submitDirectAsr',
+          ...serializePipelineError(error),
+          refreshed,
         })
 
         if (isDocumentedDirectDownloadFailure(error) && !refreshed) {
@@ -390,10 +390,10 @@ export function createMediaPipeline({
             })
           } catch (refreshedError) {
             logPipelineEvent(logger, 'warn', {
-              event: 'video-summary-media-pipeline.direct-refreshed-failed',
-              taskId,
-              candidate: sanitizePipelineCandidate(currentCandidate),
-              error: serializePipelineError(refreshedError),
+              event: 'video-summary.media.direct-refreshed-failed',
+              operation: 'submitDirectAsr',
+              ...serializePipelineError(refreshedError),
+              refreshed,
             })
 
             if (!isFallbackEligible(refreshedError)) throw refreshedError

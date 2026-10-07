@@ -1,3 +1,5 @@
+import { sanitizeVideoSummaryLogEntry } from '../video-summary/logging.mjs'
+
 const DEFAULT_CAPABILITIES = {
   inputTokenBudget: 4000,
   maxOutputTokens: 20_000,
@@ -76,26 +78,16 @@ function capabilityFromError(error) {
   })
 }
 
-function buildLogContext({
-  event,
-  requestId,
-  taskId,
-  modelSnapshot,
-  maxOutputTokens,
-  finishReason,
-  errorCode,
-}) {
-  return {
+function buildLogContext({ event, requestId, error }) {
+  return sanitizeVideoSummaryLogEntry({
     event,
+    operation: 'generateText',
     requestId,
-    taskId,
-    modelName: modelSnapshot?.modelName || null,
-    apiModeGroup: modelSnapshot?.apiMode?.groupName || null,
-    providerId: modelSnapshot?.apiMode?.providerId || null,
-    maxOutputTokens,
-    ...(finishReason !== undefined ? { finishReason } : {}),
-    ...(errorCode ? { errorCode } : {}),
-  }
+    code: error ? safeErrorCode(error, 'MODEL_GATEWAY_GENERATION_FAILED') : undefined,
+    providerCode: error?.providerCode,
+    httpStatus: error?.httpStatus,
+    retryable: error?.retryable,
+  })
 }
 
 export function createModelGateway({
@@ -141,11 +133,8 @@ export function createModelGateway({
       try {
         logger?.info?.(
           buildLogContext({
-            event: 'video-summary-model-gateway.generateText',
+            event: 'video-summary.model.generate-text',
             requestId,
-            taskId,
-            modelSnapshot: immutableSnapshot,
-            maxOutputTokens: boundedOutputTokens,
           }),
         )
         const response = await generateTextWithModel(
@@ -166,24 +155,17 @@ export function createModelGateway({
         }
         logger?.info?.(
           buildLogContext({
-            event: 'video-summary-model-gateway.generateText.complete',
+            event: 'video-summary.model.generate-text-complete',
             requestId,
-            taskId,
-            modelSnapshot: immutableSnapshot,
-            maxOutputTokens: boundedOutputTokens,
-            finishReason: result.finishReason,
           }),
         )
         return result
       } catch (error) {
         logger?.warn?.(
           buildLogContext({
-            event: 'video-summary-model-gateway.generateText.failed',
+            event: 'video-summary.model.generate-text-failed',
             requestId,
-            taskId,
-            modelSnapshot: immutableSnapshot,
-            maxOutputTokens: boundedOutputTokens,
-            errorCode: safeErrorCode(error, 'MODEL_GATEWAY_GENERATION_FAILED'),
+            error,
           }),
         )
         throw error

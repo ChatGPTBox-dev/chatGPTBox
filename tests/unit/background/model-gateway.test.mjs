@@ -169,7 +169,7 @@ test('generateText forwards immutable inputs, bounded output tokens, and an abor
   assert.equal(logs.includes('private returned summary'), false)
   assert.equal(logs.includes('private payload'), false)
   assert.equal(logs.includes('"messages"'), false)
-  assert.equal(logs.includes('length'), true)
+  assert.equal(logs.includes('length'), false)
 })
 
 test('generateText rejects malformed video-summary messages and policies before dispatch', async () => {
@@ -236,6 +236,69 @@ test('generateText logs safe metadata when generation fails', async () => {
   assert.equal(logs.includes('MODEL_LOGIN_REQUIRED'), true)
   assert.equal(logs.includes('private transcript'), false)
   assert.equal(logs.includes('provider response'), false)
+})
+
+test('generateText projects malicious failure diagnostics through the shared allowlist', async () => {
+  const entries = []
+  const error = Object.assign(new Error('SECRET_ERROR_MESSAGE'), {
+    code: 'MODEL_GATEWAY_PROVIDER_ERROR',
+    providerCode: 'PROVIDER_FAILED',
+    httpStatus: 502,
+    requestId: 'SECRET_ERROR_REQUEST_ID',
+    providerBody: 'SECRET_PROVIDER_BODY',
+    prompt: 'SECRET_PROMPT',
+    Authorization: 'SECRET_AUTHORIZATION',
+    nested: { transcript: 'SECRET_TRANSCRIPT' },
+  })
+  const gateway = createGateway({
+    generateTextWithModel: async () => {
+      throw error
+    },
+    logger: createLogger(entries),
+  })
+
+  await assert.rejects(
+    gateway.generateText({
+      requestId: 'req_gateway-1',
+      taskId: 'SECRET_TASK_ID',
+      modelSnapshot: {
+        modelName: 'SECRET_MODEL_NAME',
+        apiMode: { groupName: 'SECRET_GROUP', providerId: 'SECRET_PROVIDER_ID' },
+      },
+      messages: [{ role: 'user', content: 'SECRET_TRANSCRIPT' }],
+      maxOutputTokens: 200,
+      requestKind: 'video-summary',
+      toolPolicy: 'none',
+    }),
+    error,
+  )
+
+  assert.deepEqual(entries.at(-1), [
+    'warn',
+    {
+      event: 'video-summary.model.generate-text-failed',
+      operation: 'generateText',
+      code: 'MODEL_GATEWAY_PROVIDER_ERROR',
+      providerCode: 'PROVIDER_FAILED',
+      httpStatus: 502,
+      requestId: 'req_gateway-1',
+    },
+  ])
+  const logs = JSON.stringify(entries)
+  for (const sentinel of [
+    'SECRET_ERROR_MESSAGE',
+    'SECRET_ERROR_REQUEST_ID',
+    'SECRET_PROVIDER_BODY',
+    'SECRET_PROMPT',
+    'SECRET_AUTHORIZATION',
+    'SECRET_TRANSCRIPT',
+    'SECRET_TASK_ID',
+    'SECRET_MODEL_NAME',
+    'SECRET_GROUP',
+    'SECRET_PROVIDER_ID',
+  ]) {
+    assert.equal(logs.includes(sentinel), false, sentinel)
+  }
 })
 
 test('model operations use the caller signal and check it before work', async () => {

@@ -1,54 +1,56 @@
-import { sanitizeMediaUrl } from '../services/apis/volcengine-mediakit.mjs'
+const OPERATIONS = new Set([
+  'refreshSource',
+  'submitDirectAsr',
+  'requestUploadTarget',
+  'uploadMedia',
+  'submitUploadedAsr',
+  'queryAsr',
+  'generateText',
+  'cleanup',
+])
+const CODE = /^[A-Z][A-Z0-9_:-]{0,95}$/
+const EVENT = /^video-summary(?:\.[a-z0-9-]+){1,7}$/
+const REQUEST_ID = /^[A-Za-z0-9_.:-]{1,128}$/
+const LEVELS = new Set(['info', 'warn', 'error'])
 
-function getLoggerMethod(logger, level) {
-  return typeof logger?.[level] === 'function' ? logger[level].bind(logger) : () => {}
+export function sanitizeVideoSummaryLogEntry(entry = {}) {
+  const result = {}
+  if (typeof entry?.event === 'string' && entry.event.length <= 128 && EVENT.test(entry.event)) {
+    result.event = entry.event
+  }
+  if (OPERATIONS.has(entry?.operation)) result.operation = entry.operation
+  if (typeof entry?.code === 'string' && CODE.test(entry.code)) result.code = entry.code
+  if (typeof entry?.providerCode === 'string' && CODE.test(entry.providerCode)) {
+    result.providerCode = entry.providerCode
+  }
+  if (Number.isInteger(entry?.httpStatus) && entry.httpStatus >= 100 && entry.httpStatus <= 599) {
+    result.httpStatus = entry.httpStatus
+  }
+  if (typeof entry?.requestId === 'string' && REQUEST_ID.test(entry.requestId)) {
+    result.requestId = entry.requestId
+  }
+  for (const key of ['retryable', 'refreshed', 'uploaded']) {
+    if (typeof entry?.[key] === 'boolean') result[key] = entry[key]
+  }
+  return result
 }
 
-function toSafeCode(value) {
-  if (typeof value !== 'string') return null
-  return /^[A-Z0-9_:-]+$/.test(value) ? value : null
-}
+export const projectVideoSummaryLogEntry = sanitizeVideoSummaryLogEntry
 
 export function serializePipelineError(error) {
-  return {
-    name: typeof error?.name === 'string' ? error.name : 'Error',
-    message: toSafeCode(error?.message),
-    operation: typeof error?.operation === 'string' ? error.operation : null,
-    httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
-    providerCode: typeof error?.providerCode === 'string' ? error.providerCode : null,
-    requestId: typeof error?.requestId === 'string' ? error.requestId : null,
-    availableBytes: Number.isFinite(error?.availableBytes) ? error.availableBytes : null,
-    requiredBytes: Number.isFinite(error?.requiredBytes) ? error.requiredBytes : null,
-  }
-}
-
-export function sanitizePipelineCandidate(candidate) {
-  return {
-    id: typeof candidate?.id === 'string' ? candidate.id : null,
-    mediaMetadata: candidate?.mediaMetadata
-      ? {
-          kind: candidate.mediaMetadata.kind ?? null,
-          container: candidate.mediaMetadata.container ?? null,
-          codec: candidate.mediaMetadata.codec ?? null,
-          contentLength: Number.isFinite(candidate.mediaMetadata.contentLength)
-            ? candidate.mediaMetadata.contentLength
-            : null,
-          durationMs: Number.isFinite(candidate.mediaMetadata.durationMs)
-            ? candidate.mediaMetadata.durationMs
-            : null,
-        }
-      : null,
-    remoteReference:
-      typeof candidate?.remoteCandidate?.url === 'string'
-        ? sanitizeMediaUrl(candidate.remoteCandidate.url)
-        : null,
-    localReference:
-      typeof candidate?.localFetchRecipe?.primaryUrl === 'string'
-        ? sanitizeMediaUrl(candidate.localFetchRecipe.primaryUrl)
-        : null,
-  }
+  return sanitizeVideoSummaryLogEntry({
+    operation: error?.operation,
+    code: error?.code || error?.message,
+    providerCode: error?.providerCode,
+    httpStatus: error?.httpStatus,
+    requestId: error?.requestId,
+    retryable: error?.retryable,
+    refreshed: error?.refreshed,
+    uploaded: error?.uploaded,
+  })
 }
 
 export function logPipelineEvent(logger, level, entry) {
-  getLoggerMethod(logger, level)(entry)
+  if (!LEVELS.has(level) || typeof logger?.[level] !== 'function') return
+  logger[level](sanitizeVideoSummaryLogEntry(entry))
 }

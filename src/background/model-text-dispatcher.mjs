@@ -1,4 +1,5 @@
 import { initSession } from '../services/init-session.mjs'
+import { sanitizeVideoSummaryLogEntry } from '../video-summary/logging.mjs'
 import {
   isUsingAimlApiModel,
   isUsingAzureOpenAiApiModel,
@@ -91,28 +92,20 @@ function createSafeGatewayError(
   return error
 }
 
-function sanitizeDiagnosticValue(value) {
-  if (value === null || value === undefined) return value
-  if (Array.isArray(value)) return value.map(sanitizeDiagnosticValue)
-  if (typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key]) => !['prompt', 'question', 'answer', 'token', 'config'].includes(key))
-        .map(([key, entryValue]) => [key, sanitizeDiagnosticValue(entryValue)]),
-    )
-  }
-  return value
-}
-
-function createSafeDiagnostics(route, diagnosticSink) {
+function createSafeDiagnostics(diagnosticSink) {
   const emit = (level, message, details) => {
     if (typeof diagnosticSink !== 'function') return
-    diagnosticSink({
-      level,
-      route,
-      message: typeof message === 'string' ? message : 'adapter diagnostic',
-      details: sanitizeDiagnosticValue(details),
-    })
+    diagnosticSink(
+      sanitizeVideoSummaryLogEntry({
+        event: 'video-summary.dispatcher.adapter-diagnostic',
+        operation: 'generateText',
+        code: message,
+        providerCode: details?.providerCode,
+        httpStatus: details?.httpStatus,
+        requestId: details?.requestId,
+        retryable: details?.retryable,
+      }),
+    )
   }
   return {
     debug: (message, details) => emit('debug', message, details),
@@ -146,15 +139,16 @@ function getTrustedHumanMessage(error) {
     : null
 }
 
-function buildLogContext({ event, route, modelSnapshot, errorCode }) {
-  return {
+function buildLogContext({ event, requestId, error }) {
+  return sanitizeVideoSummaryLogEntry({
     event,
-    route,
-    modelName: modelSnapshot?.modelName || null,
-    apiModeGroup: modelSnapshot?.apiMode?.groupName || null,
-    providerId: modelSnapshot?.apiMode?.providerId || null,
-    ...(errorCode ? { errorCode } : {}),
-  }
+    operation: 'generateText',
+    requestId,
+    code: error?.code || error?.message,
+    providerCode: error?.providerCode,
+    httpStatus: error?.httpStatus,
+    retryable: error?.retryable,
+  })
 }
 
 function isUsingOpenAICompatibleApiSession(session) {
@@ -285,10 +279,6 @@ function createTerminalTracker({ signal, modelName }) {
   }
 }
 
-function routeName(route) {
-  return route || 'unknown'
-}
-
 function requireLogin(modelName) {
   throw createSafeGatewayError('MODEL_LOGIN_REQUIRED', {
     condition: 'login-required',
@@ -335,7 +325,7 @@ async function callRoutedAdapter({
 }) {
   const modelName = session.modelName
   const adapterOptions = {
-    diagnostics: createSafeDiagnostics(route, dependencies.diagnosticSink),
+    diagnostics: createSafeDiagnostics(dependencies.diagnosticSink),
   }
   if (requestKind === 'video-summary') {
     adapterOptions.toolPolicy = toolPolicy
@@ -590,9 +580,8 @@ export function createModelTextDispatcher(dependencies) {
 
         dependencies.logger?.info?.(
           buildLogContext({
-            event: 'model-text-dispatcher.generateText',
-            route: routeName(route),
-            modelSnapshot: immutableSnapshot,
+            event: 'video-summary.dispatcher.generate-text',
+            requestId,
           }),
         )
 
@@ -621,9 +610,8 @@ export function createModelTextDispatcher(dependencies) {
         if (!signal?.aborted) await adapterPromise
         dependencies.logger?.info?.(
           buildLogContext({
-            event: 'model-text-dispatcher.generateText.complete',
-            route: routeName(route),
-            modelSnapshot: immutableSnapshot,
+            event: 'video-summary.dispatcher.generate-text-complete',
+            requestId,
           }),
         )
         return result
@@ -634,10 +622,9 @@ export function createModelTextDispatcher(dependencies) {
         )
         dependencies.logger?.warn?.(
           buildLogContext({
-            event: 'model-text-dispatcher.generateText.failed',
-            route: routeName(route),
-            modelSnapshot: immutableSnapshot,
-            errorCode: normalized.code || normalized.message || 'MODEL_GATEWAY_ERROR',
+            event: 'video-summary.dispatcher.generate-text-failed',
+            requestId,
+            error: normalized,
           }),
         )
         throw normalized

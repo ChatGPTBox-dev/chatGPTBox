@@ -310,6 +310,73 @@ test('disconnect aborts all in-flight gateway controllers', async () => {
   assert.equal(signals[0].aborted, true)
 })
 
+test('RPC error serialization omits sensitive and invalid diagnostic fields', async () => {
+  const port = createFakePort({ name: 'video-summary-offscreen' })
+  const error = Object.assign(new Error('SECRET_ERROR_MESSAGE'), {
+    code: 'MODEL_GATEWAY_PROVIDER_ERROR',
+    operation: 'SECRET_OPERATION',
+    httpStatus: 503,
+    providerCode: 'PROVIDER_FAILED',
+    retryAfterMs: 2500,
+    condition: 'temporary',
+    modelName: 'safe-model-1',
+    requestId: 'req_rpc-1',
+    providerBody: 'SECRET_PROVIDER_BODY',
+    prompt: 'SECRET_PROMPT',
+    Authorization: 'SECRET_AUTHORIZATION',
+    token: 'SECRET_TOKEN',
+    nested: { transcript: 'SECRET_TRANSCRIPT' },
+  })
+  const rpc = createVideoSummaryOffscreenRpc({
+    mediaKitGateway: {
+      async queryTask() {
+        throw error
+      },
+    },
+    modelGateway: {},
+    coordinator: {
+      authorizeGatewayRequest: ({ args }) => ({ args, reservation: null }),
+      completeGatewayRequest() {},
+      handleOffscreenMessage() {},
+      handleOffscreenDisconnect() {},
+    },
+    logger: {},
+  })
+  rpc.attachPort(port)
+  port.emitMessage({
+    type: 'GATEWAY_REQUEST',
+    requestId: 'gateway-sensitive',
+    fence,
+    gateway: 'mediakit',
+    operation: 'queryTask',
+    args: { taskId: 'provider-task' },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.deepEqual(port.postedMessages[0].error, {
+    code: 'MODEL_GATEWAY_PROVIDER_ERROR',
+    operation: 'queryTask',
+    httpStatus: 503,
+    providerCode: 'PROVIDER_FAILED',
+    retryAfterMs: 2500,
+    condition: 'temporary',
+    modelName: 'safe-model-1',
+  })
+  const serialized = JSON.stringify(port.postedMessages[0].error)
+  for (const sentinel of [
+    'SECRET_ERROR_MESSAGE',
+    'SECRET_OPERATION',
+    'SECRET_PROVIDER_BODY',
+    'SECRET_PROMPT',
+    'SECRET_AUTHORIZATION',
+    'SECRET_TOKEN',
+    'SECRET_TRANSCRIPT',
+    'req_rpc-1',
+  ]) {
+    assert.equal(serialized.includes(sentinel), false, sentinel)
+  }
+})
+
 test('outbound commands are parsed and disconnect resets coordinator state', () => {
   const fixture = createFixture()
   fixture.rpc.postCommand({ type: 'CANCEL_TASK', fence })
