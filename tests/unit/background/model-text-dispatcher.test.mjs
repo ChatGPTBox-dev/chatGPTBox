@@ -905,6 +905,62 @@ test('ChatGPT page proxy result is returned through request-scoped contract', as
   assert.deepEqual(result, { text: 'page proxy final', finishReason: 'stop' })
 })
 
+test('normalizes only explicit context-window errors', async () => {
+  const request = {
+    modelSnapshot: { modelName: 'azureOpenAi', apiMode: null },
+    messages: [{ role: 'user', content: 'private prompt' }],
+    maxOutputTokens: 1,
+    signal: new AbortController().signal,
+  }
+
+  for (const source of [
+    Object.assign(new Error('private'), { providerCode: 'context_length_exceeded' }),
+    Object.assign(new Error('private'), { providerCode: 'model_context_window_exceeded' }),
+    Object.assign(new Error('private'), { providerCode: 'prompt_too_long' }),
+    Object.assign(new Error('maximum context length is 128000 tokens'), { httpStatus: 400 }),
+  ]) {
+    const dispatcher = createModelTextDispatcher(
+      createBaseDependencies({
+        getUserConfig: async () => ({ modelName: 'azureOpenAi' }),
+        generateAnswersWithAzureOpenaiApi: async () => {
+          throw source
+        },
+      }),
+    )
+
+    await assertRejectsWithCode(dispatcher.generateText(request), 'MODEL_CONTEXT_WINDOW_EXCEEDED')
+  }
+
+  for (const { source, expectedCode } of [
+    {
+      source: Object.assign(new Error('request failed'), { httpStatus: 400 }),
+      expectedCode: 'MODEL_GATEWAY_GENERATION_FAILED',
+    },
+    { source: new Error('max_tokens'), expectedCode: 'MODEL_GATEWAY_GENERATION_FAILED' },
+    {
+      source: Object.assign(new Error('rate limited'), { httpStatus: 429 }),
+      expectedCode: 'MODEL_GATEWAY_GENERATION_FAILED',
+    },
+    { source: new Error('network failure'), expectedCode: 'MODEL_GATEWAY_GENERATION_FAILED' },
+    { source: new Error('Please login'), expectedCode: 'MODEL_LOGIN_REQUIRED' },
+    {
+      source: new Error('This request is too long'),
+      expectedCode: 'MODEL_GATEWAY_GENERATION_FAILED',
+    },
+  ]) {
+    const dispatcher = createModelTextDispatcher(
+      createBaseDependencies({
+        getUserConfig: async () => ({ modelName: 'azureOpenAi' }),
+        generateAnswersWithAzureOpenaiApi: async () => {
+          throw source
+        },
+      }),
+    )
+
+    await assertRejectsWithCode(dispatcher.generateText(request), expectedCode)
+  }
+})
+
 test('provider error text is preserved only in trusted background state', async () => {
   const entries = []
   const humanMessage = 'Translated provider message with secret prompt fragment'

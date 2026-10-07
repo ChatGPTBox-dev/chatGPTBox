@@ -392,6 +392,31 @@ test('claude-api: rejects incomplete Claude responses', async (t) => {
   }
 })
 
+test('claude-api: marks only the explicit context-window stop reason', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+
+  for (const { stopReason, expectedCode } of [
+    {
+      stopReason: 'model_context_window_exceeded',
+      expectedCode: 'MODEL_CONTEXT_WINDOW_EXCEEDED',
+    },
+    { stopReason: 'max_tokens', expectedCode: undefined },
+  ]) {
+    const { session, port } = setupCompletionTest()
+    t.mock.method(globalThis, 'fetch', async () =>
+      createMockSseResponse([
+        `data: {"type":"message_delta","delta":{"stop_reason":"${stopReason}"}}\n\n`,
+        'data: {"type":"message_stop"}\n\n',
+      ]),
+    )
+
+    await assert.rejects(generateAnswersWithClaudeApi(port, 'Q', session), (error) => {
+      assert.equal(error.code, expectedCode)
+      return true
+    })
+  }
+})
+
 test('claude-api: preserves streamed API error details', async (t) => {
   t.mock.method(console, 'debug', () => {})
   const { session, port } = setupCompletionTest()

@@ -378,92 +378,6 @@ test('stale release cannot remove a newer attempt or its checkpoint', async () =
   assert.equal(fixture.runner.hasCheckpoint(generationKey), false)
 })
 
-test('runner uses staged Markdown text generation without tool calls', async () => {
-  const transcription = createTranscription()
-  const calls = []
-  const runner = createVideoTaskRunner({
-    mediaPipeline: {
-      async transcribeFromSource() {
-        return transcription
-      },
-    },
-    modelGateway: {
-      async describeCapabilities() {
-        return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
-      },
-      async generateText(args) {
-        calls.push(args)
-        if (args.requestId.startsWith('chunk-')) {
-          return {
-            text: `## Chunk Summary\nlocal ${args.requestId}\n## Chunk Key Points\n- point\n## Candidate Locations\n- [segment:s1] candidate`,
-            finishReason: 'stop',
-          }
-        }
-        return {
-          text: '## Overview\nfinal\n## Key Content\n- [segment:s1] anchored point\n- [segment:s2] invalid point\n## Chapters\n- [segment:s1] Opening — intro',
-          finishReason: 'stop',
-        }
-      },
-      cancel() {},
-    },
-    logger: createLogger(),
-    clock: { now: () => 1234 },
-  })
-  const emitted = []
-
-  await runInitial(
-    runner,
-    {
-      taskId: 'task-markdown-generation',
-      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1markdown' },
-      sourceChoice: 'asr',
-      sourceSnapshot: { videoId: 'BV1markdown', mediaCandidates: [{ id: 'c1' }] },
-      settingsSnapshot: { preferredLanguage: 'en', speakerIdentification: true },
-      modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
-    },
-    (event) => emitted.push(event),
-  )
-
-  const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
-  assert.equal(
-    calls.some((call) => 'tool' in call),
-    false,
-  )
-  assert.equal(
-    calls.every((call) => call.requestKind === 'video-summary'),
-    true,
-  )
-  assert.equal(
-    calls.every((call) => call.toolPolicy === 'none'),
-    true,
-  )
-  assert.equal(
-    calls.every((call) =>
-      call.messages.every(
-        (message) =>
-          Object.keys(message).sort().join(',') === 'content,role' &&
-          ['system', 'user'].includes(message.role),
-      ),
-    ),
-    true,
-  )
-  assert.deepEqual(
-    calls.map((call) => call.maxOutputTokens),
-    [1200, 1200, 4000],
-  )
-  assert.equal(
-    calls.at(-1).messages.some((message) => message.content.includes('segment 1')),
-    false,
-  )
-  assert.equal(result.chapters[0].startMs, 0)
-  assert.equal('keyPoints' in result, false)
-  assert.deepEqual(result.keyMoments, [
-    { segmentId: 's1', startMs: transcription.segments[0].startMs, point: 'anchored point' },
-    { segmentId: null, startMs: null, point: 'invalid point' },
-  ])
-  assert.match(calls.at(-1).messages[0].content, /4–6 key-content items/)
-})
-
 test('article-only final Markdown output is preserved as an unanchored complete summary', async () => {
   const transcription = createTranscription()
   const runner = createVideoTaskRunner({
@@ -513,182 +427,6 @@ test('article-only final Markdown output is preserved as an unanchored complete 
   assert.equal(result.overview, 'A prose-only article summary.')
   assert.deepEqual(result.keyMoments, [{ segmentId: null, startMs: null, point: 'durable point' }])
   assert.equal(result.rawSummaryText.includes('A prose-only article summary.'), true)
-})
-
-test('synthesis generation failure falls back to local chunk summaries', async () => {
-  const transcription = createTranscription()
-  const calls = []
-  const runner = createVideoTaskRunner({
-    mediaPipeline: {
-      async transcribeFromSource() {
-        return transcription
-      },
-    },
-    modelGateway: {
-      async describeCapabilities() {
-        return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
-      },
-      async generateText(args) {
-        calls.push(args)
-        if (args.requestId === 'synthesis') throw new Error('SYNTHESIS_DOWN')
-        return {
-          text: `## Chunk Summary\nlocal ${args.requestId}\n## Chunk Key Points\n- point ${args.requestId}\n## Candidate Locations\n- [segment:s1] candidate`,
-          finishReason: 'stop',
-        }
-      },
-      cancel() {},
-    },
-    logger: createLogger(),
-    clock: { now: () => 1234 },
-  })
-  const emitted = []
-
-  await runInitial(
-    runner,
-    {
-      taskId: 'task-synthesis-fallback',
-      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1fallback' },
-      sourceChoice: 'asr',
-      sourceSnapshot: { videoId: 'BV1fallback', mediaCandidates: [{ id: 'c1' }] },
-      settingsSnapshot: { preferredLanguage: 'en' },
-      modelSnapshot: { modelName: 'customModel', apiMode: null },
-    },
-    (event) => emitted.push(event),
-  )
-
-  const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
-  assert.equal(result.status, 'degraded')
-  assert.equal(result.overview.includes('local chunk-1'), true)
-  assert.equal(
-    result.warnings.includes(
-      'Summary synthesis was unavailable; local summaries were used instead.',
-    ),
-    true,
-  )
-  assert.deepEqual(
-    calls.map((call) => call.requestId),
-    ['chunk-1', 'chunk-2', 'synthesis'],
-  )
-})
-
-test('one failed chunk is checkpointed while successful chunks still synthesize partial output', async () => {
-  const transcription = createTranscription()
-  const calls = []
-  const runner = createVideoTaskRunner({
-    mediaPipeline: {
-      async transcribeFromSource() {
-        return transcription
-      },
-    },
-    modelGateway: {
-      async describeCapabilities() {
-        return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
-      },
-      async generateText(args) {
-        calls.push(args)
-        if (args.requestId === 'chunk-2') throw new Error('TRANSIENT_SUMMARY_FAILURE')
-        if (args.requestId.startsWith('chunk-')) {
-          return {
-            text: `## Chunk Summary\nlocal ${args.requestId}\n## Chunk Key Points\n- point\n## Candidate Locations\n- [segment:s1] candidate`,
-            finishReason: 'stop',
-          }
-        }
-        return {
-          text: '## Overview\npartial final\n## Key Content\n- point\n## Chapters\n- [segment:s1] Opening — intro',
-          finishReason: 'stop',
-        }
-      },
-      cancel() {},
-    },
-    logger: createLogger(),
-    clock: { now: () => 1234 },
-  })
-  const emitted = []
-
-  await runInitial(
-    runner,
-    {
-      taskId: 'task-one-failed-chunk',
-      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1partial' },
-      sourceChoice: 'asr',
-      sourceSnapshot: { videoId: 'BV1partial', mediaCandidates: [{ id: 'c1' }] },
-      settingsSnapshot: { preferredLanguage: 'en' },
-      modelSnapshot: { modelName: 'customModel', apiMode: null },
-    },
-    (event) => emitted.push(event),
-  )
-
-  const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
-  assert.equal(result.status, 'partial')
-  assert.deepEqual(result.failedRanges, [
-    { startSegmentId: 's7', endSegmentId: 's12', reason: 'TRANSIENT_SUMMARY_FAILURE' },
-  ])
-  assert.deepEqual(
-    calls.map((call) => call.requestId),
-    ['chunk-1', 'chunk-2', 'synthesis'],
-  )
-})
-
-test('empty, heading-only, and truncated chunks become failed ranges', async (t) => {
-  const cases = [
-    ['empty', '', 'stop', 'MODEL_OUTPUT_EMPTY'],
-    [
-      'heading-only',
-      '## Chunk Summary\n## Chunk Key Points\n## Candidate Locations',
-      'stop',
-      'MODEL_OUTPUT_EMPTY',
-    ],
-    ['truncated', '## Chunk Summary\nusable but incomplete', 'length', 'MODEL_OUTPUT_INCOMPLETE'],
-  ]
-
-  for (const [name, invalidText, finishReason, reason] of cases) {
-    await t.test(name, async () => {
-      const transcription = createTranscription()
-      const runner = createVideoTaskRunner({
-        mediaPipeline: {
-          async transcribeFromSource() {
-            return transcription
-          },
-        },
-        modelGateway: {
-          async describeCapabilities() {
-            return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
-          },
-          async generateText(args) {
-            if (args.requestId === 'chunk-1') return { text: invalidText, finishReason }
-            if (args.requestId === 'chunk-2') {
-              return {
-                text: '## Chunk Summary\nusable local summary',
-                finishReason: 'stop',
-              }
-            }
-            return { text: '## Overview\npartial final', finishReason: 'stop' }
-          },
-        },
-        logger: createLogger(),
-        clock: { now: () => 1234 },
-      })
-      const emitted = []
-
-      await runInitial(
-        runner,
-        {
-          taskId: `task-invalid-chunk-${name}`,
-          owner: { tabId: 1, documentId: 'doc-1', videoId: `BV1${name}` },
-          sourceChoice: 'asr',
-          sourceSnapshot: { mediaCandidates: [{ id: 'c1' }] },
-          settingsSnapshot: { preferredLanguage: 'en' },
-          modelSnapshot: { modelName: 'customModel' },
-        },
-        (event) => emitted.push(event),
-      )
-
-      const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
-      assert.equal(result.status, 'partial')
-      assert.deepEqual(result.failedRanges, [{ startSegmentId: 's1', endSegmentId: 's6', reason }])
-      assert.equal(result.overview, 'partial final')
-    })
-  }
 })
 
 test('temporarily unavailable model capability fails with a transcript checkpoint', async () => {
@@ -745,441 +483,6 @@ test('temporarily unavailable model capability fails with a transcript checkpoin
   const failure = emitted.findLast((event) => event.type === 'TASK_FAILED')
   assert.equal(failure.errorCode, 'MODEL_GATEWAY_TEMPORARILY_UNAVAILABLE')
   assert.equal(failure.checkpointAvailable, true)
-})
-
-test('invalid final Markdown falls back to local summaries with an incomplete warning', async (t) => {
-  const cases = [
-    ['empty', '', 'stop'],
-    ['heading-only', '## Overview\n## Key Content\n## Chapters', 'stop'],
-    [
-      'truncated',
-      '## Overview\ntruncated but parseable\n## Key Content\n- point\n## Chapters\n- [segment:s1] Opening — intro',
-      'length',
-    ],
-  ]
-
-  for (const [name, invalidText, finishReason] of cases) {
-    await t.test(name, async () => {
-      const transcription = createTranscription()
-      const runner = createVideoTaskRunner({
-        mediaPipeline: {
-          async transcribeFromSource() {
-            return transcription
-          },
-        },
-        modelGateway: {
-          async describeCapabilities() {
-            return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
-          },
-          async generateText(args) {
-            if (args.requestId.startsWith('chunk-')) {
-              return {
-                text: `## Chunk Summary\nlocal ${args.requestId}\n## Chunk Key Points\n- point`,
-                finishReason: 'stop',
-              }
-            }
-            return { text: invalidText, finishReason }
-          },
-        },
-        logger: createLogger(),
-        clock: { now: () => 1234 },
-      })
-      const emitted = []
-
-      await runInitial(
-        runner,
-        {
-          taskId: `task-invalid-final-${name}`,
-          owner: { tabId: 1, documentId: 'doc-1', videoId: `BV1final${name}` },
-          sourceChoice: 'asr',
-          sourceSnapshot: { mediaCandidates: [{ id: 'c1' }] },
-          settingsSnapshot: { preferredLanguage: 'en' },
-          modelSnapshot: { modelName: 'customModel' },
-        },
-        (event) => emitted.push(event),
-      )
-
-      const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
-      assert.equal(result.status, 'degraded')
-      assert.equal(result.overview.includes('local chunk-1'), true)
-      assert.equal(result.overview.includes('truncated but parseable'), false)
-      assert.equal(result.warnings.includes('MODEL_OUTPUT_INCOMPLETE'), true)
-    })
-  }
-})
-
-test('changed-budget retry replaces intersecting results', async () => {
-  const transcription = {
-    durationMs: 24_000,
-    segments: Array.from({ length: 24 }, (_, index) => ({
-      id: `s${index + 1}`,
-      startMs: index * 1000,
-      endMs: (index + 1) * 1000,
-      text: `segment ${index + 1}`,
-    })),
-  }
-  const calls = []
-  const mediaCalls = []
-  let failInitialMiddle = true
-  const runner = createVideoTaskRunner({
-    mediaPipeline: {
-      async transcribeFromSource(args) {
-        mediaCalls.push(args)
-        return transcription
-      },
-    },
-    modelGateway: {
-      async describeCapabilities(modelSnapshot) {
-        return {
-          supported: true,
-          inputTokenBudget: modelSnapshot.inputTokenBudget,
-          maxOutputTokens: 20_000,
-        }
-      },
-      async generateText(args) {
-        calls.push(args)
-        if (failInitialMiddle && args.requestId === 'chunk-2') {
-          throw new Error('TRANSIENT_SUMMARY_FAILURE')
-        }
-        if (args.requestId.startsWith('chunk-')) {
-          return {
-            text: `## Chunk Summary\nsummary ${args.modelSnapshot.inputTokenBudget} ${args.requestId}`,
-            finishReason: 'stop',
-          }
-        }
-        return { text: '## Overview\nfinal', finishReason: 'stop' }
-      },
-    },
-    logger: createLogger(),
-    clock: { now: () => 1234 },
-  })
-  const emit = () => {}
-  let currentFence = createFence()
-  runner.registerAttempt({
-    requestId: 'initial-changed-budget',
-    fence: currentFence,
-    mode: 'initial',
-    payload: {
-      sourceChoice: 'asr',
-      settingsSnapshot: { preferredLanguage: 'en' },
-      modelSnapshot: { inputTokenBudget: 20 },
-    },
-    transientPayload: { sourceSnapshot: {} },
-    emit,
-  })
-  await runner.authorizeAttempt({ requestId: 'initial-changed-budget', fence: currentFence })
-
-  failInitialMiddle = false
-  currentFence = { ...currentFence, attempt: currentFence.attempt + 1 }
-  runner.registerAttempt({
-    requestId: 'retry-changed-budget',
-    fence: currentFence,
-    mode: 'retry-summary',
-    payload: { fromStage: 'summarizing', modelSnapshot: { inputTokenBudget: 40 } },
-    emit,
-  })
-  await runner.authorizeAttempt({ requestId: 'retry-changed-budget', fence: currentFence })
-
-  assert.deepEqual(
-    calls.map(({ requestId }) => requestId),
-    ['chunk-1', 'chunk-2', 'chunk-3', 'chunk-4', 'synthesis', 'chunk-1', 'synthesis'],
-  )
-  assert.equal(mediaCalls.length, 1)
-  const retryChunkResults = JSON.parse(calls.at(-1).messages.at(-1).content).chunkResults
-  assert.deepEqual(
-    retryChunkResults.map(({ localSummary }) => localSummary),
-    ['summary 40 chunk-1', 'summary 20 chunk-3', 'summary 20 chunk-4'],
-  )
-  const beforeRetry = calls.length
-  await runner.registerAttempt({
-    requestId: 'retry-synthesis',
-    fence: { ...currentFence, attempt: currentFence.attempt + 1 },
-    mode: 'retry-summary',
-    payload: { fromStage: 'synthesis', modelSnapshot: { inputTokenBudget: 10 } },
-    emit,
-  })
-  await runner.authorizeAttempt({
-    requestId: 'retry-synthesis',
-    fence: { ...currentFence, attempt: currentFence.attempt + 1 },
-  })
-  assert.deepEqual(
-    calls.slice(beforeRetry).map(({ requestId }) => requestId),
-    ['synthesis'],
-  )
-  assert.equal(mediaCalls.length, 1)
-})
-
-test('retry from summarizing reruns only failed ranges when a checkpoint has failures', async () => {
-  const transcription = createTranscription()
-  const mediaPipelineCalls = []
-  const calls = []
-  let shouldFailSecondChunk = true
-
-  const runner = createVideoTaskRunner({
-    mediaPipeline: {
-      async transcribeFromSource(args) {
-        mediaPipelineCalls.push(args)
-        return transcription
-      },
-    },
-    modelGateway: {
-      describeCapabilities() {
-        return {
-          supported: true,
-          reason: null,
-          inputTokenBudget: 20,
-          maxOutputTokens: 20_000,
-        }
-      },
-      async generateText(args) {
-        calls.push(args)
-
-        if (args.requestId === 'chunk-2' && shouldFailSecondChunk) {
-          throw new Error('TRANSIENT_SUMMARY_FAILURE')
-        }
-
-        if (args.requestId.startsWith('chunk-')) {
-          const firstId = args.requestId === 'chunk-1' ? 's1' : 's7'
-          return {
-            text: `## Chunk Summary\nlocal summary ${args.requestId}\n## Chunk Key Points\n- Point ${args.requestId}\n## Candidate Locations\n- [segment:${firstId}] Candidate ${args.requestId}`,
-            finishReason: 'stop',
-          }
-        }
-
-        return {
-          text: '## Overview\nFinal overview\n## Key Content\n- Point 1\n- Point 2\n## Chapters\n- [segment:s1] Opening — Opening summary\n- [segment:s7] Second half — Second half summary\n- [segment:s1] Moment 1\n- [segment:s7] Moment 2',
-          finishReason: 'stop',
-        }
-      },
-      cancel() {},
-    },
-    logger: createLogger(),
-    clock: { now: () => 1234 },
-  })
-
-  const emitted = []
-  const emit = (event) => emitted.push(event)
-  const command = {
-    taskId: 'task-7',
-    owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1task7001' },
-    sourceChoice: 'asr',
-    sourceSnapshot: { videoId: 'BV1task7001', mediaCandidates: [{ id: 'c1' }] },
-    settingsSnapshot: { preferredLanguage: 'en', speakerIdentification: true },
-    modelSnapshot: { apiMode: { groupName: 'customApiModelKeys', providerId: 'openai' } },
-    requestSourceRefresh: async () => {
-      throw new Error('should not refresh')
-    },
-  }
-
-  await runInitial(runner, command, emit)
-
-  const firstResult = emitted.findLast((event) => event.type === 'TASK_RESULT')
-  assert.equal(firstResult.result.status, 'partial')
-  assert.deepEqual(firstResult.result.failedRanges, [
-    { startSegmentId: 's7', endSegmentId: 's12', reason: 'TRANSIENT_SUMMARY_FAILURE' },
-  ])
-  assert.equal(mediaPipelineCalls.length, 1)
-
-  shouldFailSecondChunk = false
-  await runRetry(runner, 'task-7', { fromStage: 'summarizing' })
-
-  const secondResult = emitted.findLast((event) => event.type === 'TASK_RESULT')
-  assert.equal(secondResult.result.status, 'complete')
-  assert.deepEqual(
-    secondResult.result.chapters.map((chapter) => chapter.title),
-    ['Opening', 'Second half'],
-  )
-  assert.equal(mediaPipelineCalls.length, 1)
-  assert.deepEqual(
-    calls.map((call) => call.requestId),
-    ['chunk-1', 'chunk-2', 'synthesis', 'chunk-2', 'synthesis'],
-  )
-})
-
-test('retry from synthesis falls back to stored local chunks when final generation fails', async () => {
-  const transcription = createTranscription()
-  const calls = []
-  let failSynthesis = false
-  const runner = createVideoTaskRunner({
-    mediaPipeline: {
-      async transcribeFromSource() {
-        return transcription
-      },
-    },
-    modelGateway: {
-      async describeCapabilities() {
-        return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
-      },
-      async generateText(args) {
-        calls.push(args)
-        if (args.requestId.startsWith('chunk-')) {
-          return {
-            text: `## Chunk Summary\nlocal ${args.requestId}\n## Chunk Key Points\n- point\n## Candidate Locations\n- [segment:s1] candidate`,
-            finishReason: 'stop',
-          }
-        }
-        if (failSynthesis) throw new Error('SYNTHESIS_DOWN')
-        return {
-          text: '## Overview\ninitial final\n## Key Content\n- point\n## Chapters\n- [segment:s1] Opening — intro',
-          finishReason: 'stop',
-        }
-      },
-      cancel() {},
-    },
-    logger: createLogger(),
-    clock: { now: () => 1234 },
-  })
-  const emitted = []
-
-  await runInitial(
-    runner,
-    {
-      taskId: 'task-synthesis-retry-fallback',
-      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1synthesisfallback' },
-      sourceChoice: 'asr',
-      sourceSnapshot: { videoId: 'BV1synthesisfallback', mediaCandidates: [{ id: 'c1' }] },
-      settingsSnapshot: { preferredLanguage: 'en' },
-      modelSnapshot: { modelName: 'customModel', apiMode: null },
-    },
-    (event) => emitted.push(event),
-  )
-
-  failSynthesis = true
-  const result = await runRetry(runner, 'task-synthesis-retry-fallback', { fromStage: 'synthesis' })
-
-  assert.deepEqual(
-    calls.map((call) => call.requestId),
-    ['chunk-1', 'chunk-2', 'synthesis', 'synthesis'],
-  )
-  assert.equal(result.status, 'degraded')
-  assert.equal(result.overview.includes('local chunk-1'), true)
-  assert.equal(
-    result.warnings.includes(
-      'Summary synthesis was unavailable; local summaries were used instead.',
-    ),
-    true,
-  )
-})
-
-test('retry from synthesis rejects invalid final output and falls back to stored local chunks', async () => {
-  const transcription = createTranscription()
-  const calls = []
-  let retrying = false
-  const runner = createVideoTaskRunner({
-    mediaPipeline: {
-      async transcribeFromSource() {
-        return transcription
-      },
-    },
-    modelGateway: {
-      async describeCapabilities() {
-        return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
-      },
-      async generateText(args) {
-        calls.push(args)
-        if (args.requestId.startsWith('chunk-')) {
-          return {
-            text: `## Chunk Summary\nlocal ${args.requestId}`,
-            finishReason: 'stop',
-          }
-        }
-        if (retrying) {
-          return {
-            text: '## Overview\ntruncated retry',
-            finishReason: 'length',
-          }
-        }
-        return { text: '## Overview\ninitial final', finishReason: 'stop' }
-      },
-    },
-    logger: createLogger(),
-    clock: { now: () => 1234 },
-  })
-  const emitted = []
-
-  await runInitial(
-    runner,
-    {
-      taskId: 'task-invalid-synthesis-retry',
-      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1invalidretry' },
-      sourceChoice: 'asr',
-      sourceSnapshot: { mediaCandidates: [{ id: 'c1' }] },
-      settingsSnapshot: { preferredLanguage: 'en' },
-      modelSnapshot: { modelName: 'customModel' },
-    },
-    (event) => emitted.push(event),
-  )
-
-  retrying = true
-  const result = await runRetry(runner, 'task-invalid-synthesis-retry', {
-    fromStage: 'synthesis',
-  })
-
-  assert.deepEqual(
-    calls.map((call) => call.requestId),
-    ['chunk-1', 'chunk-2', 'synthesis', 'synthesis'],
-  )
-  assert.equal(result.status, 'degraded')
-  assert.equal(result.overview.includes('local chunk-1'), true)
-  assert.equal(result.overview.includes('truncated retry'), false)
-  assert.equal(result.warnings.includes('MODEL_OUTPUT_INCOMPLETE'), true)
-})
-
-test('retry from synthesis calls only final generation with stored chunk results', async () => {
-  const transcription = createTranscription()
-  const calls = []
-  const runner = createVideoTaskRunner({
-    mediaPipeline: {
-      async transcribeFromSource() {
-        return transcription
-      },
-    },
-    modelGateway: {
-      async describeCapabilities() {
-        return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
-      },
-      async generateText(args) {
-        calls.push(args)
-        if (args.requestId.startsWith('chunk-')) {
-          return {
-            text: `## Chunk Summary\nlocal ${args.requestId}\n## Chunk Key Points\n- point\n## Candidate Locations\n- [segment:s1] candidate`,
-            finishReason: 'stop',
-          }
-        }
-        return {
-          text: `## Overview\nfinal ${calls.length}\n## Key Content\n- point\n## Chapters\n- [segment:s1] Opening — intro`,
-          finishReason: 'stop',
-        }
-      },
-      cancel() {},
-    },
-    logger: createLogger(),
-    clock: { now: () => 1234 },
-  })
-  const emitted = []
-
-  await runInitial(
-    runner,
-    {
-      taskId: 'task-synthesis-retry',
-      owner: { tabId: 1, documentId: 'doc-1', videoId: 'BV1synthesisretry' },
-      sourceChoice: 'asr',
-      sourceSnapshot: { videoId: 'BV1synthesisretry', mediaCandidates: [{ id: 'c1' }] },
-      settingsSnapshot: { preferredLanguage: 'en' },
-      modelSnapshot: { modelName: 'customModel', apiMode: null },
-    },
-    (event) => emitted.push(event),
-  )
-
-  await runRetry(runner, 'task-synthesis-retry', { fromStage: 'synthesis' })
-
-  assert.deepEqual(
-    calls.map((call) => call.requestId),
-    ['chunk-1', 'chunk-2', 'synthesis', 'synthesis'],
-  )
-  const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
-  assert.equal(result.status, 'complete')
-  assert.equal(result.overview, 'final 4')
 })
 
 test('Bilibili subtitle choice uses the requested track and never calls MediaKit', async () => {
@@ -1479,4 +782,302 @@ test('unsupported source choice cannot fall through to paid ASR', async () => {
     { message: 'VIDEO_SUMMARY_SOURCE_CHOICE_UNSUPPORTED' },
   )
   assert.equal(mediaCalls.length, 0)
+})
+
+function finalMarkdown(segmentIds, label = 'final') {
+  return `## Overview\n${label}\n## Key Content\n${segmentIds
+    .map((id) => `- [segment:${id}] point ${id}`)
+    .join('\n')}\n## Chapters\n${segmentIds
+    .map((id) => `- [segment:${id}] chapter ${id} — detail`)
+    .join('\n')}`
+}
+
+function ledgerMarkdown(segmentId) {
+  return `## 主题与人物\n- topic\n## 叙事与论证\n- [segment:${segmentId}] narrative\n## 事实与证据\n- [segment:${segmentId}] evidence\n## 章节候选\n- [segment:${segmentId}] chapter — detail\n## 待补信息\n- none\n## 覆盖位置\n${segmentId}`
+}
+
+function createSummaryRunner({
+  transcription = createTranscription(),
+  generateText,
+  inputTokenBudget = 20,
+}) {
+  const calls = []
+  const events = []
+  const runner = createVideoTaskRunner({
+    mediaPipeline: {
+      async transcribeFromSource() {
+        return transcription
+      },
+    },
+    modelGateway: {
+      async describeCapabilities() {
+        return { supported: true, inputTokenBudget, maxOutputTokens: 20_000 }
+      },
+      async generateText(args) {
+        calls.push(args)
+        return generateText(args, calls)
+      },
+    },
+    logger: createLogger(),
+    clock: { now: () => 1234 },
+  })
+  return { runner, calls, events, transcription }
+}
+
+function summaryCommand(taskId, modelSnapshot = { modelName: 'model-a' }) {
+  return {
+    taskId,
+    owner: { tabId: 1, documentId: 'doc-1', videoId: taskId },
+    sourceChoice: 'asr',
+    sourceSnapshot: {},
+    settingsSnapshot: { preferredLanguage: 'en' },
+    modelSnapshot,
+  }
+}
+
+test('direct synthesis sends the complete transcript once with full anchor coverage', async () => {
+  const fixture = createSummaryRunner({
+    generateText: async () => ({
+      text: finalMarkdown(createTranscription().segments.map(({ id }) => id)),
+      finishReason: 'stop',
+    }),
+  })
+  await runInitial(fixture.runner, summaryCommand('direct-success'), (event) =>
+    fixture.events.push(event),
+  )
+
+  assert.deepEqual(
+    fixture.calls.map(({ requestId }) => requestId),
+    ['direct-synthesis'],
+  )
+  assert.deepEqual(
+    JSON.parse(fixture.calls[0].messages[1].content).transcript.segments,
+    fixture.transcription.segments.map(({ id, startMs, endMs, speaker, text }) => ({
+      id,
+      startMs,
+      endMs,
+      speaker,
+      text,
+    })),
+  )
+  const result = fixture.events.findLast(({ type }) => type === 'TASK_RESULT').result
+  assert.equal(result.coverage.ratio, 1)
+  assert.deepEqual(
+    result.keyMoments.map(({ segmentId }) => segmentId),
+    fixture.transcription.segments.map(({ id }) => id),
+  )
+  assert.equal(fixture.runner.debugState().checkpoints[0].summaryMode, 'direct')
+})
+
+test('only explicit context overflow falls back from direct synthesis', async (t) => {
+  for (const code of [
+    'MODEL_LOGIN_REQUIRED',
+    'MODEL_RATE_LIMITED',
+    'MODEL_NETWORK_FAILED',
+    'MODEL_OUTPUT_INCOMPLETE',
+    'MODEL_GATEWAY_GENERATION_FAILED',
+  ]) {
+    await t.test(code, async () => {
+      const fixture = createSummaryRunner({
+        generateText: async () => {
+          throw Object.assign(new Error(code), { code })
+        },
+      })
+      await assert.rejects(
+        runInitial(fixture.runner, summaryCommand(`no-fallback-${code}`), (event) =>
+          fixture.events.push(event),
+        ),
+        { code },
+      )
+      assert.deepEqual(
+        fixture.calls.map(({ requestId }) => requestId),
+        ['direct-synthesis'],
+      )
+      assert.equal(fixture.events.findLast(({ type }) => type === 'TASK_FAILED').errorCode, code)
+    })
+  }
+})
+
+test('context overflow uses sequential rolling ledger updates and ledger-only synthesis', async () => {
+  const fixture = createSummaryRunner({
+    generateText: async (args) => {
+      if (args.requestId === 'direct-synthesis') {
+        throw Object.assign(new Error('overflow'), { code: 'MODEL_CONTEXT_WINDOW_EXCEEDED' })
+      }
+      if (args.requestId === 'ledger-synthesis') {
+        return { text: finalMarkdown(['s6', 's12']), finishReason: 'stop' }
+      }
+      const payload = JSON.parse(args.messages[1].content)
+      const lastPrimary = payload.range.endIndex
+      return { text: ledgerMarkdown(`s${lastPrimary}`), finishReason: 'stop' }
+    },
+  })
+  await runInitial(fixture.runner, summaryCommand('rolling-success'), (event) =>
+    fixture.events.push(event),
+  )
+
+  assert.equal(fixture.calls[0].requestId, 'direct-synthesis')
+  assert.equal(
+    fixture.calls.some(({ requestId }) => requestId.startsWith('chunk-')),
+    false,
+  )
+  const ledgerCalls = fixture.calls.filter(
+    ({ requestId }) => requestId.startsWith('ledger-') && requestId !== 'ledger-synthesis',
+  )
+  assert.equal(ledgerCalls.length, 2)
+  const first = JSON.parse(ledgerCalls[0].messages[1].content)
+  const second = JSON.parse(ledgerCalls[1].messages[1].content)
+  assert.equal(first.ledger, null)
+  assert.equal(second.ledger.coveredThroughSegmentId, 's6')
+  assert.deepEqual(Object.keys(second).sort(), ['ledger', 'range', 'segments'])
+  const synthesisPayload = JSON.parse(fixture.calls.at(-1).messages[1].content)
+  assert.deepEqual(Object.keys(synthesisPayload), ['ledger'])
+  assert.equal(JSON.stringify(synthesisPayload).includes('segment 1'), false)
+  assert.equal(
+    fixture.events.findLast(({ type }) => type === 'TASK_RESULT').result.coverage.ratio,
+    1,
+  )
+})
+
+test('rolling overflow splits only the current range and commits each segment once', async () => {
+  const transcription = {
+    durationMs: 8000,
+    segments: Array.from({ length: 8 }, (_, index) => ({
+      id: `s${index + 1}`,
+      startMs: index * 1000,
+      endMs: (index + 1) * 1000,
+      text: `s${index + 1}`,
+    })),
+  }
+  let overflowed = false
+  const accepted = []
+  const fixture = createSummaryRunner({
+    transcription,
+    inputTokenBudget: 1000,
+    generateText: async (args) => {
+      if (args.requestId === 'direct-synthesis') {
+        throw Object.assign(new Error('overflow'), { code: 'MODEL_CONTEXT_WINDOW_EXCEEDED' })
+      }
+      if (args.requestId === 'ledger-synthesis') {
+        return { text: finalMarkdown(['s4', 's8']), finishReason: 'stop' }
+      }
+      const { range } = JSON.parse(args.messages[1].content)
+      if (!overflowed && range.startIndex === 0 && range.endIndex === 8) {
+        overflowed = true
+        throw Object.assign(new Error('overflow'), { code: 'MODEL_CONTEXT_WINDOW_EXCEEDED' })
+      }
+      accepted.push([range.startIndex, range.endIndex])
+      return { text: ledgerMarkdown(`s${range.endIndex}`), finishReason: 'stop' }
+    },
+  })
+  await runInitial(fixture.runner, summaryCommand('split-range'), () => {})
+  assert.deepEqual(accepted, [
+    [0, 4],
+    [4, 8],
+  ])
+  assert.equal(fixture.runner.debugState().checkpoints[0].nextSegmentIndex, 8)
+})
+
+test('a single overflowing rolling segment fails without retrying forever', async () => {
+  const transcription = {
+    durationMs: 1000,
+    segments: [{ id: 's1', startMs: 0, endMs: 1000, text: 'only' }],
+  }
+  const fixture = createSummaryRunner({
+    transcription,
+    generateText: async () => {
+      throw Object.assign(new Error('overflow'), { code: 'MODEL_CONTEXT_WINDOW_EXCEEDED' })
+    },
+  })
+  await assert.rejects(
+    runInitial(fixture.runner, summaryCommand('single-overflow'), () => {}),
+    { code: 'MODEL_CONTEXT_WINDOW_EXCEEDED' },
+  )
+  assert.equal(fixture.calls.length, 2)
+  assert.equal(fixture.runner.debugState().checkpoints[0].rollingRanges.length, 1)
+})
+
+test('rolling cancellation and failure resume without replay and can change model', async (t) => {
+  for (const [name, interruption] of [
+    ['cancellation', new DOMException('Aborted', 'AbortError')],
+    ['failure', Object.assign(new Error('MODEL_NETWORK_FAILED'), { code: 'MODEL_NETWORK_FAILED' })],
+  ]) {
+    await t.test(name, async () => {
+      let interrupted = false
+      const fixture = createSummaryRunner({
+        generateText: async (args) => {
+          if (args.requestId === 'direct-synthesis') {
+            throw Object.assign(new Error('overflow'), { code: 'MODEL_CONTEXT_WINDOW_EXCEEDED' })
+          }
+          if (args.requestId === 'ledger-synthesis') {
+            return { text: finalMarkdown(['s6', 's12']), finishReason: 'stop' }
+          }
+          const payload = JSON.parse(args.messages[1].content)
+          if (payload.range.startIndex === 6 && !interrupted) {
+            interrupted = true
+            throw interruption
+          }
+          return { text: ledgerMarkdown(`s${payload.range.endIndex}`), finishReason: 'stop' }
+        },
+      })
+      await assert.rejects(
+        runInitial(fixture.runner, summaryCommand(`resume-${name}`), () => {}),
+        name === 'cancellation' ? { name: 'AbortError' } : { code: 'MODEL_NETWORK_FAILED' },
+      )
+      const checkpoint = fixture.runner.debugState().checkpoints[0]
+      assert.equal(checkpoint.summaryMode, 'rolling-ledger')
+      assert.equal(checkpoint.nextSegmentIndex, 6)
+      assert.equal(checkpoint.evidenceLedger.coveredThroughSegmentId, 's6')
+      await runRetry(fixture.runner, `resume-${name}`, {
+        fromStage: 'summarizing',
+        modelSnapshot: { modelName: 'model-b' },
+      })
+      const retryCalls = fixture.calls.slice(3)
+      assert.equal(
+        retryCalls.some((call) => JSON.parse(call.messages[1].content).range?.startIndex === 0),
+        false,
+      )
+      assert.equal(retryCalls[0].modelSnapshot.modelName, 'model-b')
+      assert.equal(
+        JSON.parse(retryCalls[0].messages[1].content).ledger.coveredThroughSegmentId,
+        's6',
+      )
+    })
+  }
+})
+
+test('synthesis retries are mode-aware and never replay completed ledger ranges', async (t) => {
+  await t.test('direct', async () => {
+    const fixture = createSummaryRunner({
+      generateText: async () => ({ text: finalMarkdown(['s1']), finishReason: 'stop' }),
+    })
+    await runInitial(fixture.runner, summaryCommand('retry-direct'), () => {})
+    await runRetry(fixture.runner, 'retry-direct', { fromStage: 'synthesis' })
+    assert.deepEqual(
+      fixture.calls.map(({ requestId }) => requestId),
+      ['direct-synthesis', 'direct-synthesis'],
+    )
+  })
+
+  await t.test('rolling ledger', async () => {
+    const fixture = createSummaryRunner({
+      generateText: async (args) => {
+        if (args.requestId === 'direct-synthesis') {
+          throw Object.assign(new Error('overflow'), { code: 'MODEL_CONTEXT_WINDOW_EXCEEDED' })
+        }
+        if (args.requestId === 'ledger-synthesis') {
+          return { text: finalMarkdown(['s6', 's12']), finishReason: 'stop' }
+        }
+        const { range } = JSON.parse(args.messages[1].content)
+        return { text: ledgerMarkdown(`s${range.endIndex}`), finishReason: 'stop' }
+      },
+    })
+    await runInitial(fixture.runner, summaryCommand('retry-rolling'), () => {})
+    const beforeRetry = fixture.calls.length
+    await runRetry(fixture.runner, 'retry-rolling', { fromStage: 'synthesis' })
+    assert.deepEqual(
+      fixture.calls.slice(beforeRetry).map(({ requestId }) => requestId),
+      ['ledger-synthesis'],
+    )
+  })
 })

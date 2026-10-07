@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { createVideoSummaryCoordinator } from '../../../src/background/video-summary-coordinator.mjs'
 import { createVideoSummaryOffscreenRpc } from '../../../src/background/video-summary-offscreen-rpc.mjs'
+import { createVideoSummaryRouter } from '../../../src/background/video-summary-router.mjs'
 import { createVideoSummaryAdapterController } from '../../../src/content-script/video-summary-adapter-controller.mjs'
 import { startVideoSummaryOffscreenRuntime } from '../../../src/pages/VideoSummaryOffscreen/runtime.mjs'
 import { createMediaPipeline } from '../../../src/video-summary/media-pipeline.mjs'
@@ -545,6 +546,254 @@ test('real task cleanup removes OPFS after success, failure, cancellation, and d
       }
       assert.equal(tasks.has(taskId), false)
     })
+  }
+})
+
+function summaryMarkdown(segmentIds) {
+  return `## Overview\nComplete summary\n## Key Content\n${segmentIds
+    .map((id) => `- [segment:${id}] point ${id}`)
+    .join('\n')}\n## Chapters\n- [segment:${segmentIds[0]}] Complete — Ordered summary`
+}
+
+function ledgerMarkdown(segmentIds) {
+  const anchored = segmentIds.map((segmentId) => `- [segment:${segmentId}]`)
+  return `## 主题与人物\n- speaker\n## 叙事与论证\n${anchored
+    .map((value, index) => `${value} narrative ${index + 1}`)
+    .join('\n')}\n## 事实与证据\n${anchored
+    .map((value, index) => `${value} evidence ${index + 1}`)
+    .join('\n')}\n## 章节候选\n${anchored
+    .map((value, index) => `${value} chapter ${index + 1} — detail`)
+    .join('\n')}\n## 待补信息\n- none\n## 覆盖位置\n${segmentIds.at(-1)}`
+}
+
+function integrationSummaryCommand(taskId, transcriptText) {
+  return {
+    type: 'START_TASK',
+    requestId: `start-${taskId}`,
+    taskId,
+    pageIdentity: identity,
+    sourceChoice: 'native-subtitle',
+    subtitleTrackId: 'track-1',
+    sourceSnapshot: {
+      pageIdentity: identity,
+      title: 'Title',
+      durationMs: 12_000,
+      nativeSubtitleTracks: [
+        {
+          id: 'track-1',
+          language: 'en',
+          label: 'English',
+          sourceKind: 'author',
+          cues: Array.from({ length: 12 }, (_, index) => ({
+            startMs: index * 1000,
+            endMs: (index + 1) * 1000,
+            text: `${transcriptText}-${index + 1}`,
+          })),
+        },
+      ],
+      mediaCandidates: [],
+    },
+    settingsSnapshot: {
+      preferredLanguage: 'en',
+      speakerIdentification: true,
+      summaryMaxOutputTokens: 4000,
+      asrConfirmed: false,
+    },
+    modelSnapshot: { modelName: 'customModel', apiMode: null },
+  }
+}
+
+async function runSummaryIntegration({ taskId, transcriptText, generateText }) {
+  const ports = createLinkedPorts()
+  ports.content = createFakePort({
+    name: 'video-summary',
+    sender: {
+      id: 'extension-id',
+      tab: { id: 9 },
+      documentId: 'doc-9',
+      frameId: 0,
+      url: 'https://www.youtube.com/watch?v=abcdefghijk',
+    },
+  })
+  const requests = []
+  const logs = []
+  const logger = Object.fromEntries(
+    ['info', 'warn', 'error'].map((level) => [level, (entry) => logs.push([level, entry])]),
+  )
+  let rpc
+  const coordinator = createVideoSummaryCoordinator({
+    clock: clock(),
+    ensureOffscreen: async () => {},
+    sendOffscreen(command) {
+      rpc.postCommand(command)
+    },
+    sendContent(port, message) {
+      port.postMessage(message)
+    },
+    resetOffscreen: async () => {},
+  })
+  const modelGateway = {
+    async describeCapabilities() {
+      return { supported: true, inputTokenBudget: 20, maxOutputTokens: 20_000 }
+    },
+    async generateText(args) {
+      requests.push(structuredClone(args))
+      return generateText(args)
+    },
+  }
+  rpc = createVideoSummaryOffscreenRpc({
+    mediaKitGateway: {},
+    modelGateway,
+    coordinator,
+    logger,
+  })
+  rpc.attachPort(ports.background)
+  startVideoSummaryOffscreenRuntime({
+    port: ports.offscreen,
+    mediaPipeline: {
+      async transcribeFromSource({ sourceSnapshot }) {
+        return {
+          durationMs: sourceSnapshot.durationMs,
+          detectedLanguage: 'en',
+          segments: sourceSnapshot.nativeSubtitleTracks[0].cues.map((cue, index) => ({
+            id: `s${index + 1}`,
+            ...cue,
+          })),
+        }
+      },
+    },
+    logger,
+    clock: clock(),
+  })
+  const router = createVideoSummaryRouter({
+    runtime: { id: 'extension-id' },
+    coordinator,
+    logger,
+  })
+  router.handleConnect(ports.content)
+  ports.content.emitMessage(integrationSummaryCommand(taskId, transcriptText))
+  let terminalMessage
+  for (let attempt = 0; attempt < 50 && !terminalMessage; attempt += 1) {
+    terminalMessage = ports.content.postedMessages.find(
+      ({ type, event }) =>
+        type === 'TASK_EVENT' &&
+        (event?.type === 'TASK_COMPLETED' || event?.type === 'TASK_FAILED'),
+    )
+    if (!terminalMessage) await nextTask()
+  }
+  assert.ok(
+    terminalMessage,
+    JSON.stringify({
+      contentTypes: ports.content.postedMessages.map(({ type, event }) => [type, event?.type]),
+      requestIds: requests.map(({ requestId }) => requestId),
+      backgroundTypes: ports.background.postedMessages.map(({ type, error }) => [
+        type,
+        error?.code,
+      ]),
+      offscreenTypes: ports.offscreen.postedMessages.map(({ type, operation, event }) => [
+        type,
+        operation || event?.type,
+      ]),
+    }),
+  )
+  return { terminal: terminalMessage.event, requests, logs, ports }
+}
+
+test('direct overflow reaches content through sequential ledger synthesis with safe diagnostics', async () => {
+  const transcriptSecret = 'SECRET_TRANSCRIPT_CONTENT'
+  const ledgerSecret = 'SECRET_LEDGER_CONTENT'
+  const responseSecret = 'SECRET_MODEL_RESPONSE'
+  const credentialSecret = 'SECRET_PROVIDER_CREDENTIAL'
+  const ledgerSegmentIds = []
+  const fixture = await runSummaryIntegration({
+    taskId: 'rolling-integration',
+    transcriptText: transcriptSecret,
+    generateText: async (args) => {
+      if (args.requestId === 'direct-synthesis') {
+        throw Object.assign(new Error(responseSecret), {
+          code: 'MODEL_CONTEXT_WINDOW_EXCEEDED',
+          transcript: transcriptSecret,
+          ledger: ledgerSecret,
+          response: responseSecret,
+          secret: credentialSecret,
+        })
+      }
+      if (args.requestId === 'ledger-synthesis') {
+        const ledger = JSON.parse(args.messages[1].content).ledger
+        const firstSegmentId = ledger.narrative[0].segmentId
+        return {
+          text: summaryMarkdown([firstSegmentId, ledger.coveredThroughSegmentId]),
+          finishReason: 'stop',
+        }
+      }
+      const { range } = JSON.parse(args.messages[1].content)
+      const segmentId = `native-${range.endIndex}`
+      ledgerSegmentIds.push(segmentId)
+      return { text: ledgerMarkdown(ledgerSegmentIds), finishReason: 'stop' }
+    },
+  })
+
+  assert.equal(
+    fixture.terminal.type,
+    'TASK_COMPLETED',
+    JSON.stringify({
+      terminal: fixture.terminal,
+      requestIds: fixture.requests.map(({ requestId }) => requestId),
+    }),
+  )
+  assert.equal(fixture.terminal.result.coverage.ratio, 1)
+  assert.deepEqual(
+    fixture.terminal.result.keyMoments.map(({ segmentId }) => segmentId),
+    [ledgerSegmentIds[0], ledgerSegmentIds.at(-1)],
+  )
+  assert.deepEqual(
+    fixture.requests.map(({ requestId }) => requestId),
+    ['direct-synthesis', 'ledger-1', 'ledger-4', 'ledger-7', 'ledger-10', 'ledger-synthesis'],
+  )
+  const serializedDiagnostics = JSON.stringify({
+    logs: fixture.logs,
+    errors: fixture.ports.background.postedMessages
+      .filter(({ type, ok }) => type === 'GATEWAY_RESPONSE' && ok === false)
+      .map(({ error }) => error),
+  })
+  for (const secret of [transcriptSecret, ledgerSecret, responseSecret, credentialSecret]) {
+    assert.equal(serializedDiagnostics.includes(secret), false)
+  }
+})
+
+test('login failure reaches content unchanged without ledger fallback or sensitive serialization', async () => {
+  const transcriptSecret = 'SECRET_LOGIN_TRANSCRIPT'
+  const ledgerSecret = 'SECRET_LOGIN_LEDGER'
+  const responseSecret = 'SECRET_LOGIN_RESPONSE'
+  const credentialSecret = 'SECRET_LOGIN_CREDENTIAL'
+  const fixture = await runSummaryIntegration({
+    taskId: 'login-integration',
+    transcriptText: transcriptSecret,
+    generateText: async () => {
+      throw Object.assign(new Error(responseSecret), {
+        code: 'MODEL_LOGIN_REQUIRED',
+        transcript: transcriptSecret,
+        ledger: ledgerSecret,
+        response: responseSecret,
+        secret: credentialSecret,
+      })
+    },
+  })
+
+  assert.equal(fixture.terminal.type, 'TASK_FAILED')
+  assert.equal(fixture.terminal.errorCode, 'MODEL_LOGIN_REQUIRED')
+  assert.deepEqual(
+    fixture.requests.map(({ requestId }) => requestId),
+    ['direct-synthesis'],
+  )
+  const serializedDiagnostics = JSON.stringify({
+    logs: fixture.logs,
+    errors: fixture.ports.background.postedMessages
+      .filter(({ type, ok }) => type === 'GATEWAY_RESPONSE' && ok === false)
+      .map(({ error }) => error),
+  })
+  for (const secret of [transcriptSecret, ledgerSecret, responseSecret, credentialSecret]) {
+    assert.equal(serializedDiagnostics.includes(secret), false)
   }
 })
 

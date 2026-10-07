@@ -329,6 +329,47 @@ test('azure-openai: throws on error response with JSON body', async (t) => {
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
 })
 
+test('azure-openai: preserves only recognized context provider codes', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const config = {
+    azureEndpoint: 'https://myinstance.openai.azure.com',
+    azureApiKey: 'bad-key',
+    azureDeploymentName: 'gpt-4o',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 128,
+  }
+
+  for (const { providerError, expectedProviderCode } of [
+    {
+      providerError: { code: 'context_length_exceeded', message: 'private context details' },
+      expectedProviderCode: 'context_length_exceeded',
+    },
+    {
+      providerError: { code: 'invalid_request_error', message: 'prompt is too long' },
+      expectedProviderCode: undefined,
+    },
+  ]) {
+    const session = { modelName: 'azureOpenAi', conversationRecords: [], isRetry: false }
+    const port = createFakePort()
+    t.mock.method(globalThis, 'fetch', async () =>
+      createMockSseResponse([], {
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        json: async () => ({ error: providerError }),
+      }),
+    )
+
+    await assert.rejects(
+      generateAnswersWithAzureOpenaiApi(port, 'private prompt', session, config),
+      (error) => {
+        assert.equal(error.providerCode, expectedProviderCode)
+        return true
+      },
+    )
+  }
+})
+
 test('azure-openai: isolated diagnostics do not emit raw SSE or console output', async (t) => {
   const consoleMessages = []
   t.mock.method(console, 'debug', (...args) => consoleMessages.push(args.join(' ')))

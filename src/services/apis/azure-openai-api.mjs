@@ -6,6 +6,12 @@ import { isEmpty } from 'lodash-es'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
 
+const CONTEXT_PROVIDER_CODES = new Set([
+  'context_length_exceeded',
+  'model_context_window_exceeded',
+  'prompt_too_long',
+])
+
 /**
  * @param {Runtime.Port} port
  * @param {string} question
@@ -94,9 +100,12 @@ export async function generateAnswersWithAzureOpenaiApi(
         port.onDisconnect.removeListener(disconnectListener)
         if (resp instanceof Error) throw resp
         const error = await resp.json().catch(() => ({}))
-        throw new Error(
+        const providerCode = String(error?.error?.code || '').toLowerCase()
+        const responseError = new Error(
           !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
         )
+        if (CONTEXT_PROVIDER_CODES.has(providerCode)) responseError.providerCode = providerCode
+        throw responseError
       },
     },
   )

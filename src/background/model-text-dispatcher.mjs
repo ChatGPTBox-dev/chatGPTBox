@@ -28,6 +28,11 @@ import { isUsingModelName } from '../utils/model-name-convert.mjs'
 const DEFAULT_MAX_OUTPUT_TOKENS = 20_000
 const MIN_MAX_OUTPUT_TOKENS = 1
 const MAX_MAX_OUTPUT_TOKENS = 40_000
+const CONTEXT_PROVIDER_CODES = new Set([
+  'context_length_exceeded',
+  'model_context_window_exceeded',
+  'prompt_too_long',
+])
 
 function createListenerSet() {
   const listeners = new Set()
@@ -137,6 +142,17 @@ function getTrustedHumanMessage(error) {
     : typeof error?.message === 'string' && error.message
     ? error.message
     : null
+}
+
+function isExplicitContextWindowError(error) {
+  const providerCode = String(error?.providerCode || error?.code || '').toLowerCase()
+  if (CONTEXT_PROVIDER_CODES.has(providerCode)) return true
+  const message = getTrustedHumanMessage(error)?.toLowerCase() || ''
+  return (
+    message.includes('maximum context length') ||
+    message.includes('model context window limit') ||
+    message.includes('prompt is too long')
+  )
 }
 
 function buildLogContext({ event, requestId, error }) {
@@ -497,6 +513,9 @@ function selectRoute(session, config) {
 
 function normalizeThrownError(error, modelName) {
   const trustedHumanMessage = getTrustedHumanMessage(error)
+  if (isExplicitContextWindowError(error)) {
+    return createSafeGatewayError('MODEL_CONTEXT_WINDOW_EXCEEDED', { modelName })
+  }
   if (
     error?.code &&
     [
@@ -505,6 +524,7 @@ function normalizeThrownError(error, modelName) {
       'MODEL_GATEWAY_UNSUPPORTED',
       'MODEL_GATEWAY_ABORTED',
       'MODEL_GATEWAY_PROVIDER_ERROR',
+      'MODEL_CONTEXT_WINDOW_EXCEEDED',
     ].includes(error.code)
   ) {
     if (trustedHumanMessage && !error.trustedHumanMessage) {

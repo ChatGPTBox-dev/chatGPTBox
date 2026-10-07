@@ -113,6 +113,49 @@ test('openai-compatible: isolated diagnostics do not emit raw parse errors throu
   assert.equal(diagnostics.length > 0, true)
 })
 
+test('openai-compatible preserves only recognized context provider codes', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+
+  for (const { providerError, expectedProviderCode } of [
+    {
+      providerError: { code: 'context_length_exceeded', message: 'private context details' },
+      expectedProviderCode: 'context_length_exceeded',
+    },
+    {
+      providerError: { code: 'invalid_request_error', message: 'prompt is too long' },
+      expectedProviderCode: undefined,
+    },
+  ]) {
+    const port = createFakePort()
+    const session = { modelName: 'chatgptApi4oMini', conversationRecords: [], isRetry: false }
+    t.mock.method(globalThis, 'fetch', async () =>
+      createMockSseResponse([], {
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        json: async () => ({ error: providerError }),
+      }),
+    )
+
+    await assert.rejects(
+      generateAnswersWithOpenAICompatible({
+        port,
+        question: 'private prompt',
+        session,
+        endpointType: 'chat',
+        requestUrl: 'https://api.example.com/v1/chat/completions',
+        model: 'model',
+        apiKey: 'key',
+        config: { maxConversationContextLength: 3, maxResponseTokenLength: 256 },
+      }),
+      (error) => {
+        assert.equal(error.providerCode, expectedProviderCode)
+        return true
+      },
+    )
+  }
+})
+
 test('openai-compatible video-summary body preserves roles and removes every tool field', async (t) => {
   t.mock.method(console, 'debug', () => {})
   const port = createFakePort()

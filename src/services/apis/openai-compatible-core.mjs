@@ -10,6 +10,12 @@ import {
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
 
+const CONTEXT_PROVIDER_CODES = new Set([
+  'context_length_exceeded',
+  'model_context_window_exceeded',
+  'prompt_too_long',
+])
+
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
     'Content-Type': 'application/json',
@@ -195,7 +201,12 @@ export async function generateAnswersWithOpenAICompatible({
       port.onDisconnect.removeListener(disconnectListener)
       if (resp instanceof Error) throw resp
       const error = await resp.json().catch(() => ({}))
-      throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
+      const providerCode = String(error?.error?.code || '').toLowerCase()
+      const responseError = new Error(
+        !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
+      )
+      if (CONTEXT_PROVIDER_CODES.has(providerCode)) responseError.providerCode = providerCode
+      throw responseError
     },
   })
 }

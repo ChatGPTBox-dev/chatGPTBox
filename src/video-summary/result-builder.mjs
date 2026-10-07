@@ -14,7 +14,15 @@ function normalizeFailedRanges(failedRanges) {
     }))
 }
 
-function buildCoveredSegmentIndexes(localChunkResults, segmentIndex) {
+function buildCoveredSegmentIndexes(localChunkResults, segmentIndex, coveredSegmentIds) {
+  if (coveredSegmentIds !== undefined) {
+    return new Set(
+      Array.from(coveredSegmentIds)
+        .map((id) => segmentIndex.get(id)?.index)
+        .filter(Number.isInteger),
+    )
+  }
+
   const coveredIndexes = new Set()
   for (const chunkResult of Array.isArray(localChunkResults) ? localChunkResults : []) {
     const start = segmentIndex.get(chunkResult?.primaryStartSegmentId)?.index
@@ -34,7 +42,7 @@ function removeFailedIndexes(coveredIndexes, failedRanges, segmentIndex) {
   }
 }
 
-function calculateCoverage({ transcription, localChunkResults, failedRanges }) {
+function calculateCoverage({ transcription, coveredIndexes }) {
   const segments = Array.isArray(transcription?.segments) ? transcription.segments : []
   const totalDurationMs =
     Number.isFinite(transcription?.durationMs) && transcription.durationMs > 0
@@ -42,9 +50,6 @@ function calculateCoverage({ transcription, localChunkResults, failedRanges }) {
       : 0
   if (totalDurationMs === 0) return { coveredDurationMs: 0, totalDurationMs: 0, ratio: 0 }
 
-  const segmentIndex = buildSegmentIndex(segments)
-  const coveredIndexes = buildCoveredSegmentIndexes(localChunkResults, segmentIndex)
-  removeFailedIndexes(coveredIndexes, normalizeFailedRanges(failedRanges), segmentIndex)
   const intervals = Array.from(coveredIndexes)
     .map((index) => segments[index])
     .filter((segment) => Number.isFinite(segment?.startMs) && Number.isFinite(segment?.endMs))
@@ -278,19 +283,20 @@ export function buildStructuredSummaryResult({
   localChunkResults,
   synthesisResult,
   failedRanges,
+  coveredSegmentIds,
 }) {
   const segments = Array.isArray(transcription?.segments) ? transcription.segments : []
   const segmentIndex = buildSegmentIndex(segments)
   const normalizedFailedRanges = normalizeFailedRanges(failedRanges)
-  const coveredIndexes = buildCoveredSegmentIndexes(localChunkResults, segmentIndex)
+  const coveredIndexes = buildCoveredSegmentIndexes(
+    localChunkResults,
+    segmentIndex,
+    coveredSegmentIds,
+  )
 
   removeFailedIndexes(coveredIndexes, normalizedFailedRanges, segmentIndex)
 
-  const coverage = calculateCoverage({
-    transcription,
-    localChunkResults,
-    failedRanges: normalizedFailedRanges,
-  })
+  const coverage = calculateCoverage({ transcription, coveredIndexes })
   const status = synthesisResult
     ? normalizedFailedRanges.length > 0
       ? 'partial'

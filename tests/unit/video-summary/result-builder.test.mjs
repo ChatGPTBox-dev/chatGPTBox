@@ -266,6 +266,93 @@ test('result builder emits partial output with deterministic chapters and failed
   ])
 })
 
+test('explicit segment IDs provide full direct coverage and valid anchors without chunk results', () => {
+  const transcription = createTranscription()
+  const result = buildStructuredSummaryResult({
+    transcription,
+    localChunkResults: [],
+    synthesisResult: {
+      overview: 'direct summary',
+      chapters: [{ segmentId: 's1', title: 'Opening', summary: 'Summary' }],
+      keyMoments: [{ segmentId: 's1', point: 'Opening moment' }],
+    },
+    failedRanges: [],
+    coveredSegmentIds: transcription.segments.map(({ id }) => id),
+  })
+
+  assert.equal(result.coverage.ratio, 1)
+  assert.equal(result.keyMoments[0].startMs, transcription.segments[0].startMs)
+  assert.equal(result.chapters[0].startSegmentId, 's1')
+  assert.equal(result.chapters[0].endSegmentId, 's4')
+})
+
+test('explicit segment ID prefixes limit coverage and valid anchors', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: createTranscription(),
+    localChunkResults: [],
+    synthesisResult: {
+      overview: 'rolling summary',
+      chapters: [
+        { segmentId: 's1', title: 'Opening', summary: 'Summary' },
+        { segmentId: 's3', title: 'Outside prefix', summary: 'Ignored' },
+      ],
+      keyMoments: [
+        { segmentId: 's2', point: 'Covered moment' },
+        { segmentId: 's3', point: 'Outside prefix' },
+      ],
+    },
+    failedRanges: [],
+    coveredSegmentIds: ['s1', 's2'],
+  })
+
+  assert.equal(result.coverage.ratio, 0.5)
+  assert.deepEqual(
+    result.chapters.map(({ startSegmentId, endSegmentId }) => ({ startSegmentId, endSegmentId })),
+    [{ startSegmentId: 's1', endSegmentId: 's2' }],
+  )
+  assert.deepEqual(result.keyMoments, [{ segmentId: 's2', startMs: 1000, point: 'Covered moment' }])
+})
+
+test('explicit coverage ignores invalid segment IDs', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: createTranscription(),
+    localChunkResults: [],
+    synthesisResult: {
+      overview: 'direct summary',
+      chapters: [],
+      keyMoments: [
+        { segmentId: 'missing', point: 'Invalid' },
+        { segmentId: 's2', point: 'Valid' },
+      ],
+    },
+    failedRanges: [],
+    coveredSegmentIds: new Set(['missing', 's2']),
+  })
+
+  assert.equal(result.coverage.ratio, 0.25)
+  assert.deepEqual(result.keyMoments, [{ segmentId: 's2', startMs: 1000, point: 'Valid' }])
+})
+
+test('failed ranges subtract from explicit coverage', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: createTranscription(),
+    localChunkResults: [],
+    synthesisResult: {
+      overview: 'rolling summary',
+      chapters: [],
+      keyMoments: [
+        { segmentId: 's2', point: 'Failed' },
+        { segmentId: 's3', point: 'Covered' },
+      ],
+    },
+    failedRanges: [{ startSegmentId: 's2', endSegmentId: 's2', reason: 'CHUNK_FAILED' }],
+    coveredSegmentIds: ['s1', 's2', 's3'],
+  })
+
+  assert.equal(result.coverage.ratio, 0.5)
+  assert.deepEqual(result.keyMoments, [{ segmentId: 's3', startMs: 2000, point: 'Covered' }])
+})
+
 test('coverage unions fully and partially overlapping canonical cue intervals', () => {
   const result = buildStructuredSummaryResult({
     transcription: {

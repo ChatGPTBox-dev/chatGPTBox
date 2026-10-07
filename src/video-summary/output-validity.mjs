@@ -14,16 +14,6 @@ function validate({ meaningful, finishReason }) {
   return { valid: true, reason: null }
 }
 
-export function validateChunkSummaryOutput({ parsed, finishReason }) {
-  return validate({
-    meaningful:
-      hasText(parsed?.localSummary) ||
-      anyText(parsed?.keyPoints, ['point']) ||
-      anyText(parsed?.candidates, ['text']),
-    finishReason,
-  })
-}
-
 export function validateFinalSummaryOutput({ parsed, finishReason }) {
   return validate({
     meaningful:

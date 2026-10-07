@@ -102,6 +102,7 @@ export async function generateAnswersWithClaudeApi(
           completionError = new Error(
             'Claude reached the model context window limit. Clear the conversation and try again.',
           )
+          completionError.code = 'MODEL_CONTEXT_WINDOW_EXCEEDED'
         }
         if (stopReason === 'refusal') {
           completionError = new Error('Claude declined to respond to this request.')
