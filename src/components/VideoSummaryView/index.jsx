@@ -122,10 +122,12 @@ function Actions({
   canCancel,
   canRetrySummary,
   hasResult,
+  hasTranscript,
   onArchive,
   onAskAboutVideo,
   onCancelTask,
   onDownloadMarkdown,
+  onDownloadTranscript,
   onRetrySummary,
 }) {
   const { t } = useTranslation()
@@ -166,6 +168,14 @@ function Actions({
       </button>
       <button
         type="button"
+        data-action="download-transcript"
+        disabled={!hasTranscript}
+        onClick={onDownloadTranscript}
+      >
+        {t('Download transcript')}
+      </button>
+      <button
+        type="button"
         data-action="download-markdown"
         disabled={!hasResult}
         onClick={onDownloadMarkdown}
@@ -180,10 +190,12 @@ Actions.propTypes = {
   canCancel: PropTypes.bool.isRequired,
   canRetrySummary: PropTypes.bool.isRequired,
   hasResult: PropTypes.bool.isRequired,
+  hasTranscript: PropTypes.bool.isRequired,
   onArchive: PropTypes.func.isRequired,
   onAskAboutVideo: PropTypes.func.isRequired,
   onCancelTask: PropTypes.func.isRequired,
   onDownloadMarkdown: PropTypes.func.isRequired,
+  onDownloadTranscript: PropTypes.func.isRequired,
   onRetrySummary: PropTypes.func.isRequired,
 }
 
@@ -222,6 +234,7 @@ export default function VideoSummaryView({
   onArchive,
   onAskAboutVideo,
   onDownloadMarkdown,
+  onDownloadTranscript,
   onSeekTo,
   onCancelTask,
   onRetrySummary,
@@ -240,9 +253,22 @@ export default function VideoSummaryView({
   const keyPoints = Array.isArray(result?.keyPoints) ? result.keyPoints : []
   const chapters = Array.isArray(result?.chapters) ? result.chapters : []
   const keyMoments = Array.isArray(result?.keyMoments) ? result.keyMoments : []
-  const transcriptSegments = Array.isArray(result?.transcriptSegments)
+  const resultTranscriptSegments = Array.isArray(result?.transcriptSegments)
     ? result.transcriptSegments
     : []
+  const selectedSubtitleTrack = subtitleTracks.find((track) => track.id === selectedSubtitleTrackId)
+  const selectedTrackSegments = Array.isArray(selectedSubtitleTrack?.cues)
+    ? selectedSubtitleTrack.cues.filter(
+        (cue) =>
+          Number.isFinite(cue?.startMs) &&
+          Number.isFinite(cue?.endMs) &&
+          typeof cue?.text === 'string' &&
+          cue.text.trim(),
+      )
+    : []
+  const transcriptSegments =
+    selectedTrackSegments.length > 0 ? selectedTrackSegments : resultTranscriptSegments
+  const hasTranscript = transcriptSegments.length > 0
 
   return (
     <section className="video-summary-view" data-platform={platform}>
@@ -298,10 +324,12 @@ export default function VideoSummaryView({
         canCancel={canCancel}
         canRetrySummary={canRetrySummary}
         hasResult={Boolean(result)}
+        hasTranscript={hasTranscript}
         onArchive={onArchive}
         onAskAboutVideo={onAskAboutVideo}
         onCancelTask={onCancelTask}
         onDownloadMarkdown={onDownloadMarkdown}
+        onDownloadTranscript={onDownloadTranscript}
         onRetrySummary={onRetrySummary}
       />
       {taskState?.errorMessage ? (
@@ -436,6 +464,7 @@ VideoSummaryView.propTypes = {
   onArchive: PropTypes.func.isRequired,
   onAskAboutVideo: PropTypes.func.isRequired,
   onDownloadMarkdown: PropTypes.func.isRequired,
+  onDownloadTranscript: PropTypes.func.isRequired,
   onSeekTo: PropTypes.func.isRequired,
   onCancelTask: PropTypes.func.isRequired,
   onRetrySummary: PropTypes.func.isRequired,

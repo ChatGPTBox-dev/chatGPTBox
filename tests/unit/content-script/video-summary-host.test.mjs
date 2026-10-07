@@ -325,6 +325,19 @@ test('post-fence cancel uses task generation without attempt', async () => {
   assert.equal('attempt' in cancel[0], false)
   await flush()
   assert.equal(globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube').canCancel, false)
+
+  port.emitMessage({
+    type: 'TASK_EVENT',
+    fence,
+    event: { type: 'TASK_CANCELLED', checkpointAvailable: true },
+  })
+  await flush()
+
+  const cancelledProps = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  assert.equal(cancelledProps.taskState.phase, 'idle')
+  assert.equal(cancelledProps.taskState.activeStage, null)
+  assert.equal(cancelledProps.taskState.taskId, null)
+  assert.equal(cancelledProps.sourceActionsDisabled, false)
   host.dispose()
 })
 
@@ -377,6 +390,27 @@ test('reattach keeps source actions disabled until ATTACH_ACK resolves', async (
   second.host.dispose()
 })
 
+test('downloads the selected subtitle track before summary generation', async () => {
+  const title = 'Selected track'
+  const identity = { platform: 'youtube', videoId: 'track-download', mediaId: 'track-download' }
+  const { host } = createHostFixture({ identity, title })
+  await flush()
+
+  const props = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  await props.onDownloadTranscript()
+  const [blob, filename] = globalThis.__VIDEO_SUMMARY_HOST_TEST__.savedFiles.at(-1)
+  const text = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.addEventListener('load', () => resolve(reader.result))
+    reader.addEventListener('error', () => reject(reader.error))
+    reader.readAsText(blob)
+  })
+
+  assert.equal(text, '[00:00:00.000 - 00:00:01.000] hello')
+  assert.equal(filename, 'selected-track-transcript.txt')
+  host.dispose()
+})
+
 test('archive and download share serialized Markdown while host metadata stays plain', async () => {
   const title = 'Plain <script> title / archive'
   const identity = { platform: 'youtube', videoId: 'sink-wiring', mediaId: 'sink-wiring' }
@@ -408,29 +442,43 @@ test('archive and download share serialized Markdown while host metadata stays p
     event: {
       type: 'TASK_COMPLETED',
       checkpointAvailable: true,
-      result: { status: 'complete', overview: '<script>attacker</script>' },
+      result: {
+        status: 'complete',
+        overview: '<script>attacker</script>',
+        transcriptSegments: [
+          { id: 's1', startMs: 1234, endMs: 5678, speaker: 'Host', text: 'First line' },
+          { id: 's2', startMs: 3661001, endMs: 3662500, text: 'Second\nline' },
+        ],
+      },
     },
   })
   await flush()
   const props = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
   await props.onArchive()
   await props.onDownloadMarkdown()
+  await props.onDownloadTranscript()
 
   const expectedMarkdown = '# Synthetic markdown\n\n\\<script\\>attacker\\</script\\>'
   const session = globalThis.__VIDEO_SUMMARY_HOST_TEST__.sessions.at(-1)
-  const [blob, filename] = globalThis.__VIDEO_SUMMARY_HOST_TEST__.savedFiles.at(-1)
-  const downloadedText = await new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.addEventListener('load', () => resolve(reader.result))
-    reader.addEventListener('error', () => reject(reader.error))
-    reader.readAsText(blob)
-  })
+  const [markdownBlob, markdownFilename] = globalThis.__VIDEO_SUMMARY_HOST_TEST__.savedFiles.at(-2)
+  const [transcriptBlob, transcriptFilename] =
+    globalThis.__VIDEO_SUMMARY_HOST_TEST__.savedFiles.at(-1)
+  const readBlob = (blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.addEventListener('load', () => resolve(reader.result))
+      reader.addEventListener('error', () => reject(reader.error))
+      reader.readAsText(blob)
+    })
 
   assert.equal(session.conversationRecords[0].answer, expectedMarkdown)
-  assert.equal(downloadedText, expectedMarkdown)
+  assert.equal(await readBlob(markdownBlob), expectedMarkdown)
+  assert.equal(await readBlob(transcriptBlob), '[00:00:00.000 - 00:00:01.000] hello')
   assert.equal(session.sessionName, `YouTube summary: ${title}`)
   assert.equal(session.question, `Summarize the YouTube video "${title}".`)
-  assert.equal(filename, 'plain--script--title---archive.md')
+  assert.equal(markdownFilename, 'plain--script--title---archive.md')
+  assert.equal(transcriptFilename, 'plain--script--title---archive-transcript.txt')
+  assert.equal(transcriptBlob.type, 'text/plain;charset=utf-8')
   assert.equal(globalThis.__VIDEO_SUMMARY_HOST_TEST__.markdownInputs.at(-1).title, title)
   host.dispose()
 })

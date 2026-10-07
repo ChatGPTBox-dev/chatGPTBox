@@ -770,7 +770,9 @@ export function createVideoTaskRunner({
       })
     } catch (error) {
       const checkpointAvailable = Boolean(state.checkpoint?.transcription)
-      if (!isAbortError(error)) {
+      if (isAbortError(error) && state.cancelled) {
+        emitEvent(attempt.emit, { type: 'TASK_CANCELLED', checkpointAvailable })
+      } else if (!isAbortError(error)) {
         emitTaskFailure({
           emit: attempt.emit,
           taskId: state.taskId,

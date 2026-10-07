@@ -1429,18 +1429,23 @@ test('cancellation while awaiting model capabilities does not start generation',
     clock: { now: () => 0 },
   })
   const currentFence = createFence()
+  const events = []
   runner.registerAttempt({
     requestId: 'start-waiting',
     fence: currentFence,
     mode: 'initial',
     payload: createInitialPayload(),
-    emit: () => {},
+    emit: (event) => events.push(event),
   })
   const pending = runner.authorizeAttempt({ requestId: 'start-waiting', fence: currentFence })
   await Promise.resolve()
   runner.cancelGeneration(currentFence)
   await assert.rejects(pending, { name: 'AbortError' })
   assert.deepEqual(generated, [])
+  assert.deepEqual(
+    events.filter(({ type }) => type === 'TASK_CANCELLED'),
+    [{ type: 'TASK_CANCELLED', checkpointAvailable: true }],
+  )
   resolveCapabilities?.({ supported: true })
 })
 

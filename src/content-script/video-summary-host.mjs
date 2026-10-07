@@ -32,6 +32,33 @@ function sanitizeFileName(value, fallback) {
     .toLowerCase()
 }
 
+function formatTranscriptTimestamp(value) {
+  const milliseconds = Math.max(0, Math.trunc(Number(value) || 0))
+  const hours = Math.floor(milliseconds / 3_600_000)
+  const minutes = Math.floor((milliseconds % 3_600_000) / 60_000)
+  const seconds = Math.floor((milliseconds % 60_000) / 1000)
+  const remainder = milliseconds % 1000
+  return (
+    [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':') +
+    `.${String(remainder).padStart(3, '0')}`
+  )
+}
+
+function buildTranscriptText(segments) {
+  return segments
+    .map((segment) => {
+      const range = `${formatTranscriptTimestamp(segment.startMs)} - ${formatTranscriptTimestamp(
+        segment.endMs,
+      )}`
+      const speaker = segment.speaker ? `${String(segment.speaker).trim()}: ` : ''
+      const text = String(segment.text || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+      return `[${range}] ${speaker}${text}`.trimEnd()
+    })
+    .join('\n')
+}
+
 function buildAskPrompt({ title, result }) {
   const chapterLines = (Array.isArray(result?.chapters) ? result.chapters : [])
     .map((chapter) => `- ${chapter.title}: ${chapter.summary || ''}`.trim())
@@ -203,6 +230,7 @@ export function mountVideoSummaryHost({
         onArchive: archiveSummary,
         onAskAboutVideo: askAboutVideo,
         onDownloadMarkdown: downloadMarkdown,
+        onDownloadTranscript: downloadTranscript,
         onSeekTo: (startMs) => {
           if (isCurrentPage()) bridge.seekTo(startMs)
         },
@@ -221,6 +249,7 @@ export function mountVideoSummaryHost({
     onEvent(event) {
       if (!isCurrentPage()) return
       if (event.type === 'TASK_STATUS') {
+        if (pendingAction === 'cancel') return
         state.taskState = {
           ...state.taskState,
           phase: 'running',
@@ -230,6 +259,11 @@ export function mountVideoSummaryHost({
           retryable: false,
           errorMessage: null,
         }
+      } else if (event.type === 'TASK_CANCELLED') {
+        pendingAction = null
+        pendingStart = null
+        TASK_BY_PAGE.delete(pageKey)
+        state.taskState = createInitialTaskState()
       } else if (event.type === 'TASK_COMPLETED') {
         state.taskState = {
           ...state.taskState,
@@ -504,6 +538,23 @@ export function mountVideoSummaryHost({
       buildAskPrompt({ title: state.videoTitle, result: state.taskState.result }),
       isCurrentPage,
     )
+  }
+
+  function downloadTranscript() {
+    if (!isCurrentPage()) return
+    const resultSegments = state.taskState.result?.transcriptSegments
+    const selectedTrack = state.sourceSnapshot?.nativeSubtitleTracks?.find(
+      (track) => track.id === state.selectedSubtitleTrackId,
+    )
+    const segments =
+      Array.isArray(selectedTrack?.cues) && selectedTrack.cues.length > 0
+        ? selectedTrack.cues
+        : resultSegments
+    if (!Array.isArray(segments) || segments.length === 0) return
+    const transcript = buildTranscriptText(segments)
+    const blob = new Blob([transcript], { type: 'text/plain;charset=utf-8' })
+    const filename = sanitizeFileName(state.videoTitle, metadata.fileNameFallback)
+    FileSaver.saveAs(blob, `${filename}-transcript.txt`)
   }
 
   async function downloadMarkdown() {

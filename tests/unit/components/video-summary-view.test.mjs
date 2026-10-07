@@ -38,6 +38,7 @@ const callbacks = {
   onArchive() {},
   onAskAboutVideo() {},
   onDownloadMarkdown() {},
+  onDownloadTranscript() {},
   onSeekTo() {},
   onCancelTask() {},
   onRetrySummary() {},
@@ -168,7 +169,8 @@ test('renders structured results, warnings, timestamps, actions, and retry', () 
     onRetrySummary: () => calls.push(['retry']),
     onArchive: () => calls.push(['archive']),
     onAskAboutVideo: () => calls.push(['ask']),
-    onDownloadMarkdown: () => calls.push(['download']),
+    onDownloadMarkdown: () => calls.push(['download-markdown']),
+    onDownloadTranscript: () => calls.push(['download-transcript']),
   })
 
   assert.match(container.textContent, /Overview/)
@@ -184,13 +186,41 @@ test('renders structured results, warnings, timestamps, actions, and retry', () 
     '[data-action="retry-summary"]',
     '[data-action="archive"]',
     '[data-action="ask-about-video"]',
+    '[data-action="download-transcript"]',
     '[data-action="download-markdown"]',
   ]) {
     act(() =>
       container.querySelector(selector).dispatchEvent(new MouseEvent('click', { bubbles: true })),
     )
   }
-  assert.deepEqual(calls, [['seek', 1000], ['retry'], ['archive'], ['ask'], ['download']])
+  assert.deepEqual(calls, [
+    ['seek', 1000],
+    ['retry'],
+    ['archive'],
+    ['ask'],
+    ['download-transcript'],
+    ['download-markdown'],
+  ])
+})
+
+test('shows and downloads the selected subtitle track before summarizing', () => {
+  mountView({
+    subtitleTracks: [
+      {
+        id: 'track',
+        label: 'English',
+        language: 'en',
+        sourceKind: 'author',
+        cues: [{ startMs: 1000, endMs: 2500, text: 'Track subtitle' }],
+      },
+    ],
+    selectedSubtitleTrackId: 'track',
+    taskState: { phase: 'idle', result: null },
+  })
+
+  assert.equal(container.querySelector('[data-action="download-transcript"]').disabled, false)
+  assert.match(container.querySelector('[data-section="transcript"]').textContent, /Track subtitle/)
+  assert.match(container.querySelector('[data-section="transcript"]').textContent, /00:01 - 00:02/)
 })
 
 test('busy phases disable every source and ASR confirmation control', () => {
