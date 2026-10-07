@@ -271,6 +271,173 @@ test('result builder emits partial output with deterministic chapters and failed
   ])
 })
 
+test('coverage unions fully and partially overlapping canonical cue intervals', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: {
+      durationMs: 4000,
+      segments: [
+        { id: 's1', startMs: 0, endMs: 2000 },
+        { id: 's2', startMs: 1000, endMs: 3000 },
+        { id: 's3', startMs: 2500, endMs: 3500 },
+      ],
+    },
+    localChunkResults: [
+      { primaryStartSegmentId: 's1', primaryEndSegmentId: 's3', localSummary: 'covered' },
+    ],
+    synthesisResult: null,
+    failedRanges: [],
+  })
+
+  assert.deepEqual(result.coverage, {
+    coveredDurationMs: 3500,
+    totalDurationMs: 4000,
+    ratio: 0.875,
+  })
+})
+
+test('coverage merges adjacent canonical cue intervals', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: {
+      durationMs: 4000,
+      segments: [
+        { id: 's1', startMs: 0, endMs: 1000 },
+        { id: 's2', startMs: 1000, endMs: 2000 },
+      ],
+    },
+    localChunkResults: [
+      { primaryStartSegmentId: 's1', primaryEndSegmentId: 's2', localSummary: 'covered' },
+    ],
+    synthesisResult: null,
+    failedRanges: [],
+  })
+
+  assert.deepEqual(result.coverage, {
+    coveredDurationMs: 2000,
+    totalDurationMs: 4000,
+    ratio: 0.5,
+  })
+})
+
+test('coverage clips canonical cues and ignores malformed or fully out-of-bounds intervals', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: {
+      durationMs: 4000,
+      segments: [
+        { id: 'negative', startMs: -500, endMs: 500 },
+        { id: 'after', startMs: 3500, endMs: 5000 },
+        { id: 'before', startMs: -2000, endMs: -1000 },
+        { id: 'beyond', startMs: 4500, endMs: 5000 },
+        { id: 'reversed', startMs: 3000, endMs: 2000 },
+        { id: 'nan', startMs: Number.NaN, endMs: 1000 },
+        { id: 'infinite', startMs: 1000, endMs: Number.POSITIVE_INFINITY },
+      ],
+    },
+    localChunkResults: [
+      {
+        primaryStartSegmentId: 'negative',
+        primaryEndSegmentId: 'infinite',
+        localSummary: 'covered',
+      },
+    ],
+    synthesisResult: null,
+    failedRanges: [],
+  })
+
+  assert.deepEqual(result.coverage, {
+    coveredDurationMs: 1000,
+    totalDurationMs: 4000,
+    ratio: 0.25,
+  })
+})
+
+test('coverage uses only successful primary ranges and excludes failed ranges', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: {
+      durationMs: 4000,
+      segments: [
+        { id: 's1', startMs: 0, endMs: 1000 },
+        { id: 's2', startMs: 1000, endMs: 2000 },
+        { id: 's3', startMs: 2000, endMs: 3000 },
+        { id: 's4', startMs: 3000, endMs: 4000 },
+      ],
+    },
+    localChunkResults: [
+      { primaryStartSegmentId: 's1', primaryEndSegmentId: 's3', localSummary: 'covered' },
+      { primaryStartSegmentId: 'missing', primaryEndSegmentId: 's4', localSummary: 'ignored' },
+    ],
+    synthesisResult: null,
+    failedRanges: [{ startSegmentId: 's2', endSegmentId: 's2', reason: 'CHUNK_FAILED' }],
+  })
+
+  assert.deepEqual(result.coverage, {
+    coveredDurationMs: 2000,
+    totalDurationMs: 4000,
+    ratio: 0.5,
+  })
+})
+
+test('coverage clamps overlapping totals to the canonical transcription duration', () => {
+  const result = buildStructuredSummaryResult({
+    transcription: {
+      durationMs: 4000,
+      segments: [
+        { id: 's1', startMs: -1000, endMs: 5000 },
+        { id: 's2', startMs: 0, endMs: 4000 },
+        { id: 's3', startMs: 1000, endMs: 3000 },
+      ],
+    },
+    localChunkResults: [
+      { primaryStartSegmentId: 's1', primaryEndSegmentId: 's3', localSummary: 'covered' },
+    ],
+    synthesisResult: null,
+    failedRanges: [],
+  })
+
+  assert.deepEqual(result.coverage, {
+    coveredDurationMs: 4000,
+    totalDurationMs: 4000,
+    ratio: 1,
+  })
+})
+
+test('coverage always uses canonical duration and returns finite zeroes for invalid durations', () => {
+  for (const durationMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const result = buildStructuredSummaryResult({
+      transcription: {
+        durationMs,
+        segments: [{ id: 's1', startMs: 0, endMs: 1000 }],
+      },
+      localChunkResults: [
+        { primaryStartSegmentId: 's1', primaryEndSegmentId: 's1', localSummary: 'covered' },
+      ],
+      synthesisResult: null,
+      failedRanges: [],
+    })
+
+    assert.deepEqual(result.coverage, {
+      coveredDurationMs: 0,
+      totalDurationMs: 0,
+      ratio: 0,
+    })
+    assert.equal(Object.values(result.coverage).every(Number.isFinite), true)
+  }
+
+  const result = buildStructuredSummaryResult({
+    transcription: {
+      durationMs: 4000,
+      segments: [{ id: 's1', startMs: 0, endMs: 1000 }],
+    },
+    localChunkResults: [
+      { primaryStartSegmentId: 's1', primaryEndSegmentId: 's1', localSummary: 'covered' },
+    ],
+    synthesisResult: null,
+    failedRanges: [],
+  })
+
+  assert.equal(result.coverage.totalDurationMs, 4000)
+  assert.equal(result.coverage.ratio, 0.25)
+})
+
 test('video offsets render deterministic elapsed labels', () => {
   assert.equal(formatVideoOffset(0), '00:00')
   assert.equal(formatVideoOffset(59_999), '00:59')

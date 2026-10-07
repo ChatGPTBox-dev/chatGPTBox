@@ -66,14 +66,43 @@ function removeFailedIndexes(coveredIndexes, failedRanges, segmentIndex) {
   }
 }
 
-function indexesToDuration(indexes, segments) {
-  let total = 0
-  for (const index of indexes) {
-    const segment = segments[index]
-    if (!segment) continue
-    total += Math.max(0, (segment.endMs ?? 0) - (segment.startMs ?? 0))
+export function calculateCoverage({ transcription, localChunkResults, failedRanges }) {
+  const segments = Array.isArray(transcription?.segments) ? transcription.segments : []
+  const totalDurationMs =
+    Number.isFinite(transcription?.durationMs) && transcription.durationMs > 0
+      ? transcription.durationMs
+      : 0
+  if (totalDurationMs === 0) return { coveredDurationMs: 0, totalDurationMs: 0, ratio: 0 }
+
+  const segmentIndex = buildSegmentIndex(segments)
+  const coveredIndexes = buildCoveredSegmentIndexes(localChunkResults, segmentIndex)
+  removeFailedIndexes(coveredIndexes, normalizeFailedRanges(failedRanges), segmentIndex)
+  const intervals = Array.from(coveredIndexes)
+    .map((index) => segments[index])
+    .filter((segment) => Number.isFinite(segment?.startMs) && Number.isFinite(segment?.endMs))
+    .map((segment) => [
+      Math.max(0, Math.min(totalDurationMs, segment.startMs)),
+      Math.max(0, Math.min(totalDurationMs, segment.endMs)),
+    ])
+    .filter(([start, end]) => end > start)
+    .sort((left, right) => left[0] - right[0] || left[1] - right[1])
+
+  const merged = []
+  for (const interval of intervals) {
+    const previous = merged.at(-1)
+    if (!previous || interval[0] > previous[1]) merged.push(interval)
+    else previous[1] = Math.max(previous[1], interval[1])
   }
-  return total
+
+  const coveredDurationMs = Math.min(
+    totalDurationMs,
+    merged.reduce((total, [start, end]) => total + end - start, 0),
+  )
+  return {
+    coveredDurationMs,
+    totalDurationMs,
+    ratio: Number(Math.max(0, Math.min(1, coveredDurationMs / totalDurationMs)).toFixed(4)),
+  }
 }
 
 function getChapterCandidates(localChunkResults, synthesisResult) {
@@ -285,13 +314,11 @@ export function buildStructuredSummaryResult({
 
   removeFailedIndexes(coveredIndexes, normalizedFailedRanges, segmentIndex)
 
-  const totalDurationMs = Number.isFinite(transcription?.durationMs)
-    ? transcription.durationMs
-    : indexesToDuration(
-        segments.map((_, index) => index),
-        segments,
-      )
-  const coveredDurationMs = indexesToDuration(coveredIndexes, segments)
+  const coverage = calculateCoverage({
+    transcription,
+    localChunkResults,
+    failedRanges: normalizedFailedRanges,
+  })
   const status = synthesisResult
     ? normalizedFailedRanges.length > 0
       ? 'partial'
@@ -333,11 +360,7 @@ export function buildStructuredSummaryResult({
     keyMoments,
     chapters,
     transcriptSegments: segments.map((segment) => ({ ...segment })),
-    coverage: {
-      coveredDurationMs,
-      totalDurationMs,
-      ratio: totalDurationMs > 0 ? Number((coveredDurationMs / totalDurationMs).toFixed(4)) : 0,
-    },
+    coverage,
     warnings,
     failedRanges: normalizedFailedRanges,
   }
