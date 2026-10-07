@@ -55,6 +55,242 @@ function createAbortError() {
   return new DOMException('Aborted', 'AbortError')
 }
 
+function createPollingHarness({ results, random = () => 0.5, startTime = 0 } = {}) {
+  let now = startTime
+  let queryIndex = 0
+  const sleeps = []
+  const queries = []
+  const clock = {
+    now: () => now,
+    async sleep(ms, { signal } = {}) {
+      assert.ok(ms >= 2000)
+      assert.ok(ms <= 30000)
+      assert.ok(signal)
+      sleeps.push(ms)
+      now += ms
+    },
+  }
+  const pipeline = createMediaPipeline({
+    mediaKitGateway: {
+      async queryTask({ taskId, signal }) {
+        queries.push({ taskId, signal })
+        const result = results[queryIndex]
+        queryIndex += 1
+        if (result instanceof Error) throw result
+        return result
+      },
+    },
+    opfsStoreFactory() {},
+    logger: {},
+    clock,
+    random,
+  })
+  return { clock, pipeline, queries, sleeps }
+}
+
+function pending(retryAfterMs) {
+  return retryAfterMs === undefined ? { status: 'pending' } : { status: 'pending', retryAfterMs }
+}
+
+function completed() {
+  return { status: 'completed', result: { segments: [] } }
+}
+
+function transientError(message = 'temporary query failure') {
+  const error = new TypeError(message)
+  error.transient = true
+  return error
+}
+
+test('MediaKit polling sleeps before the first query and exponentially backs off to 30 seconds', async () => {
+  const harness = createPollingHarness({
+    results: [pending(), pending(), pending(), pending(), pending(), pending(), completed()],
+  })
+
+  await harness.pipeline.pollMediaKitTask({
+    taskId: 'provider-task',
+    signal: new AbortController().signal,
+  })
+
+  assert.deepEqual(harness.sleeps, [2000, 4000, 8000, 16000, 30000, 30000, 30000])
+  assert.equal(harness.queries.length, 7)
+})
+
+test('MediaKit polling applies injectable jitter and clamps final delays to 2-30 seconds', async (t) => {
+  for (const [name, random, expected] of [
+    ['lower jitter', () => 0, [2000, 3200, 6400, 12800, 24000]],
+    ['upper jitter', () => 1, [2400, 4800, 9600, 19200, 30000]],
+  ]) {
+    await t.test(name, async () => {
+      const harness = createPollingHarness({
+        random,
+        results: [pending(), pending(), pending(), pending(), completed()],
+      })
+      await harness.pipeline.pollMediaKitTask({
+        taskId: 'provider-task',
+        signal: new AbortController().signal,
+      })
+      assert.deepEqual(harness.sleeps, expected)
+    })
+  }
+})
+
+test('MediaKit polling clamps retryAfterMs before applying jitter and final bounds', async (t) => {
+  for (const [name, retryAfterMs, random, expected] of [
+    ['below minimum', 1, () => 0.5, 2000],
+    ['above maximum', 60000, () => 0.5, 30000],
+    ['minimum with lower jitter', 2000, () => 0, 2000],
+    ['maximum with upper jitter', 30000, () => 1, 30000],
+  ]) {
+    await t.test(name, async () => {
+      const harness = createPollingHarness({
+        results: [pending(retryAfterMs), completed()],
+        random,
+      })
+      await harness.pipeline.pollMediaKitTask({
+        taskId: 'provider-task',
+        signal: new AbortController().signal,
+      })
+      assert.equal(harness.sleeps[1], expected)
+    })
+  }
+})
+
+test('MediaKit polling clamps transient retryAfterMs before applying jitter', async () => {
+  const error = transientError()
+  error.retryAfterMs = 60000
+  const harness = createPollingHarness({ results: [error, completed()] })
+
+  await harness.pipeline.pollMediaKitTask({
+    taskId: 'provider-task',
+    signal: new AbortController().signal,
+  })
+
+  assert.deepEqual(harness.sleeps, [2000, 30000])
+})
+
+test('MediaKit polling stops on five consecutive transient failures', async () => {
+  const harness = createPollingHarness({
+    results: Array.from({ length: 5 }, () => transientError()),
+  })
+
+  await assert.rejects(
+    harness.pipeline.pollMediaKitTask({
+      taskId: 'provider-task',
+      signal: new AbortController().signal,
+    }),
+    /temporary query failure/,
+  )
+
+  assert.equal(harness.queries.length, 5)
+  assert.deepEqual(harness.sleeps, [2000, 2000, 2000, 2000, 2000])
+})
+
+test('a valid pending response resets the consecutive transient failure count', async () => {
+  const failures = Array.from({ length: 4 }, () => transientError())
+  const harness = createPollingHarness({
+    results: [...failures, pending(), ...failures, completed()],
+  })
+
+  await harness.pipeline.pollMediaKitTask({
+    taskId: 'provider-task',
+    signal: new AbortController().signal,
+  })
+
+  assert.equal(harness.queries.length, 10)
+})
+
+test('MediaKit polling stops exactly at the two-hour deadline without another query', async () => {
+  const harness = createPollingHarness({
+    results: Array.from({ length: 243 }, () => pending()),
+  })
+
+  await assert.rejects(
+    harness.pipeline.pollMediaKitTask({
+      taskId: 'provider-task',
+      signal: new AbortController().signal,
+    }),
+    /MEDIAKIT_POLL_DEADLINE_EXCEEDED/,
+  )
+
+  assert.equal(
+    harness.sleeps.reduce((total, delay) => total + delay, 0),
+    7_200_000,
+  )
+  assert.equal(harness.queries.length, harness.sleeps.length - 1)
+})
+
+test('aborting during polling sleep clears the timer and prevents another query', async () => {
+  const controller = new AbortController()
+  let activeTimers = 0
+  const clock = {
+    now: () => 0,
+    sleep(ms, { signal }) {
+      assert.equal(ms, 2000)
+      activeTimers += 1
+      return new Promise((resolve, reject) => {
+        const onAbort = () => {
+          activeTimers -= 1
+          signal.removeEventListener('abort', onAbort)
+          reject(signal.reason)
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+      })
+    },
+  }
+  let queries = 0
+  const pipeline = createMediaPipeline({
+    mediaKitGateway: {
+      async queryTask() {
+        queries += 1
+      },
+    },
+    opfsStoreFactory() {},
+    logger: {},
+    clock,
+    random: () => 0.5,
+  })
+  const polling = pipeline.pollMediaKitTask({ taskId: 'provider-task', signal: controller.signal })
+  controller.abort(createAbortError())
+
+  await assert.rejects(polling, { name: 'AbortError' })
+  assert.equal(queries, 0)
+  assert.equal(activeTimers, 0)
+})
+
+test('terminal polling results leave no timer and never use a Promise.resolve busy loop', async () => {
+  let activeTimers = 0
+  let sleepCalls = 0
+  const pipeline = createMediaPipeline({
+    mediaKitGateway: {
+      async queryTask() {
+        return completed()
+      },
+    },
+    opfsStoreFactory() {},
+    logger: {},
+    clock: {
+      now: () => 0,
+      async sleep(ms, { signal }) {
+        assert.equal(ms, 2000)
+        assert.ok(signal)
+        sleepCalls += 1
+        activeTimers += 1
+        activeTimers -= 1
+      },
+    },
+    random: () => 0.5,
+  })
+
+  await pipeline.pollMediaKitTask({
+    taskId: 'provider-task',
+    signal: new AbortController().signal,
+  })
+
+  assert.equal(sleepCalls, 1)
+  assert.equal(activeTimers, 0)
+})
+
 test('pipeline prefers direct MediaKit URL before local download', async () => {
   const calls = []
   const events = []

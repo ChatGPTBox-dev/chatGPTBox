@@ -11,6 +11,59 @@ import {
 
 const DIRECT_REFRESH_REASON = 'DIRECT_DOWNLOAD_FAILED'
 const EXPIRY_REFRESH_REASON = 'SIGNED_URL_EXPIRED'
+const POLL_MIN_DELAY_MS = 2000
+const POLL_MAX_DELAY_MS = 30000
+const POLL_DEADLINE_MS = 2 * 60 * 60 * 1000
+const POLL_MAX_CONSECUTIVE_TRANSIENT_FAILURES = 5
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
+}
+
+function createDefaultClock() {
+  return {
+    now: () => Date.now(),
+    sleep(ms, { signal } = {}) {
+      throwIfAborted(signal)
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve()
+        }, ms)
+        const onAbort = () => {
+          clearTimeout(timer)
+          signal.removeEventListener('abort', onAbort)
+          reject(signal.reason || new DOMException('Aborted', 'AbortError'))
+        }
+        signal?.addEventListener('abort', onAbort, { once: true })
+      })
+    },
+  }
+}
+
+function clampPollDelay(value) {
+  return Math.min(POLL_MAX_DELAY_MS, Math.max(POLL_MIN_DELAY_MS, value))
+}
+
+function jitterPollDelay(value, random) {
+  return clampPollDelay(Math.round(clampPollDelay(value) * (0.8 + random() * 0.4)))
+}
+
+function isTransientPollingFailure(error) {
+  return (
+    error?.transient === true ||
+    error instanceof TypeError ||
+    error?.httpStatus === 408 ||
+    error?.httpStatus === 429 ||
+    error?.httpStatus >= 500
+  )
+}
+
+function createPollDeadlineError() {
+  const error = new Error('MEDIAKIT_POLL_DEADLINE_EXCEEDED')
+  error.code = 'MEDIAKIT_POLL_DEADLINE_EXCEEDED'
+  return error
+}
 
 function emitEvent(onEvent, event) {
   if (typeof onEvent === 'function') onEvent(structuredClone(event))
@@ -104,38 +157,63 @@ async function requestRefreshedSnapshot({
   return refreshedSnapshot
 }
 
-async function settleTranscription({ mediaKitGateway, submission, signal, onEvent }) {
+async function settleTranscription({ pollMediaKitTask, submission, signal, onEvent }) {
   if (hasUsableSegments(submission)) return normalizeMediaKitTranscription(submission)
 
   if (!submission?.taskId) {
     throw new Error('MEDIAKIT_TASK_QUERY_UNAVAILABLE')
   }
-  if (typeof mediaKitGateway?.queryTask !== 'function') {
-    throw new Error('MEDIAKIT_TASK_QUERY_UNAVAILABLE')
-  }
 
   emitEvent(onEvent, { stage: 'transcribing' })
-  let completed = false
+  const result = await pollMediaKitTask({ taskId: submission.taskId, signal, onEvent })
+  return normalizeMediaKitTranscription(result?.result ?? result)
+}
 
-  while (!completed) {
-    if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
-
-    const result = await mediaKitGateway.queryTask({ taskId: submission.taskId, signal })
-    if (result?.status === 'failed') {
-      const error = new Error(result?.error?.message || 'MEDIAKIT_TASK_FAILED')
-      error.providerCode = result?.error?.code || null
-      throw error
-    }
-    if (result?.status === 'completed') {
-      completed = true
-      return normalizeMediaKitTranscription(result?.result ?? result)
-    }
-    if (hasUsableSegments(result) || result?.result) {
-      completed = true
-      return normalizeMediaKitTranscription(result?.result ?? result)
+function createPollMediaKitTask({ mediaKitGateway, clock, random }) {
+  return async function pollMediaKitTask({ taskId, signal }) {
+    if (typeof mediaKitGateway?.queryTask !== 'function') {
+      throw new Error('MEDIAKIT_TASK_QUERY_UNAVAILABLE')
     }
 
-    await Promise.resolve()
+    const deadline = clock.now() + POLL_DEADLINE_MS
+    let baseDelayMs = POLL_MIN_DELAY_MS
+    let consecutiveTransientFailures = 0
+
+    for (;;) {
+      throwIfAborted(signal)
+      const remainingMs = deadline - clock.now()
+      if (remainingMs <= 0) throw createPollDeadlineError()
+
+      const delayMs = Math.min(jitterPollDelay(baseDelayMs, random), remainingMs)
+      await clock.sleep(delayMs, { signal })
+      throwIfAborted(signal)
+      if (clock.now() >= deadline) throw createPollDeadlineError()
+
+      try {
+        const result = await mediaKitGateway.queryTask({ taskId, signal })
+        consecutiveTransientFailures = 0
+
+        if (result?.status === 'failed') {
+          const error = new Error(result?.error?.message || 'MEDIAKIT_TASK_FAILED')
+          error.providerCode = result?.error?.code || null
+          throw error
+        }
+        if (result?.status === 'completed' || hasUsableSegments(result) || result?.result) {
+          return result
+        }
+
+        baseDelayMs = Number.isFinite(result?.retryAfterMs)
+          ? clampPollDelay(result.retryAfterMs)
+          : Math.min(baseDelayMs * 2, POLL_MAX_DELAY_MS)
+      } catch (error) {
+        if (!isTransientPollingFailure(error)) throw error
+        consecutiveTransientFailures += 1
+        if (consecutiveTransientFailures >= POLL_MAX_CONSECUTIVE_TRANSIENT_FAILURES) throw error
+        if (Number.isFinite(error?.retryAfterMs)) {
+          baseDelayMs = clampPollDelay(error.retryAfterMs)
+        }
+      }
+    }
   }
 }
 
@@ -172,6 +250,7 @@ async function submitDirect({
 
 async function runLocalUploadFallback({
   mediaKitGateway,
+  pollMediaKitTask,
   opfsStoreFactory,
   logger,
   taskId,
@@ -224,7 +303,7 @@ async function runLocalUploadFallback({
       throw error
     }
 
-    return settleTranscription({ mediaKitGateway, submission, signal, onEvent })
+    return settleTranscription({ pollMediaKitTask, submission, signal, onEvent })
   } finally {
     try {
       const cleanup = await opfsStore.cleanup()
@@ -247,8 +326,17 @@ async function runLocalUploadFallback({
   }
 }
 
-export function createMediaPipeline({ mediaKitGateway, opfsStoreFactory, logger, clock }) {
+export function createMediaPipeline({
+  mediaKitGateway,
+  opfsStoreFactory,
+  logger,
+  clock = createDefaultClock(),
+  random = Math.random,
+}) {
+  const pollMediaKitTask = createPollMediaKitTask({ mediaKitGateway, clock, random })
+
   return {
+    pollMediaKitTask,
     async transcribeFromSource({
       taskId,
       owner,
@@ -286,7 +374,7 @@ export function createMediaPipeline({ mediaKitGateway, opfsStoreFactory, logger,
           onEvent,
           logger,
         })
-        return settleTranscription({ mediaKitGateway, submission, signal, onEvent })
+        return settleTranscription({ pollMediaKitTask, submission, signal, onEvent })
       } catch (error) {
         logPipelineEvent(logger, 'warn', {
           event: 'video-summary-media-pipeline.direct-failed',
@@ -317,7 +405,7 @@ export function createMediaPipeline({ mediaKitGateway, opfsStoreFactory, logger,
               logger,
             })
             return settleTranscription({
-              mediaKitGateway,
+              pollMediaKitTask,
               submission: refreshedSubmission,
               signal,
               onEvent,
@@ -333,6 +421,7 @@ export function createMediaPipeline({ mediaKitGateway, opfsStoreFactory, logger,
             if (!isFallbackEligible(refreshedError)) throw refreshedError
             return runLocalUploadFallback({
               mediaKitGateway,
+              pollMediaKitTask,
               opfsStoreFactory,
               logger,
               taskId,
@@ -349,6 +438,7 @@ export function createMediaPipeline({ mediaKitGateway, opfsStoreFactory, logger,
         if (!isFallbackEligible(error)) throw error
         return runLocalUploadFallback({
           mediaKitGateway,
+          pollMediaKitTask,
           opfsStoreFactory,
           logger,
           taskId,
