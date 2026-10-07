@@ -48,6 +48,10 @@ function createFixture() {
 test('start sends no caller authority and resolves only a parsed correlated ACK', async () => {
   const { port, client } = createFixture()
   const started = client.startTask(createStartPayload())
+  assert.deepEqual(
+    { requestId: started.requestId, taskId: started.taskId },
+    { requestId: 'request-1', taskId: 'task-1' },
+  )
   assert.deepEqual(port.postedMessages[0], {
     type: 'START_TASK',
     requestId: 'request-1',

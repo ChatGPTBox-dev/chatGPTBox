@@ -39,6 +39,7 @@ const callbacks = {
   onAskAboutVideo() {},
   onDownloadMarkdown() {},
   onSeekTo() {},
+  onCancelTask() {},
   onRetrySummary() {},
 }
 
@@ -162,6 +163,7 @@ test('renders structured results, warnings, timestamps, actions, and retry', () 
         warnings: ['VIDEO_SUMMARY_LOCATIONS_PARTIALLY_UNAVAILABLE'],
       },
     },
+    canRetrySummary: true,
     onSeekTo: (value) => calls.push(['seek', value]),
     onRetrySummary: () => calls.push(['retry']),
     onArchive: () => calls.push(['archive']),
@@ -191,6 +193,81 @@ test('renders structured results, warnings, timestamps, actions, and retry', () 
   assert.deepEqual(calls, [['seek', 1000], ['retry'], ['archive'], ['ask'], ['download']])
 })
 
+test('busy phases disable every source and ASR confirmation control', () => {
+  for (const phase of ['starting', 'running', 'cancelling', 'reattaching']) {
+    mountView({
+      subtitleTracks: [
+        { id: 'track', label: 'English', language: 'en', sourceKind: 'author', cues: [{}] },
+      ],
+      selectedSubtitleTrackId: 'track',
+      asrConfirmationVisible: true,
+      sourceActionsDisabled: true,
+      taskState: { phase, taskId: 'task-1' },
+    })
+
+    for (const selector of [
+      'select[data-source-choice="native-subtitle"]',
+      'button[data-source-choice="native-subtitle"]',
+      'button[data-source-choice="asr"]',
+      'button[data-action="confirm-asr"]',
+    ]) {
+      assert.equal(container.querySelector(selector).disabled, true, `${phase}: ${selector}`)
+    }
+  }
+})
+
+test('cancel is exposed for running work and synchronously disables after one click', () => {
+  const calls = []
+  mountView({
+    sourceActionsDisabled: true,
+    canCancel: true,
+    taskState: { phase: 'running', taskId: 'task-1' },
+    onCancelTask: () => calls.push('cancel'),
+  })
+
+  const cancel = container.querySelector('[data-action="cancel-task"]')
+  assert.ok(cancel)
+  act(() => {
+    cancel.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    cancel.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  assert.deepEqual(calls, ['cancel'])
+  assert.equal(cancel.disabled, true)
+  assert.match(cancel.textContent, /Cancelling summary/)
+})
+
+test('retry visibility requires a terminal retryable checkpoint without active work', () => {
+  const states = [
+    [{ phase: 'running', checkpointAvailable: true, activeAttempt: true }, false],
+    [{ phase: 'complete', checkpointAvailable: false, activeAttempt: false }, false],
+    [{ phase: 'failed', checkpointAvailable: false, retryable: true, activeAttempt: false }, false],
+    [{ phase: 'failed', checkpointAvailable: true, retryable: false, activeAttempt: false }, false],
+    [{ phase: 'complete', checkpointAvailable: true, activeAttempt: true }, false],
+    [{ phase: 'complete', checkpointAvailable: true, activeAttempt: false }, true],
+    [
+      {
+        phase: 'failed',
+        checkpointAvailable: true,
+        retryable: true,
+        activeAttempt: false,
+      },
+      true,
+    ],
+  ]
+
+  for (const [taskState, expected] of states) {
+    mountView({
+      taskState,
+      canRetrySummary:
+        ['complete', 'failed'].includes(taskState.phase) &&
+        taskState.checkpointAvailable === true &&
+        taskState.activeAttempt !== true &&
+        (taskState.phase === 'complete' || taskState.retryable === true),
+    })
+    assert.equal(Boolean(container.querySelector('[data-action="retry-summary"]')), expected)
+  }
+})
+
 test('localizes fixed controls in Simplified Chinese', async () => {
   await i18n.changeLanguage('zh-Hans')
   mountView({
@@ -199,6 +276,7 @@ test('localizes fixed controls in Simplified Chinese', async () => {
     ],
     selectedSubtitleTrackId: 'auto',
     asrConfirmationVisible: true,
+    canRetrySummary: true,
     taskState: {
       phase: 'complete',
       checkpointAvailable: true,

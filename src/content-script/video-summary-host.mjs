@@ -94,6 +94,10 @@ function createInitialTaskState() {
     phase: 'idle',
     activeStage: null,
     checkpointAvailable: false,
+    activeAttempt: false,
+    retryable: false,
+    taskId: null,
+    generation: null,
     result: null,
     errorMessage: null,
   }
@@ -132,6 +136,8 @@ export function mountVideoSummaryHost({
   }
   let disposed = false
   let snapshotRetryTimer = null
+  let pendingAction = null
+  let pendingStart = null
 
   const isCurrentPage = () =>
     !disposed &&
@@ -140,6 +146,20 @@ export function mountVideoSummaryHost({
 
   const rerender = () => {
     if (!isCurrentPage()) return
+    const busyPhase = ['starting', 'running', 'cancelling', 'reattaching'].includes(
+      state.taskState.phase,
+    )
+    const sourceActionsDisabled = busyPhase || pendingAction !== null
+    const canCancel =
+      ['starting', 'running', 'cancelling'].includes(state.taskState.phase) &&
+      Boolean(state.taskState.taskId) &&
+      pendingAction !== 'cancel'
+    const canRetrySummary =
+      ['complete', 'failed'].includes(state.taskState.phase) &&
+      state.taskState.checkpointAvailable === true &&
+      state.taskState.activeAttempt !== true &&
+      (state.taskState.phase === 'complete' || state.taskState.retryable === true) &&
+      pendingAction === null
     render(
       h(VideoSummaryView, {
         platform,
@@ -149,6 +169,9 @@ export function mountVideoSummaryHost({
         selectedSubtitleTrackId: state.selectedSubtitleTrackId,
         subtitleDiscoveryStatus: state.sourceSnapshot?.subtitleDiscovery?.conclusionStatus,
         asrConfirmationVisible: state.asrConfirmationVisible,
+        sourceActionsDisabled,
+        canCancel,
+        canRetrySummary,
         taskState: state.taskState,
         onSelectSubtitleTrack: (trackId) => {
           if (!isCurrentPage()) return
@@ -183,6 +206,7 @@ export function mountVideoSummaryHost({
         onSeekTo: (startMs) => {
           if (isCurrentPage()) bridge.seekTo(startMs)
         },
+        onCancelTask: cancelTask,
         onRetrySummary: retrySummary,
       }),
       container,
@@ -202,25 +226,35 @@ export function mountVideoSummaryHost({
           phase: 'running',
           activeStage: event.stage || null,
           checkpointAvailable: event.checkpointAvailable === true,
+          activeAttempt: true,
+          retryable: false,
           errorMessage: null,
         }
       } else if (event.type === 'TASK_COMPLETED') {
         state.taskState = {
+          ...state.taskState,
           phase: 'complete',
           activeStage: null,
           checkpointAvailable: event.checkpointAvailable === true,
+          activeAttempt: false,
+          retryable: false,
           result: event.result || null,
           errorMessage: null,
         }
-        TASK_BY_PAGE.delete(pageKey)
+        pendingAction = null
+        if (!state.taskState.checkpointAvailable) TASK_BY_PAGE.delete(pageKey)
       } else if (event.type === 'TASK_ERROR' || event.type === 'TASK_FAILED') {
         state.taskState = {
           ...state.taskState,
           phase: 'failed',
           activeStage: null,
+          checkpointAvailable: event.checkpointAvailable === true,
+          activeAttempt: false,
+          retryable: event.checkpointAvailable === true,
           errorMessage: event.errorCode || event.message || 'VIDEO_SUMMARY_TASK_FAILED',
         }
-        TASK_BY_PAGE.delete(pageKey)
+        pendingAction = null
+        if (!state.taskState.checkpointAvailable) TASK_BY_PAGE.delete(pageKey)
       }
       rerender()
     },
@@ -317,49 +351,132 @@ export function mountVideoSummaryHost({
   }
 
   async function startTask(choice) {
-    if (!isCurrentPage()) return
-    const sourceSnapshot = await ensureSourceSnapshot()
-    if (!sourceSnapshot || !isCurrentPage()) return
+    if (!isCurrentPage() || pendingAction !== null) return
+    pendingAction = 'start'
     state.taskState = {
       ...createInitialTaskState(),
       phase: 'starting',
       activeStage: 'resolving-source',
     }
     rerender()
-    const settingsSnapshot = await getSettingsSnapshot()
-    if (!isCurrentPage()) return
-    const modelSnapshot = await getModelSnapshot()
-    if (!isCurrentPage()) return
-    const started = await client.startTask({
-      sourceChoice: choice,
-      subtitleTrackId:
-        choice === 'native-subtitle' ? state.selectedSubtitleTrackId || undefined : undefined,
-      sourceSnapshot,
-      settingsSnapshot,
-      modelSnapshot,
+    try {
+      const sourceSnapshot = await ensureSourceSnapshot()
+      if (!sourceSnapshot || !isCurrentPage()) return
+      const settingsSnapshot = await getSettingsSnapshot()
+      if (!isCurrentPage()) return
+      const modelSnapshot = await getModelSnapshot()
+      if (!isCurrentPage()) return
+      const startedPromise = client.startTask({
+        sourceChoice: choice,
+        subtitleTrackId:
+          choice === 'native-subtitle' ? state.selectedSubtitleTrackId || undefined : undefined,
+        sourceSnapshot,
+        settingsSnapshot,
+        modelSnapshot,
+      })
+      pendingStart = {
+        requestId: startedPromise.requestId,
+        taskId: startedPromise.taskId,
+      }
+      state.taskState = { ...state.taskState, taskId: startedPromise.taskId }
+      rerender()
+      const started = await startedPromise
+      if (!isCurrentPage()) return
+      pendingStart = null
+      if (!started.fence) return
+      const task = { taskId: started.taskId, generation: started.generation }
+      TASK_BY_PAGE.set(pageKey, task)
+      state.taskState = {
+        ...state.taskState,
+        taskId: task.taskId,
+        generation: task.generation,
+        activeAttempt: started.fence != null,
+      }
+    } finally {
+      if (isCurrentPage() && pendingAction === 'start') {
+        pendingAction = null
+        rerender()
+      }
+    }
+  }
+
+  async function cancelTask() {
+    if (!isCurrentPage() || ['cancel', 'retry'].includes(pendingAction)) return
+    const task = TASK_BY_PAGE.get(pageKey)
+    const start = pendingStart
+    if (!task && !start) return
+    pendingAction = 'cancel'
+    state.taskState = { ...state.taskState, phase: 'cancelling' }
+    rerender()
+    if (task) {
+      await client.cancelTask(task)
+      return
+    }
+    const cancelled = await client.cancelStart({
+      targetStartRequestId: start.requestId,
+      taskId: start.taskId,
     })
     if (!isCurrentPage()) return
-    TASK_BY_PAGE.set(pageKey, { taskId: started.taskId, generation: started.generation })
+    if (cancelled.status === 'cancelled') {
+      pendingAction = null
+      pendingStart = null
+      state.taskState = createInitialTaskState()
+    } else if (cancelled.fence) {
+      const cancellingTask = {
+        taskId: cancelled.fence.taskId,
+        generation: cancelled.fence.generation,
+      }
+      TASK_BY_PAGE.set(pageKey, cancellingTask)
+      state.taskState = {
+        ...state.taskState,
+        taskId: cancellingTask.taskId,
+        generation: cancellingTask.generation,
+      }
+    }
+    rerender()
   }
 
   async function retrySummary() {
-    if (!isCurrentPage()) return
+    if (!isCurrentPage() || pendingAction !== null) return
+    const task = TASK_BY_PAGE.get(pageKey)
+    if (
+      !task ||
+      !['complete', 'failed'].includes(state.taskState.phase) ||
+      state.taskState.checkpointAvailable !== true ||
+      state.taskState.activeAttempt === true ||
+      (state.taskState.phase === 'failed' && state.taskState.retryable !== true)
+    ) {
+      return
+    }
+    pendingAction = 'retry'
     state.taskState = {
       ...state.taskState,
       phase: 'running',
       activeStage: 'synthesizing-summary',
+      activeAttempt: true,
     }
     rerender()
-    const task = TASK_BY_PAGE.get(pageKey)
-    if (!task) return
-    const modelSnapshot = await getModelSnapshot()
-    if (!isCurrentPage()) return
-    await client.retryTask({
-      taskId: task.taskId,
-      generation: task.generation,
-      fromStage: 'synthesis',
-      modelSnapshot,
-    })
+    try {
+      const modelSnapshot = await getModelSnapshot()
+      if (!isCurrentPage()) return
+      const started = await client.retryTask({
+        taskId: task.taskId,
+        generation: task.generation,
+        fromStage: 'synthesis',
+        modelSnapshot,
+      })
+      if (!isCurrentPage()) return
+      state.taskState = {
+        ...state.taskState,
+        taskId: started.taskId,
+        generation: started.generation,
+      }
+    } finally {
+      if (isCurrentPage() && pendingAction === 'retry') {
+        pendingAction = null
+        rerender()
+      }
+    }
   }
 
   async function archiveSummary() {
@@ -406,9 +523,20 @@ export function mountVideoSummaryHost({
   void loadInitialSnapshot()
   const previousTask = TASK_BY_PAGE.get(pageKey)
   if (previousTask) {
-    void client.attachTask(previousTask)
-    state.taskState = { ...state.taskState, phase: 'reattaching' }
+    pendingAction = 'attach'
+    state.taskState = {
+      ...state.taskState,
+      phase: 'reattaching',
+      taskId: previousTask.taskId,
+      generation: previousTask.generation,
+      activeAttempt: true,
+    }
     rerender()
+    void client.attachTask(previousTask).finally(() => {
+      if (!isCurrentPage() || pendingAction !== 'attach') return
+      pendingAction = null
+      rerender()
+    })
   }
 
   return {

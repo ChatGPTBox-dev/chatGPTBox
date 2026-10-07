@@ -60,6 +60,9 @@ function createPort() {
       removeListener: (fn) => disconnectListeners.delete(fn),
     },
     postMessage: (message) => messages.push(message),
+    emitMessage: (message) => {
+      for (const listener of messageListeners) listener(message)
+    },
     disconnect() {},
   }
 }
@@ -105,6 +108,53 @@ test('host constructs the Content client from canonical page identity', async ()
   assert.equal(target.querySelector('.video-summary-host'), null)
 })
 
+async function flush() {
+  await new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+function createHostFixture({ identity, isPageCurrent = () => true } = {}) {
+  const pageIdentity = identity || {
+    platform: 'youtube',
+    videoId: 'abcdefghijk',
+    mediaId: 'abcdefghijk',
+  }
+  const port = createPort()
+  const target = document.createElement('div')
+  document.body.append(target)
+  const host = mountVideoSummaryHost({
+    platform: 'youtube',
+    pageIdentity,
+    pageGeneration: 9,
+    isPageCurrent,
+    bridge: {
+      getCurrentPageIdentity: () => pageIdentity,
+      getSnapshot: async () => ({
+        pageIdentity,
+        title: 'Title',
+        nativeSubtitleTracks: [
+          {
+            id: 'track-1',
+            label: 'English',
+            language: 'en',
+            sourceKind: 'author',
+            cues: [{ startMs: 0, endMs: 1000, text: 'hello' }],
+          },
+        ],
+        mediaCandidates: [],
+      }),
+      refreshSnapshot: async () => ({
+        pageIdentity,
+        nativeSubtitleTracks: [],
+        mediaCandidates: [],
+      }),
+      seekTo() {},
+    },
+    targetElement: target,
+    connect: () => port,
+  })
+  return { host, pageIdentity, port }
+}
+
 test('page generation blocks late snapshots and actions after disposal', async () => {
   const identity = { platform: 'youtube', videoId: 'abcdefghijk', mediaId: 'abcdefghijk' }
   const snapshot = deferred()
@@ -142,4 +192,233 @@ test('page generation blocks late snapshots and actions after disposal', async (
     port.messages.some((message) => message.type === 'START_TASK'),
     false,
   )
+})
+
+test('same-turn source and ASR confirmation actions start only once', async () => {
+  for (const [mediaId, invoke] of [
+    ['source-latch', (props) => props.onChooseSource('native-subtitle')],
+    ['asr-latch', (props) => props.onConfirmAsr()],
+  ]) {
+    const identity = { platform: 'youtube', videoId: mediaId, mediaId }
+    const { host, port } = createHostFixture({ identity })
+    await flush()
+    const props = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+    void invoke(props)
+    void invoke(props)
+    await flush()
+    await flush()
+    assert.equal(
+      port.messages.filter((message) => message.type === 'START_TASK').length,
+      1,
+      mediaId,
+    )
+    const start = port.messages.find((message) => message.type === 'START_TASK')
+    port.emitMessage({
+      type: 'START_ACK',
+      requestId: start.requestId,
+      taskId: start.taskId,
+      status: 'cancelled',
+    })
+    await flush()
+    host.dispose()
+  }
+})
+
+test('cancel latches immediately and targets pre-fence start only once', async () => {
+  const identity = { platform: 'youtube', videoId: 'cancel-start', mediaId: 'cancel-start' }
+  const { host, port } = createHostFixture({ identity })
+  await flush()
+  let props = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  void props.onChooseSource('native-subtitle')
+  await flush()
+  await flush()
+  const start = port.messages.find((message) => message.type === 'START_TASK')
+  props = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  void props.onCancelTask()
+  void props.onCancelTask()
+
+  assert.equal(
+    globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube').taskState.phase,
+    'cancelling',
+  )
+  assert.deepEqual(
+    port.messages
+      .filter((message) => message.type === 'CANCEL_START')
+      .map((message) => ({
+        targetStartRequestId: message.targetStartRequestId,
+        taskId: message.taskId,
+      })),
+    [{ targetStartRequestId: start.requestId, taskId: start.taskId }],
+  )
+  const cancel = port.messages.find((message) => message.type === 'CANCEL_START')
+  port.emitMessage({
+    type: 'CANCEL_START_ACK',
+    cancelRequestId: cancel.cancelRequestId,
+    targetStartRequestId: start.requestId,
+    status: 'cancelled',
+  })
+  port.emitMessage({
+    type: 'START_ACK',
+    requestId: start.requestId,
+    taskId: start.taskId,
+    status: 'cancelled',
+  })
+  await flush()
+  host.dispose()
+})
+
+test('post-fence cancel uses task generation without attempt', async () => {
+  const identity = {
+    platform: 'youtube',
+    videoId: 'cancel-generation',
+    mediaId: 'cancel-generation',
+  }
+  const { host, port } = createHostFixture({ identity })
+  await flush()
+  void globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps
+    .get('youtube')
+    .onChooseSource('native-subtitle')
+  await flush()
+  await flush()
+  const start = port.messages.find((message) => message.type === 'START_TASK')
+  const fence = {
+    owner: { tabId: 7, documentId: 'doc-7', platform: 'youtube', mediaId: identity.mediaId },
+    taskId: start.taskId,
+    generation: 4,
+    attempt: 9,
+  }
+  port.emitMessage({
+    type: 'START_ACK',
+    requestId: start.requestId,
+    taskId: start.taskId,
+    status: 'started',
+    fence,
+  })
+  await flush()
+  port.emitMessage({
+    type: 'TASK_EVENT',
+    fence,
+    event: { type: 'TASK_STATUS', stage: 'summarizing', checkpointAvailable: true },
+  })
+  const props = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  void props.onCancelTask()
+  void props.onCancelTask()
+
+  const cancel = port.messages.filter((message) => message.type === 'CANCEL_TASK')
+  assert.deepEqual(cancel, [
+    {
+      type: 'CANCEL_TASK',
+      taskId: start.taskId,
+      generation: 4,
+      pageIdentity: identity,
+    },
+  ])
+  assert.equal('attempt' in cancel[0], false)
+  await flush()
+  assert.equal(globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube').canCancel, false)
+  host.dispose()
+})
+
+test('reattach keeps source actions disabled until ATTACH_ACK resolves', async () => {
+  const identity = { platform: 'youtube', videoId: 'reattach', mediaId: 'reattach' }
+  const first = createHostFixture({ identity })
+  await flush()
+  void globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps
+    .get('youtube')
+    .onChooseSource('native-subtitle')
+  await flush()
+  await flush()
+  const start = first.port.messages.find((message) => message.type === 'START_TASK')
+  const fence = {
+    owner: { tabId: 7, documentId: 'doc-7', platform: 'youtube', mediaId: identity.mediaId },
+    taskId: start.taskId,
+    generation: 2,
+    attempt: 1,
+  }
+  first.port.emitMessage({
+    type: 'START_ACK',
+    requestId: start.requestId,
+    taskId: start.taskId,
+    status: 'started',
+    fence,
+  })
+  await flush()
+  first.host.dispose()
+
+  const second = createHostFixture({ identity })
+  await flush()
+  const attach = second.port.messages.find((message) => message.type === 'ATTACH_TASK')
+  assert.ok(attach)
+  assert.equal(
+    globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube').sourceActionsDisabled,
+    true,
+  )
+  second.port.emitMessage({
+    type: 'ATTACH_ACK',
+    requestId: attach.requestId,
+    status: 'active',
+    fence,
+    event: { type: 'TASK_STATUS', stage: 'summarizing', checkpointAvailable: true },
+  })
+  await flush()
+  assert.equal(
+    globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube').taskState.phase,
+    'running',
+  )
+  second.host.dispose()
+})
+
+test('retry latches once and stale page generation ACK does not update UI', async () => {
+  let current = true
+  const identity = { platform: 'youtube', videoId: 'retry-latch', mediaId: 'retry-latch' }
+  const { host, port } = createHostFixture({ identity, isPageCurrent: () => current })
+  await flush()
+  void globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps
+    .get('youtube')
+    .onChooseSource('native-subtitle')
+  await flush()
+  await flush()
+  const start = port.messages.find((message) => message.type === 'START_TASK')
+  const fence = {
+    owner: { tabId: 7, documentId: 'doc-7', platform: 'youtube', mediaId: identity.mediaId },
+    taskId: start.taskId,
+    generation: 2,
+    attempt: 1,
+  }
+  port.emitMessage({
+    type: 'START_ACK',
+    requestId: start.requestId,
+    taskId: start.taskId,
+    status: 'started',
+    fence,
+  })
+  await flush()
+  port.emitMessage({
+    type: 'TASK_EVENT',
+    fence,
+    event: {
+      type: 'TASK_COMPLETED',
+      checkpointAvailable: true,
+      result: { status: 'complete', overview: 'done' },
+    },
+  })
+  let props = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  void props.onRetrySummary()
+  void props.onRetrySummary()
+  await flush()
+  const retries = port.messages.filter((message) => message.type === 'RETRY_TASK')
+  assert.equal(retries.length, 1)
+  current = false
+  const beforeAck = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  port.emitMessage({
+    type: 'RETRY_ACK',
+    requestId: retries[0].requestId,
+    taskId: start.taskId,
+    status: 'started',
+    fence: { ...fence, attempt: 2 },
+  })
+  await flush()
+  props = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  assert.equal(props, beforeAck)
+  host.dispose()
 })

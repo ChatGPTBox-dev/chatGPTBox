@@ -71,6 +71,11 @@
   color: #fff;
 }
 
+.video-summary-view button[data-action='cancel-task'] {
+  border-color: #a3402b;
+  color: #a3402b;
+}
+
 .video-summary-view button:disabled,
 .video-summary-view select:disabled {
   cursor: not-allowed;

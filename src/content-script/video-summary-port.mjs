@@ -137,15 +137,18 @@ export function createVideoSummaryPortClient({
     startTask(payload) {
       const requestId = createRequestId()
       const taskId = createTaskId()
-      return request(requestId, {
+      const started = request(requestId, {
         type: 'START_TASK',
         requestId,
         taskId,
         pageIdentity: identity,
         ...structuredClone(payload),
       })
+      started.requestId = requestId
+      started.taskId = taskId
+      return started
     },
-    cancelStart({ cancelRequestId, targetStartRequestId, taskId }) {
+    cancelStart({ cancelRequestId = createRequestId(), targetStartRequestId, taskId }) {
       return request(cancelRequestId, {
         type: 'CANCEL_START',
         cancelRequestId,

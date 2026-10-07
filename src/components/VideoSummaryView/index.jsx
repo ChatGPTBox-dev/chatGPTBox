@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatVideoOffset } from '../../video-summary/time.mjs'
 
@@ -19,6 +19,10 @@ const MESSAGE_KEYS = {
   YOUTUBE_AUDIO_NOT_FOUND: 'No usable YouTube audio source was found.',
   VIDEO_MEDIA_SOURCE_EXPIRED: 'The video source expired. Refresh the page and try again.',
   MEDIAKIT_API_KEY_REQUIRED: 'Configure the MediaKit API key, then try again.',
+  VIDEO_MEDIA_LOCAL_HEADERS_UNSUPPORTED:
+    'Local media fallback is unavailable because this source requires unsupported request headers.',
+  VIDEO_SUMMARY_SUBMISSION_UNKNOWN:
+    'The transcription submission outcome is unknown and was not retried.',
 }
 
 function messageFor(code, t) {
@@ -34,6 +38,7 @@ function SourceChoices({
   sourceChoice,
   subtitleTracks,
   selectedSubtitleTrackId,
+  sourceActionsDisabled,
   onSelectSubtitleTrack,
   onChooseSource,
 }) {
@@ -44,7 +49,7 @@ function SourceChoices({
         <span>{t('Subtitle track')}</span>
         <select
           data-source-choice="native-subtitle"
-          disabled={subtitleTracks.length === 0}
+          disabled={sourceActionsDisabled || subtitleTracks.length === 0}
           value={selectedSubtitleTrackId || ''}
           onChange={(event) => onSelectSubtitleTrack(event.currentTarget.value)}
         >
@@ -59,7 +64,7 @@ function SourceChoices({
         type="button"
         data-source-choice="native-subtitle"
         className={sourceChoice === 'native-subtitle' ? 'is-selected' : ''}
-        disabled={subtitleTracks.length === 0 || !selectedSubtitleTrackId}
+        disabled={sourceActionsDisabled || subtitleTracks.length === 0 || !selectedSubtitleTrackId}
         onClick={() => onChooseSource('native-subtitle')}
       >
         {t('Summarize subtitles')}
@@ -68,6 +73,7 @@ function SourceChoices({
         type="button"
         data-source-choice="asr"
         className={sourceChoice === 'asr' ? 'is-selected' : ''}
+        disabled={sourceActionsDisabled}
         onClick={() => onChooseSource('asr')}
       >
         {t('Run ASR')}
@@ -80,11 +86,12 @@ SourceChoices.propTypes = {
   sourceChoice: PropTypes.string,
   subtitleTracks: PropTypes.arrayOf(PropTypes.object).isRequired,
   selectedSubtitleTrackId: PropTypes.string,
+  sourceActionsDisabled: PropTypes.bool.isRequired,
   onSelectSubtitleTrack: PropTypes.func.isRequired,
   onChooseSource: PropTypes.func.isRequired,
 }
 
-function AsrConfirmation({ onConfirmAsr, onCancelAsrConfirmation }) {
+function AsrConfirmation({ disabled, onConfirmAsr, onCancelAsrConfirmation }) {
   const { t } = useTranslation()
   return (
     <div className="video-summary-view__confirm">
@@ -94,7 +101,7 @@ function AsrConfirmation({ onConfirmAsr, onCancelAsrConfirmation }) {
         )}
       </p>
       <div className="video-summary-view__actions">
-        <button type="button" data-action="confirm-asr" onClick={onConfirmAsr}>
+        <button type="button" data-action="confirm-asr" disabled={disabled} onClick={onConfirmAsr}>
           {t('Confirm ASR')}
         </button>
         <button type="button" data-action="cancel-asr" onClick={onCancelAsrConfirmation}>
@@ -106,21 +113,41 @@ function AsrConfirmation({ onConfirmAsr, onCancelAsrConfirmation }) {
 }
 
 AsrConfirmation.propTypes = {
+  disabled: PropTypes.bool.isRequired,
   onConfirmAsr: PropTypes.func.isRequired,
   onCancelAsrConfirmation: PropTypes.func.isRequired,
 }
 
 function Actions({
+  canCancel,
   canRetrySummary,
   hasResult,
   onArchive,
   onAskAboutVideo,
+  onCancelTask,
   onDownloadMarkdown,
   onRetrySummary,
 }) {
   const { t } = useTranslation()
+  const cancelPendingRef = useRef(false)
+  const [cancelPending, setCancelPending] = useState(false)
   return (
     <div className="video-summary-view__actions">
+      {canCancel ? (
+        <button
+          type="button"
+          data-action="cancel-task"
+          disabled={cancelPending}
+          onClick={() => {
+            if (cancelPendingRef.current) return
+            cancelPendingRef.current = true
+            setCancelPending(true)
+            onCancelTask()
+          }}
+        >
+          {t(cancelPending ? 'Cancelling summary' : 'Cancel summary')}
+        </button>
+      ) : null}
       {canRetrySummary ? (
         <button type="button" data-action="retry-summary" onClick={onRetrySummary}>
           {t('Retry summary only')}
@@ -150,10 +177,12 @@ function Actions({
 }
 
 Actions.propTypes = {
+  canCancel: PropTypes.bool.isRequired,
   canRetrySummary: PropTypes.bool.isRequired,
   hasResult: PropTypes.bool.isRequired,
   onArchive: PropTypes.func.isRequired,
   onAskAboutVideo: PropTypes.func.isRequired,
+  onCancelTask: PropTypes.func.isRequired,
   onDownloadMarkdown: PropTypes.func.isRequired,
   onRetrySummary: PropTypes.func.isRequired,
 }
@@ -182,6 +211,9 @@ export default function VideoSummaryView({
   selectedSubtitleTrackId,
   subtitleDiscoveryStatus,
   asrConfirmationVisible = false,
+  sourceActionsDisabled = false,
+  canCancel = false,
+  canRetrySummary = false,
   taskState,
   onSelectSubtitleTrack,
   onChooseSource,
@@ -191,6 +223,7 @@ export default function VideoSummaryView({
   onAskAboutVideo,
   onDownloadMarkdown,
   onSeekTo,
+  onCancelTask,
   onRetrySummary,
 }) {
   const { t } = useTranslation()
@@ -234,6 +267,7 @@ export default function VideoSummaryView({
         sourceChoice={sourceChoice}
         subtitleTracks={subtitleTracks}
         selectedSubtitleTrackId={selectedSubtitleTrackId}
+        sourceActionsDisabled={sourceActionsDisabled}
         onSelectSubtitleTrack={onSelectSubtitleTrack}
         onChooseSource={(choice) => {
           setShowAsrConfirmation(choice === 'asr')
@@ -249,6 +283,7 @@ export default function VideoSummaryView({
       ) : null}
       {showAsrConfirmation ? (
         <AsrConfirmation
+          disabled={sourceActionsDisabled}
           onConfirmAsr={() => {
             setShowAsrConfirmation(false)
             onConfirmAsr()
@@ -260,10 +295,12 @@ export default function VideoSummaryView({
         />
       ) : null}
       <Actions
-        canRetrySummary={Boolean(taskState?.checkpointAvailable && result)}
+        canCancel={canCancel}
+        canRetrySummary={canRetrySummary}
         hasResult={Boolean(result)}
         onArchive={onArchive}
         onAskAboutVideo={onAskAboutVideo}
+        onCancelTask={onCancelTask}
         onDownloadMarkdown={onDownloadMarkdown}
         onRetrySummary={onRetrySummary}
       />
@@ -388,6 +425,9 @@ VideoSummaryView.propTypes = {
   selectedSubtitleTrackId: PropTypes.string,
   subtitleDiscoveryStatus: PropTypes.string,
   asrConfirmationVisible: PropTypes.bool,
+  sourceActionsDisabled: PropTypes.bool,
+  canCancel: PropTypes.bool,
+  canRetrySummary: PropTypes.bool,
   taskState: PropTypes.object,
   onSelectSubtitleTrack: PropTypes.func.isRequired,
   onChooseSource: PropTypes.func.isRequired,
@@ -397,5 +437,6 @@ VideoSummaryView.propTypes = {
   onAskAboutVideo: PropTypes.func.isRequired,
   onDownloadMarkdown: PropTypes.func.isRequired,
   onSeekTo: PropTypes.func.isRequired,
+  onCancelTask: PropTypes.func.isRequired,
   onRetrySummary: PropTypes.func.isRequired,
 }
