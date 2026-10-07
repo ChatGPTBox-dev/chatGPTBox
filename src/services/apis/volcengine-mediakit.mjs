@@ -132,24 +132,6 @@ export async function requestMediaUploadTarget({ apiKey, fetchImpl = fetch, sign
   }
 }
 
-export async function uploadMediaBlob({ target, blob, fetchImpl = fetch, signal }) {
-  throwIfAborted(signal)
-  const response = await fetchImpl(target.uploadUrl, {
-    method: target.method,
-    headers: target.headers,
-    body: blob,
-    signal,
-  })
-  throwIfAborted(signal)
-  if (!response.ok) {
-    throw new MediaKitError(`${response.status} ${response.statusText}`, {
-      operation: 'upload-media',
-      httpStatus: response.status,
-      retryAfterMs: parseRetryAfter(response.headers.get('retry-after')),
-    })
-  }
-}
-
 export async function submitMediaKitAsr({
   apiKey,
   audioUrl,

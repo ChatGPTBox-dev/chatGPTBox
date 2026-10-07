@@ -156,10 +156,6 @@ export function createVideoSummaryOffscreenRpc({
       controller = new AbortController()
       requests.set(message.requestId, controller)
       const gateway = gateways[message.gateway]
-      const allowed = VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS[message.gateway] || []
-      if (!allowed.includes(message.operation)) {
-        throw new Error('VIDEO_SUMMARY_GATEWAY_OPERATION_UNSUPPORTED')
-      }
       const result =
         message.operation === 'markFallbackEligible'
           ? {}
@@ -242,6 +238,5 @@ export function createVideoSummaryOffscreenRpc({
     },
     postCommand,
     cancelGeneration,
-    detachPort: detach,
   }
 }

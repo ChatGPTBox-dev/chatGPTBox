@@ -290,9 +290,6 @@ export function createBilibiliVideoPageBridge({
       video.scrollIntoView({ block: 'center', behavior: 'smooth' })
     },
     getCurrentPageIdentity,
-    getCurrentVideoId() {
-      return getBilibiliVideoIdentity(getLocationHref()).videoId
-    },
     subscribeToVideoChanges(listener) {
       if (typeof listener !== 'function') return () => {}
       let lastKey = readPageKey(getLocationHref())

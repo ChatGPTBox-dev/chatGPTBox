@@ -114,7 +114,6 @@ export function startVideoSummaryOffscreenRuntime({
     return cleanupTaskMedia(key).then(
       () => true,
       () => {
-        post({ type: 'RUNTIME_ERROR', errorCode: 'VIDEO_SUMMARY_OPFS_CLEANUP_FAILED' })
         resetRuntime('VIDEO_SUMMARY_OPFS_CLEANUP_FAILED')
         return false
       },

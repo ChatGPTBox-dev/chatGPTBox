@@ -301,7 +301,7 @@ test('local download manually follows only revalidated redirects before body acc
   })
 
   assert.equal(redirectBodyRead, false)
-  assert.equal(result.sourceUrl, 'https://upos-sz-mirrorcos.bilivideo.com/next')
+  assert.equal(await result.blob.text(), 'audio')
   assert.equal(calls.length, 2)
   for (const [, init] of calls) {
     assert.equal(init.redirect, 'manual')

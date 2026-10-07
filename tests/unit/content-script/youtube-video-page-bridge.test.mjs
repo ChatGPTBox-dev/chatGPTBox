@@ -508,40 +508,6 @@ test('seek updates currentTime and scrolls the active video into view', () => {
   assert.deepEqual(calls, [{ block: 'center', behavior: 'smooth' }])
 })
 
-test('navigation emits only normalized watch identity changes and stops after disposal', () => {
-  let currentUrl = `${pageUrl}&t=2&list=playlist`
-  let tick
-  let cleared = null
-  const events = []
-  const bridge = createYouTubeVideoPageBridge({
-    getLocationHref: () => currentUrl,
-    setIntervalImpl: (listener) => {
-      tick = listener
-      return 42
-    },
-    clearIntervalImpl: (id) => {
-      cleared = id
-    },
-  })
-  const dispose = bridge.subscribeToVideoChanges((event) => events.push(event))
-
-  currentUrl = `${pageUrl}&t=99&utm_source=test`
-  tick()
-  assert.deepEqual(events, [])
-  currentUrl = 'https://www.youtube.com/'
-  tick()
-  assert.deepEqual(events, [null])
-  currentUrl = `https://www.youtube.com/watch?v=${otherVideoId}`
-  tick()
-  assert.deepEqual(events[1], {
-    platform: 'youtube',
-    videoId: otherVideoId,
-    mediaId: otherVideoId,
-  })
-  dispose()
-  assert.equal(cleared, 42)
-})
-
 test('bridge never logs sensitive player, caption, or media data', async () => {
   const playerResponse = await loadJson('player-response-authored-auto.json')
   const timedText = await loadJson('timed-text-events.json')

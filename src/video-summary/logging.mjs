@@ -35,8 +35,6 @@ export function sanitizeVideoSummaryLogEntry(entry = {}) {
   return result
 }
 
-export const projectVideoSummaryLogEntry = sanitizeVideoSummaryLogEntry
-
 export function serializePipelineError(error) {
   return sanitizeVideoSummaryLogEntry({
     operation: error?.operation,

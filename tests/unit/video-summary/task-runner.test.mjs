@@ -806,7 +806,7 @@ test('invalid final Markdown falls back to local summaries with an incomplete wa
   }
 })
 
-test('changed-budget retry replaces intersecting results and preserves the original chunk plan', async () => {
+test('changed-budget retry replaces intersecting results', async () => {
   const transcription = {
     durationMs: 24_000,
     segments: Array.from({ length: 24 }, (_, index) => ({
@@ -888,13 +888,6 @@ test('changed-budget retry replaces intersecting results and preserves the origi
     retryChunkResults.map(({ localSummary }) => localSummary),
     ['summary 40 chunk-1', 'summary 20 chunk-3', 'summary 20 chunk-4'],
   )
-  assert.deepEqual(runner.debugState().checkpoints[0].originalChunkPlan, [
-    { primaryStartSegmentId: 's1', primaryEndSegmentId: 's6' },
-    { primaryStartSegmentId: 's7', primaryEndSegmentId: 's12' },
-    { primaryStartSegmentId: 's13', primaryEndSegmentId: 's18' },
-    { primaryStartSegmentId: 's19', primaryEndSegmentId: 's24' },
-  ])
-
   const beforeRetry = calls.length
   await runner.registerAttempt({
     requestId: 'retry-synthesis',

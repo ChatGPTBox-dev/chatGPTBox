@@ -48,6 +48,11 @@ function createFixture({ executable = true, authorization } = {}) {
   return { port, rpc, lifecycle, completed, gatewayCalls, uploadedCalls }
 }
 
+test('RPC exposes only production lifecycle methods', () => {
+  const fixture = createFixture()
+  assert.equal('detachPort' in fixture.rpc, false)
+})
+
 test('RPC parses lifecycle messages and forwards them to coordinator', () => {
   const fixture = createFixture()
   fixture.port.emitMessage({ type: 'ATTEMPT_ACCEPTED', requestId: 'start-1', fence })
@@ -135,8 +140,6 @@ test('authorization runs before dispatch and gateway receives only cloned author
 
 test('exact-fence cancellation aborts the matching request only', async () => {
   const signals = []
-  const fixture = createFixture()
-  fixture.rpc.detachPort()
   const port = createFakePort({ name: 'video-summary-offscreen' })
   const rpc = createVideoSummaryOffscreenRpc({
     mediaKitGateway: {

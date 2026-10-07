@@ -359,7 +359,7 @@ test('manual redirect policy is enforced through OPFS download before body acces
     candidate: pipelineSnapshot().mediaCandidates[0],
   })
   assert.equal(redirectBodyRead, false)
-  assert.equal(result.sourceUrl, 'https://rr1---sn.example.googlevideo.com/redirected-audio')
+  assert.equal(await result.blob.text(), 'audio')
   assert.equal(requests.length, 2)
   assert.equal(
     requests.every(([, init]) => init.redirect === 'manual'),

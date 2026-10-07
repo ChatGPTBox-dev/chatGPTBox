@@ -179,6 +179,12 @@ async function makeRetryable(harness) {
   harness.release()
 }
 
+test('coordinator keeps capability revocation private', () => {
+  const harness = createHarness()
+  assert.equal('revokeGenerationCapability' in harness.coordinator, false)
+  assert.equal('revokeAttemptModelCapability' in harness.coordinator, false)
+})
+
 test('initial start allocates a global fence and commits TASK_STARTED before posting', async () => {
   const harness = createHarness()
   const command = await begin(harness)
@@ -194,6 +200,7 @@ test('initial start allocates a global fence and commits TASK_STARTED before pos
     { key: [7, 'bilibili'], state: 'starting', fence: command.fence, pageIdentity: identity },
   ])
   assert.equal(state.retainedTasks[0].replayEvent.type, 'TASK_STARTED')
+  assert.equal('requestHash' in state.startRecords[0], false)
   assert.deepEqual(harness.contentMessages, [])
 })
 

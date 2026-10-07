@@ -546,7 +546,6 @@ export function createVideoSummaryCoordinator({
       state: 'starting',
       fence: clone(fence),
       pageIdentity: clone(command.pageIdentity),
-      port,
       deleteAfterRelease: false,
       acceptTimerId: null,
       releaseTimerId: null,
@@ -624,7 +623,6 @@ export function createVideoSummaryCoordinator({
       documentId: context.documentId,
       taskId: command.taskId,
       requestId: command.requestId,
-      requestHash: null,
       hashPromise,
       state: 'pending',
       cancellation: null,
@@ -635,7 +633,7 @@ export function createVideoSummaryCoordinator({
       expiryTimerId: null,
     }
     setStartRecord(record)
-    record.requestHash = await hashPromise
+    await hashPromise
     try {
       await ensureOffscreen()
     } catch {
@@ -1013,8 +1011,6 @@ export function createVideoSummaryCoordinator({
     for (const record of valuesNested(retainedTasks, 6)) {
       if (!ownersEqual(record.owner, context.owner) || record.port !== port) continue
       record.port = null
-      const slot = getSlot(record.owner)
-      if (slot?.port === port) slot.port = null
       scheduleDisconnect(record)
     }
   }
@@ -1073,7 +1069,6 @@ export function createVideoSummaryCoordinator({
         documentId: record.documentId,
         taskId: record.taskId,
         requestId: record.requestId,
-        requestHash: record.requestHash,
         state: record.state,
         cancellation: record.cancellation
           ? {
@@ -1108,8 +1103,6 @@ export function createVideoSummaryCoordinator({
     handleOffscreenDisconnect,
     authorizeGatewayRequest,
     completeGatewayRequest,
-    revokeGenerationCapability,
-    revokeAttemptModelCapability,
     debugState,
   }
 }

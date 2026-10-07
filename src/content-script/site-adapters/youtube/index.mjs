@@ -57,14 +57,6 @@ function unwrapPageDataResponse(response) {
   throw error
 }
 
-function isEnhancedModeAvailable(userConfig) {
-  return (
-    (!Array.isArray(userConfig?.activeSiteAdapters) ||
-      userConfig.activeSiteAdapters.includes('youtube')) &&
-    isEnhancedVideoSummaryAvailable(userConfig)
-  )
-}
-
 // This function was written by ChatGPT and modified by iamsirsammy
 function replaceHtmlEntities(htmlString) {
   const doc = new DOMParser().parseFromString(htmlString.replaceAll('&amp;', '&'), 'text/html')
@@ -73,7 +65,7 @@ function replaceHtmlEntities(htmlString) {
 
 export default {
   init: async (hostname, userConfig, getInput, mountComponent) => {
-    const enhancedAvailable = isEnhancedModeAvailable(userConfig)
+    const enhancedAvailable = isEnhancedVideoSummaryAvailable(userConfig)
     let currentMode = 'none'
     const createBridge = () =>
       createYouTubeVideoPageBridge({

@@ -1,4 +1,7 @@
-import { VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS } from './contracts.mjs'
+import {
+  VIDEO_SUMMARY_OFFSCREEN_GATEWAY_OPERATIONS,
+  VIDEO_SUMMARY_PLATFORMS,
+} from './contracts.mjs'
 
 const MiB = 1024 * 1024
 
@@ -16,7 +19,7 @@ export const VIDEO_SUMMARY_PROTOCOL_LIMITS = Object.freeze({
   pendingRpcsPerTask: 16,
 })
 
-export const VIDEO_SUMMARY_CONTENT_COMMAND_TYPES = Object.freeze([
+const VIDEO_SUMMARY_CONTENT_COMMAND_TYPES = Object.freeze([
   'START_TASK',
   'CANCEL_START',
   'ATTACH_TASK',
@@ -25,7 +28,7 @@ export const VIDEO_SUMMARY_CONTENT_COMMAND_TYPES = Object.freeze([
   'SOURCE_REFRESH_RESULT',
 ])
 
-export const VIDEO_SUMMARY_CONTENT_MESSAGE_TYPES = Object.freeze([
+const VIDEO_SUMMARY_CONTENT_MESSAGE_TYPES = Object.freeze([
   'START_ACK',
   'CANCEL_START_ACK',
   'ATTACH_ACK',
@@ -34,7 +37,7 @@ export const VIDEO_SUMMARY_CONTENT_MESSAGE_TYPES = Object.freeze([
   'SOURCE_REFRESH_REQUEST',
 ])
 
-export const VIDEO_SUMMARY_OFFSCREEN_COMMAND_TYPES = Object.freeze([
+const VIDEO_SUMMARY_OFFSCREEN_COMMAND_TYPES = Object.freeze([
   'START_ATTEMPT',
   'ATTEMPT_AUTHORIZED',
   'CANCEL_TASK',
@@ -44,7 +47,7 @@ export const VIDEO_SUMMARY_OFFSCREEN_COMMAND_TYPES = Object.freeze([
   'GATEWAY_RESPONSE',
 ])
 
-export const VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES = Object.freeze([
+const VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES = Object.freeze([
   'ATTEMPT_ACCEPTED',
   'ATTEMPT_REJECTED',
   'TASK_EVENT',
@@ -55,7 +58,7 @@ export const VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES = Object.freeze([
   'CANCEL_GATEWAY_REQUEST',
 ])
 
-const platforms = new Set(['bilibili', 'youtube'])
+const platforms = new Set(VIDEO_SUMMARY_PLATFORMS)
 const retryStages = new Set(['summarizing', 'synthesis'])
 const eventFields = [
   'type',

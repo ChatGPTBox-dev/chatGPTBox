@@ -336,32 +336,3 @@ test('model operations use the caller signal and check it before work', async ()
   )
   assert.equal(configCalls, 1)
 })
-
-test('cancel aborts only the matching in-flight generateText request', async () => {
-  const signals = []
-  const gateway = createGateway({
-    generateTextWithModel: (_args, { signal }) =>
-      new Promise((resolve, reject) => {
-        signals.push(signal)
-        signal.addEventListener('abort', () => reject(new Error('request aborted')), { once: true })
-      }),
-  })
-
-  const pending = gateway.generateText({
-    requestId: 'request-3',
-    taskId: 'task-3',
-    modelSnapshot: { modelName: 'moonshotWebFree' },
-    messages: [{ role: 'user', content: 'private transcript' }],
-    maxOutputTokens: 200,
-    requestKind: 'video-summary',
-    toolPolicy: 'none',
-  })
-  await Promise.resolve()
-
-  gateway.cancel({ requestId: 'other-request', taskId: 'task-3' })
-  assert.equal(signals[0]?.aborted, false)
-
-  gateway.cancel({ requestId: 'request-3', taskId: 'task-3' })
-  await assert.rejects(() => pending, { message: 'request aborted' })
-  assert.equal(signals[0]?.aborted, true)
-})

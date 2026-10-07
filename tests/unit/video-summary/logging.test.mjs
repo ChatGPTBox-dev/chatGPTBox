@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   logPipelineEvent,
-  projectVideoSummaryLogEntry,
+  sanitizeVideoSummaryLogEntry,
   serializePipelineError,
 } from '../../../src/video-summary/logging.mjs'
 
@@ -59,7 +59,7 @@ function assertNoSentinels(value) {
 }
 
 test('projects only valid video-summary diagnostic fields', () => {
-  assert.deepEqual(projectVideoSummaryLogEntry(createSensitiveFixture()), {
+  assert.deepEqual(sanitizeVideoSummaryLogEntry(createSensitiveFixture()), {
     event: 'video-summary.media.retry',
     operation: 'submitDirectAsr',
     code: 'VIDEO_SUMMARY_FETCH_FAILED',
@@ -72,7 +72,7 @@ test('projects only valid video-summary diagnostic fields', () => {
 
 test('omits invalid and unbounded diagnostic values', () => {
   assert.deepEqual(
-    projectVideoSummaryLogEntry({
+    sanitizeVideoSummaryLogEntry({
       event: `video-summary.${'a'.repeat(200)}`,
       operation: 'unknownOperation',
       code: 'lowercase code',
@@ -119,7 +119,7 @@ test('logPipelineEvent projects entries and accepts only safe levels', () => {
     ['info', 'warn', 'error'],
   )
   for (const [, entry] of entries) {
-    assert.deepEqual(entry, projectVideoSummaryLogEntry(fixture))
+    assert.deepEqual(entry, sanitizeVideoSummaryLogEntry(fixture))
     assertNoSentinels(entry)
   }
 })

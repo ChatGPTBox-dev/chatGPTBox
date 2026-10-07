@@ -6,7 +6,6 @@ import {
   queryMediaKitTask,
   requestMediaUploadTarget,
   submitMediaKitAsr,
-  uploadMediaBlob,
 } from '../../../../src/services/apis/volcengine-mediakit.mjs'
 
 const jsonResponse = (body, init = {}) =>
@@ -185,7 +184,7 @@ test('MediaKit requests forward signal and stop before parsing an aborted respon
   assert.equal(jsonCalls, 1)
 })
 
-test('MediaKit upload, submission, and query all forward the caller signal', async () => {
+test('MediaKit submission and query forward the caller signal', async () => {
   const controller = new AbortController()
   const seenSignals = []
   const fetchImpl = mock.fn(async (url, init) => {
@@ -195,12 +194,6 @@ test('MediaKit upload, submission, and query all forward the caller signal', asy
       return jsonResponse({ success: true, task_id: 'provider-task' })
     }
     return new Response('', { status: 200 })
-  })
-  await uploadMediaBlob({
-    target: { uploadUrl: 'https://upload.example.invalid/file', method: 'PUT', headers: {} },
-    blob: new Blob(['audio']),
-    fetchImpl,
-    signal: controller.signal,
   })
   await submitMediaKitAsr({
     apiKey: 'secret',
@@ -216,7 +209,7 @@ test('MediaKit upload, submission, and query all forward the caller signal', asy
     fetchImpl,
     signal: controller.signal,
   })
-  assert.deepEqual(seenSignals, [controller.signal, controller.signal, controller.signal])
+  assert.deepEqual(seenSignals, [controller.signal, controller.signal])
 })
 
 test('requestMediaUploadTarget surfaces provider errors as MediaKitError', async () => {

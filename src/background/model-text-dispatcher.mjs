@@ -93,7 +93,7 @@ function createSafeGatewayError(
 }
 
 function createSafeDiagnostics(diagnosticSink) {
-  const emit = (level, message, details) => {
+  const emit = (message, details) => {
     if (typeof diagnosticSink !== 'function') return
     diagnosticSink(
       sanitizeVideoSummaryLogEntry({
@@ -108,10 +108,10 @@ function createSafeDiagnostics(diagnosticSink) {
     )
   }
   return {
-    debug: (message, details) => emit('debug', message, details),
-    info: (message, details) => emit('info', message, details),
-    warn: (message, details) => emit('warn', message, details),
-    error: (message, details) => emit('error', message, details),
+    debug: emit,
+    info: emit,
+    warn: emit,
+    error: emit,
   }
 }
 

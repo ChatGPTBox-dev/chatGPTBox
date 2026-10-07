@@ -66,7 +66,7 @@ function removeFailedIndexes(coveredIndexes, failedRanges, segmentIndex) {
   }
 }
 
-export function calculateCoverage({ transcription, localChunkResults, failedRanges }) {
+function calculateCoverage({ transcription, localChunkResults, failedRanges }) {
   const segments = Array.isArray(transcription?.segments) ? transcription.segments : []
   const totalDurationMs =
     Number.isFinite(transcription?.durationMs) && transcription.durationMs > 0

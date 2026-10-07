@@ -7,14 +7,9 @@ import {
 
 const VIDEO_SUMMARY_TASKS_DIR = 'video-summary-tasks'
 const DEFAULT_TASK_FILE_NAME = 'media.bin'
-const CLEANUP_RETRY_DELAY_MS = 25
 const DEFAULT_CANDIDATE_BITRATE = 320_000
-export const VIDEO_SUMMARY_OPFS_RESERVE_BYTES = 64 * 1024 * 1024
-export const VIDEO_SUMMARY_OPFS_TASK_LIMIT_BYTES = 1024 * 1024 * 1024
-
-function waitFor(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
+const VIDEO_SUMMARY_OPFS_RESERVE_BYTES = 64 * 1024 * 1024
+const VIDEO_SUMMARY_OPFS_TASK_LIMIT_BYTES = 1024 * 1024 * 1024
 
 function createQuotaExceededError({ availableBytes, requiredBytes, quotaBytes, usageBytes }) {
   const error = new Error('OPFS_QUOTA_EXCEEDED')
@@ -116,13 +111,6 @@ async function writeResponseBodyToFile({ response, writable, signal, onProgress,
     await writable.abort?.(error).catch?.(() => {})
     throw error
   }
-
-  return {
-    bytesWritten,
-    totalBytes: totalBytes ?? bytesWritten,
-    contentLength: totalBytes,
-    contentType: response.headers.get('content-type') || '',
-  }
 }
 
 export async function cleanupVideoSummaryTaskDirectory({ rootDirectory, taskId, signal } = {}) {
@@ -164,7 +152,6 @@ export function createTaskOpfsStore({
   taskId,
   fetchImpl = fetch,
   estimateStorage = globalThis.navigator?.storage?.estimate?.bind(globalThis.navigator?.storage),
-  wait = waitFor,
   taskFileName = DEFAULT_TASK_FILE_NAME,
 } = {}) {
   async function ensureQuota({ requiredBytes, candidate } = {}) {
@@ -223,22 +210,8 @@ export function createTaskOpfsStore({
         taskDirectoryCreated = true
         const fileHandle = await taskDirectory.getFileHandle(taskFileName, { create: true })
         const writable = await fileHandle.createWritable()
-        const writeResult = await writeResponseBodyToFile({
-          response,
-          writable,
-          signal,
-          onProgress,
-          budget,
-        })
-        const blob = await fileHandle.getFile()
-        return {
-          blob,
-          sourceUrl: currentUrl,
-          bytesWritten: writeResult.bytesWritten,
-          totalBytes: writeResult.totalBytes,
-          contentLength: writeResult.contentLength,
-          contentType: writeResult.contentType,
-        }
+        await writeResponseBodyToFile({ response, writable, signal, onProgress, budget })
+        return { blob: await fileHandle.getFile() }
       } catch (error) {
         if (taskDirectoryCreated) {
           await cleanupVideoSummaryTaskDirectory({ rootDirectory, taskId }).catch(() => {})
@@ -271,16 +244,5 @@ export function createTaskOpfsStore({
     onProgress?.({ bytesWritten: blob?.size ?? 0, totalBytes: blob?.size ?? 0 })
   }
 
-  async function cleanup({ signal } = {}) {
-    try {
-      await cleanupVideoSummaryTaskDirectory({ rootDirectory, taskId, signal })
-      return { attempts: 1, retrySucceeded: false, initialError: null }
-    } catch (error) {
-      await wait(CLEANUP_RETRY_DELAY_MS, { signal })
-      await cleanupVideoSummaryTaskDirectory({ rootDirectory, taskId, signal })
-      return { attempts: 2, retrySucceeded: true, initialError: error }
-    }
-  }
-
-  return { ensureQuota, downloadCandidate, uploadBlob, cleanup }
+  return { ensureQuota, downloadCandidate, uploadBlob }
 }

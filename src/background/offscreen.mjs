@@ -2,8 +2,43 @@ import { VIDEO_SUMMARY_OFFSCREEN_PATH } from '../video-summary/contracts.mjs'
 
 export { VIDEO_SUMMARY_OFFSCREEN_PORT_NAME } from '../video-summary/contracts.mjs'
 const VIDEO_SUMMARY_OFFSCREEN_JUSTIFICATION = 'Run the enhanced video summary task lifecycle.'
+const VIDEO_SUMMARY_OFFSCREEN_CONNECTION_TIMEOUT_MS = 10_000
 let pendingOffscreenCreation = null
 let pendingOffscreenReset = null
+
+export function createVideoSummaryOffscreenConnectionWaiter({
+  timeoutMs = VIDEO_SUMMARY_OFFSCREEN_CONNECTION_TIMEOUT_MS,
+  setTimeoutImpl = globalThis.setTimeout.bind(globalThis),
+  clearTimeoutImpl = globalThis.clearTimeout.bind(globalThis),
+} = {}) {
+  let attachedPort = null
+  const waiters = new Set()
+
+  return {
+    attach(port) {
+      attachedPort = port
+      for (const waiter of waiters) {
+        clearTimeoutImpl(waiter.timeoutId)
+        waiter.resolve(port)
+      }
+      waiters.clear()
+    },
+    detach(port = attachedPort) {
+      if (attachedPort === port) attachedPort = null
+    },
+    waitUntilConnected() {
+      if (attachedPort) return Promise.resolve(attachedPort)
+      return new Promise((resolve, reject) => {
+        const waiter = { resolve, timeoutId: null }
+        waiter.timeoutId = setTimeoutImpl(() => {
+          waiters.delete(waiter)
+          reject(new Error('VIDEO_SUMMARY_OFFSCREEN_DISCONNECTED'))
+        }, timeoutMs)
+        waiters.add(waiter)
+      })
+    },
+  }
+}
 
 function isMatchingOffscreenContext(context, offscreenUrl) {
   if (!context || typeof context !== 'object') return false
@@ -46,6 +81,11 @@ export async function closeVideoSummaryOffscreenDocument({ runtime, chromeOffscr
 
   await chromeOffscreen.closeDocument()
   return true
+}
+
+export async function ensureVideoSummaryOffscreenReady({ runtime, chromeOffscreen, connection }) {
+  await ensureVideoSummaryOffscreenDocument({ runtime, chromeOffscreen })
+  await connection.waitUntilConnected()
 }
 
 export async function ensureVideoSummaryOffscreenDocument({ runtime, chromeOffscreen }) {

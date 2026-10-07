@@ -162,10 +162,7 @@ test('cleanup failure resets runtime instead of claiming task deletion', async (
   port.emitMessage({ type: 'DELETE_TASK', owner, taskId: 'task-1', generation: 1 })
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(resets, 1)
-  assert.equal(
-    port.postedMessages.some(({ type }) => type === 'TASK_DELETED'),
-    false,
-  )
+  assert.deepEqual(port.postedMessages, [])
 })
 
 test('Offscreen accepts registration before authorization and releases after terminal event', async () => {

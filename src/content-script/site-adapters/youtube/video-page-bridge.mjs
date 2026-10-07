@@ -243,8 +243,6 @@ export function createYouTubeVideoPageBridge({
   captureCaption,
   getVideoElement,
   getPerformanceEntries = () => globalThis.performance?.getEntriesByType?.('resource') || [],
-  setIntervalImpl = globalThis.setInterval?.bind(globalThis),
-  clearIntervalImpl = globalThis.clearInterval?.bind(globalThis),
 }) {
   if (typeof getLocationHref !== 'function') throw new Error('YOUTUBE_LOCATION_PROVIDER_REQUIRED')
 
@@ -404,30 +402,5 @@ export function createYouTubeVideoPageBridge({
       video.scrollIntoView({ block: 'center', behavior: 'smooth' })
     },
     getCurrentPageIdentity,
-    getCurrentVideoId() {
-      return getCurrentPageIdentity()?.videoId || null
-    },
-    subscribeToVideoChanges(listener) {
-      if (
-        typeof listener !== 'function' ||
-        typeof setIntervalImpl !== 'function' ||
-        typeof clearIntervalImpl !== 'function'
-      ) {
-        return () => {}
-      }
-      let lastIdentity = readWatchIdentity(getLocationHref())
-      const timer = setIntervalImpl(() => {
-        const identity = readWatchIdentity(getLocationHref())
-        if (
-          identity.supported === lastIdentity.supported &&
-          pageIdentitiesEqual(identity.pageIdentity, lastIdentity.pageIdentity)
-        ) {
-          return
-        }
-        lastIdentity = identity
-        listener(identity.pageIdentity)
-      }, 250)
-      return () => clearIntervalImpl(timer)
-    },
   }
 }

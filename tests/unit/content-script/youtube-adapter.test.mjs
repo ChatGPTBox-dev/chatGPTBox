@@ -35,7 +35,8 @@ const sources = {
   'test:youtube-page-mode': \`
     export const resolvePageMode = (options) => {
       globalThis.__YOUTUBE_ADAPTER_TEST__.modeInputs.push(options)
-      if (options.pageIdentity && options.pageState.enhancedSupported && options.capabilities.enhanced) return 'enhanced'
+      const adapterEnabled = !Array.isArray(options.config?.activeSiteAdapters) || options.config.activeSiteAdapters.includes(options.pageIdentity?.platform)
+      if (adapterEnabled && options.pageIdentity && options.pageState.enhancedSupported && options.capabilities.enhanced) return 'enhanced'
       return options.pageState.legacySupported ? 'legacy' : 'none'
     }
   \`,
@@ -178,6 +179,22 @@ test('starts one page-mode controller from YouTube home and resolves every SPA p
   setLocation('https://www.youtube.com/feed/subscriptions')
   assert.equal(await options.resolveMode({ pageIdentity: options.getPageIdentity() }), 'none')
   assert.equal(mounts.length, 0)
+})
+
+test('inactive adapter enablement resolves to the same final legacy mode in page-mode', async () => {
+  setLocation('https://www.youtube.com/watch?v=SYNTHVID01A')
+  await adapter.init(
+    'www.youtube.com',
+    { activeSiteAdapters: [] },
+    () => {},
+    async () => {},
+  )
+  const state = globalThis.__YOUTUBE_ADAPTER_TEST__
+  const options = state.controllerOptions[0]
+  const pageIdentity = options.getPageIdentity()
+
+  assert.equal(await options.resolveMode({ pageIdentity }), 'legacy')
+  assert.equal(state.modeInputs[0].capabilities.enhanced, true)
 })
 
 test('enhanced and legacy mounts return disposable connected handles', async () => {

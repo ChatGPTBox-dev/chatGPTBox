@@ -352,14 +352,6 @@ async function summarizeChunks({
     transcription,
     inputTokenBudget: capabilities.inputTokenBudget,
   })
-  if (!checkpoint.originalChunkPlan) {
-    checkpoint.originalChunkPlan = structuredClone(
-      chunks.map(({ primaryStartSegmentId, primaryEndSegmentId }) => ({
-        primaryStartSegmentId,
-        primaryEndSegmentId,
-      })),
-    )
-  }
   const selectedEntries = retryFailedRanges
     ? selectRetryChunks({
         transcription,
@@ -673,7 +665,6 @@ export function createVideoTaskRunner({
 
     state.checkpoint = {
       transcription,
-      originalChunkPlan: null,
       successfulChunkResults: [],
       failedRanges: [],
     }
@@ -729,7 +720,6 @@ export function createVideoTaskRunner({
         generation: fence.generation,
         checkpoint: {
           transcription: null,
-          originalChunkPlan: null,
           successfulChunkResults: [],
           failedRanges: [],
         },

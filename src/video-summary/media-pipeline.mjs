@@ -125,10 +125,6 @@ function isDocumentedDirectDownloadFailure(error) {
   )
 }
 
-function isFallbackEligible(error) {
-  return isDocumentedDirectDownloadFailure(error)
-}
-
 async function requestRefreshedSnapshot({
   owner,
   sourceSnapshot,
@@ -165,7 +161,7 @@ async function settleTranscription({ pollMediaKitTask, submission, signal, onEve
   }
 
   emitEvent(onEvent, { stage: 'transcribing' })
-  const result = await pollMediaKitTask({ taskId: submission.taskId, signal, onEvent })
+  const result = await pollMediaKitTask({ taskId: submission.taskId, signal })
   return normalizeMediaKitTranscription(result?.result ?? result)
 }
 
@@ -396,7 +392,7 @@ export function createMediaPipeline({
               refreshed,
             })
 
-            if (!isFallbackEligible(refreshedError)) throw refreshedError
+            if (!isDocumentedDirectDownloadFailure(refreshedError)) throw refreshedError
             return runLocalUploadFallback({
               mediaKitGateway,
               pollMediaKitTask,
@@ -412,7 +408,7 @@ export function createMediaPipeline({
           }
         }
 
-        if (!isFallbackEligible(error)) throw error
+        if (!isDocumentedDirectDownloadFailure(error)) throw error
         return runLocalUploadFallback({
           mediaKitGateway,
           pollMediaKitTask,

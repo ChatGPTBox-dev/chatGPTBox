@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import * as protocol from '../../../src/video-summary/protocol.mjs'
 import {
   VIDEO_SUMMARY_PROTOCOL_LIMITS,
   createPageIdentity,
@@ -18,6 +19,17 @@ import {
   parseOffscreenCommand,
   parseOffscreenMessage,
 } from '../../../src/video-summary/protocol.mjs'
+
+test('protocol type arrays remain private implementation details', () => {
+  for (const name of [
+    'VIDEO_SUMMARY_CONTENT_COMMAND_TYPES',
+    'VIDEO_SUMMARY_CONTENT_MESSAGE_TYPES',
+    'VIDEO_SUMMARY_OFFSCREEN_COMMAND_TYPES',
+    'VIDEO_SUMMARY_OFFSCREEN_MESSAGE_TYPES',
+  ]) {
+    assert.equal(name in protocol, false)
+  }
+})
 
 const youtubeIdentity = Object.freeze({
   platform: 'youtube',

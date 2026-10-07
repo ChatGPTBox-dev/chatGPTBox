@@ -96,8 +96,6 @@ export function createModelGateway({
   generateTextWithModel,
   logger,
 }) {
-  const controllers = new Map()
-
   return {
     async describeCapabilities(modelIdentity, { signal } = {}) {
       throwIfAborted(signal)
@@ -114,7 +112,7 @@ export function createModelGateway({
       }
     },
     async generateText(
-      { requestId, taskId, modelSnapshot, messages, maxOutputTokens, requestKind, toolPolicy },
+      { requestId, modelSnapshot, messages, maxOutputTokens, requestKind, toolPolicy },
       { signal } = {},
     ) {
       throwIfAborted(signal)
@@ -122,13 +120,10 @@ export function createModelGateway({
         throw new Error('MODEL_GATEWAY_POLICY_INVALID')
       }
       const normalizedMessages = normalizeVideoSummaryMessages(messages)
-      const key = `${taskId}:${requestId}`
-      const controller = signal ? null : new AbortController()
-      const requestSignal = signal || controller.signal
+      const requestSignal = signal || new AbortController().signal
       const immutableSnapshot = cloneSerializable(modelSnapshot, {})
       const immutableMessages = cloneSerializable(normalizedMessages, [])
       const boundedOutputTokens = normalizeMaxOutputTokens(maxOutputTokens)
-      if (controller) controllers.set(key, controller)
 
       try {
         logger?.info?.(
@@ -169,12 +164,7 @@ export function createModelGateway({
           }),
         )
         throw error
-      } finally {
-        if (controller && controllers.get(key) === controller) controllers.delete(key)
       }
-    },
-    cancel({ requestId, taskId }) {
-      controllers.get(`${taskId}:${requestId}`)?.abort()
     },
   }
 }

@@ -71,7 +71,8 @@ import { createVideoSummaryOffscreenRpc } from './video-summary-offscreen-rpc.mj
 import {
   VIDEO_SUMMARY_OFFSCREEN_PORT_NAME,
   closeVideoSummaryOffscreenDocument,
-  ensureVideoSummaryOffscreenDocument,
+  createVideoSummaryOffscreenConnectionWaiter,
+  ensureVideoSummaryOffscreenReady,
   resetVideoSummaryOffscreenDocument,
 } from './offscreen.mjs'
 import { createVideoSummaryCoordinator } from './video-summary-coordinator.mjs'
@@ -169,6 +170,7 @@ const videoSummaryMediaKitGateway = {
   submitUploadedAsr: (args, options) => mediaKitGateway.submitDirectAsr(args, options),
 }
 const videoSummaryOffscreenState = { port: null }
+const videoSummaryOffscreenConnection = createVideoSummaryOffscreenConnectionWaiter()
 let videoSummaryOffscreenRpc
 
 function getVideoSummaryRuntime() {
@@ -184,9 +186,10 @@ function getVideoSummaryRuntime() {
 }
 
 async function ensureVideoSummaryOffscreen() {
-  await ensureVideoSummaryOffscreenDocument({
+  await ensureVideoSummaryOffscreenReady({
     runtime: getVideoSummaryRuntime(),
     chromeOffscreen: globalThis.chrome?.offscreen,
+    connection: videoSummaryOffscreenConnection,
   })
 }
 
@@ -210,6 +213,7 @@ const videoSummaryCoordinator = createVideoSummaryCoordinator({
     port.postMessage(structuredClone(message))
   },
   resetOffscreen() {
+    videoSummaryOffscreenConnection.detach(videoSummaryOffscreenState.port)
     videoSummaryOffscreenState.port = null
     return resetVideoSummaryOffscreenDocument({
       runtime: getVideoSummaryRuntime(),
@@ -223,6 +227,7 @@ videoSummaryOffscreenRpc = createVideoSummaryOffscreenRpc({
   coordinator: videoSummaryCoordinator,
   logger: videoSummaryLogger,
   onDisconnect(port) {
+    videoSummaryOffscreenConnection.detach(port)
     if (videoSummaryOffscreenState.port === port) videoSummaryOffscreenState.port = null
   },
 })
@@ -1259,6 +1264,7 @@ try {
           authenticateVideoSummaryOffscreenPort({ port, runtime: getVideoSummaryRuntime() })
           videoSummaryOffscreenState.port = port
           videoSummaryOffscreenRpc.attachPort(port)
+          videoSummaryOffscreenConnection.attach(port)
         } catch {
           port.disconnect()
         }
