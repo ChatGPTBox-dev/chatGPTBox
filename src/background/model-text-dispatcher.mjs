@@ -260,9 +260,6 @@ function createTerminalTracker({ signal, modelName }) {
   }
 
   return {
-    get settled() {
-      return settled
-    },
     promise: terminalPromise,
     handlePortMessage(message) {
       if (settled) return
@@ -618,9 +615,7 @@ export function createModelTextDispatcher(dependencies) {
           requestKind,
           toolPolicy,
         }).then(
-          () => {
-            if (!tracker.settled) tracker.completeIfPending()
-          },
+          () => tracker.completeIfPending(),
           (error) => {
             tracker.fail(normalizeThrownError(error, session.modelName))
           },

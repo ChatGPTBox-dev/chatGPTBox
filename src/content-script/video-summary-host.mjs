@@ -71,9 +71,9 @@ function buildAskPrompt({ title, result }) {
     `Overview: ${result?.overview || 'Unavailable'}`,
     '',
     'Key content:',
-    ...((Array.isArray(result?.keyMoments) ? result.keyMoments : []).map(
+    ...(Array.isArray(result?.keyMoments) ? result.keyMoments : []).map(
       (item) => `- ${String(item?.point || '').trim()}`,
-    ) || ['- None']),
+    ),
     '',
     'Chapter summaries:',
     chapterLines || '- None',

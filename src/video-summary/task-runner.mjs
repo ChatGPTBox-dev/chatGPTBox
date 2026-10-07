@@ -180,7 +180,6 @@ async function generateTextOnce({
       },
       { signal },
     )
-    assertNotAborted(signal)
     return {
       text: String(response?.text || ''),
       finishReason: typeof response?.finishReason === 'string' ? response.finishReason : null,
@@ -206,6 +205,18 @@ function emitResult({ emit, command, result }) {
     result,
   })
   return result
+}
+
+function emitRollingProgress({ emit, command, completedChunks, totalChunks }) {
+  emitEvent(emit, {
+    type: 'TASK_STATUS',
+    taskId: command.taskId,
+    owner: command.owner,
+    stage: 'summarizing-chunks',
+    completedChunks,
+    totalChunks,
+    checkpointAvailable: true,
+  })
 }
 
 async function describeSupportedModel({ checkpoint, command, modelGateway, controller, emit }) {
@@ -334,14 +345,11 @@ async function synthesizeFromLedger(args) {
 async function continueRollingLedger(args) {
   const { checkpoint, command, capabilities, emit, modelGateway, controller } = args
   const segments = checkpoint.transcription.segments
-  emitEvent(emit, {
-    type: 'TASK_STATUS',
-    taskId: command.taskId,
-    owner: command.owner,
-    stage: 'summarizing-chunks',
+  emitRollingProgress({
+    emit,
+    command,
     completedChunks: checkpoint.nextSegmentIndex,
     totalChunks: segments.length,
-    checkpointAvailable: true,
   })
   while (checkpoint.rollingRanges.length > 0) {
     assertNotAborted(controller.signal)
@@ -381,14 +389,11 @@ async function continueRollingLedger(args) {
       checkpoint.evidenceLedger = ledger
       checkpoint.nextSegmentIndex = range.endIndex
       checkpoint.rollingRanges.shift()
-      emitEvent(emit, {
-        type: 'TASK_STATUS',
-        taskId: command.taskId,
-        owner: command.owner,
-        stage: 'summarizing-chunks',
+      emitRollingProgress({
+        emit,
+        command,
         completedChunks: checkpoint.nextSegmentIndex,
         totalChunks: segments.length,
-        checkpointAvailable: true,
       })
     } catch (error) {
       if (error?.code !== 'MODEL_CONTEXT_WINDOW_EXCEEDED') throw error
@@ -400,7 +405,7 @@ async function continueRollingLedger(args) {
   return synthesizeFromLedger(args)
 }
 
-async function runSummary({ checkpoint, command, emit, modelGateway, controller, fromStage }) {
+async function runSummary({ checkpoint, command, emit, modelGateway, controller }) {
   const capabilities = await describeSupportedModel({
     checkpoint,
     command,
@@ -410,12 +415,7 @@ async function runSummary({ checkpoint, command, emit, modelGateway, controller,
   })
   if (!capabilities?.supported) return capabilities
   const args = { checkpoint, command, capabilities, emit, modelGateway, controller }
-  if (checkpoint.summaryMode === 'rolling-ledger') {
-    if (fromStage === 'synthesis' && checkpoint.rollingRanges.length === 0) {
-      return synthesizeFromLedger(args)
-    }
-    return continueRollingLedger(args)
-  }
+  if (checkpoint.summaryMode === 'rolling-ledger') return continueRollingLedger(args)
   try {
     return await runDirectSummary(args)
   } catch (error) {
@@ -517,17 +517,21 @@ export function createVideoTaskRunner({
     }
   }
 
-  async function runFromCheckpoint(state, command, emit, controller, fromStage) {
+  function createCheckpoint(transcription = null) {
+    return {
+      transcription,
+      summaryMode: 'direct',
+      nextSegmentIndex: 0,
+      evidenceLedger: null,
+      rollingRanges: [],
+      failedRanges: [],
+    }
+  }
+
+  async function runFromCheckpoint(state, command, emit, controller) {
     const { checkpoint } = state
     if (!checkpoint?.transcription) throw new Error('VIDEO_SUMMARY_CHECKPOINT_NOT_FOUND')
-    return runSummary({
-      checkpoint,
-      command,
-      emit,
-      modelGateway,
-      controller,
-      fromStage,
-    })
+    return runSummary({ checkpoint, command, emit, modelGateway, controller })
   }
 
   async function runInitial(state, attempt) {
@@ -578,14 +582,7 @@ export function createVideoTaskRunner({
       throw new Error('VIDEO_SUMMARY_SOURCE_CHOICE_UNSUPPORTED')
     }
 
-    state.checkpoint = {
-      transcription,
-      summaryMode: 'direct',
-      nextSegmentIndex: 0,
-      evidenceLedger: null,
-      rollingRanges: [],
-      failedRanges: [],
-    }
+    state.checkpoint = createCheckpoint(transcription)
     state.basePayload = structuredClone({
       settingsSnapshot: command.settingsSnapshot,
       modelSnapshot: command.modelSnapshot,
@@ -636,14 +633,7 @@ export function createVideoTaskRunner({
         owner: fence.owner,
         taskId: fence.taskId,
         generation: fence.generation,
-        checkpoint: {
-          transcription: null,
-          summaryMode: 'direct',
-          nextSegmentIndex: 0,
-          evidenceLedger: null,
-          rollingRanges: [],
-          failedRanges: [],
-        },
+        checkpoint: createCheckpoint(),
         basePayload: null,
         cancelled: false,
         attempts: new Map(),
@@ -683,13 +673,7 @@ export function createVideoTaskRunner({
       if (!['summarizing', 'synthesis'].includes(command.fromStage)) {
         throw new Error('VIDEO_SUMMARY_RETRY_STAGE_UNSUPPORTED')
       }
-      return await runFromCheckpoint(
-        state,
-        command,
-        attempt.emit,
-        attempt.controller,
-        command.fromStage,
-      )
+      return await runFromCheckpoint(state, command, attempt.emit, attempt.controller)
     } catch (error) {
       const checkpointAvailable = Boolean(state.checkpoint?.transcription)
       if (isAbortError(error) && state.cancelled) {
@@ -711,11 +695,14 @@ export function createVideoTaskRunner({
     }
   }
 
-  function cancelGeneration(key) {
-    const state = getGeneration(key)
-    if (!state) return
+  function cancelState(state) {
     state.cancelled = true
     for (const attempt of state.attempts.values()) attempt.controller.abort()
+  }
+
+  function cancelGeneration(key) {
+    const state = getGeneration(key)
+    if (state) cancelState(state)
   }
 
   function releaseAttempt(fenceValue) {
@@ -728,8 +715,7 @@ export function createVideoTaskRunner({
   function deleteTask(key) {
     const state = getGeneration(key)
     if (!state) return
-    state.cancelled = true
-    for (const attempt of state.attempts.values()) attempt.controller.abort()
+    cancelState(state)
     removeGeneration(key)
   }
 
