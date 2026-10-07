@@ -14,6 +14,16 @@ function defaultCreateId() {
   return crypto.randomUUID()
 }
 
+function createTaskSourceSnapshot(sourceSnapshot, sourceChoice, subtitleTrackId) {
+  const snapshot = structuredClone(sourceSnapshot)
+  const tracks = Array.isArray(snapshot.nativeSubtitleTracks) ? snapshot.nativeSubtitleTracks : []
+  snapshot.nativeSubtitleTracks =
+    sourceChoice === 'native-subtitle'
+      ? tracks.filter((track) => track?.id === subtitleTrackId)
+      : []
+  return snapshot
+}
+
 export function createVideoSummaryPortClient({
   pageIdentity,
   pageGeneration,
@@ -137,12 +147,18 @@ export function createVideoSummaryPortClient({
     startTask(payload) {
       const requestId = createRequestId()
       const taskId = createTaskId()
+      const taskPayload = structuredClone(payload)
+      taskPayload.sourceSnapshot = createTaskSourceSnapshot(
+        payload.sourceSnapshot,
+        payload.sourceChoice,
+        payload.subtitleTrackId,
+      )
       const started = request(requestId, {
         type: 'START_TASK',
         requestId,
         taskId,
         pageIdentity: identity,
-        ...structuredClone(payload),
+        ...taskPayload,
       })
       started.requestId = requestId
       started.taskId = taskId

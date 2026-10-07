@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createVideoSummaryPortClient } from '../../../src/content-script/video-summary-port.mjs'
+import { parseContentCommand } from '../../../src/video-summary/protocol.mjs'
 import { createFakePort } from '../helpers/port.mjs'
 
 const pageIdentity = { platform: 'youtube', videoId: 'abcdefghijk', mediaId: 'abcdefghijk' }
@@ -13,7 +14,17 @@ function createStartPayload() {
     subtitleTrackId: 'track-1',
     sourceSnapshot: {
       pageIdentity,
-      nativeSubtitleTracks: [{ id: 'track-1', cues: [{ startMs: 0, endMs: 1000, text: 'hello' }] }],
+      title: 'Video',
+      durationMs: 1000,
+      nativeSubtitleTracks: [
+        {
+          id: 'track-1',
+          language: 'en',
+          label: 'English',
+          sourceKind: 'author',
+          cues: [{ startMs: 0, endMs: 1000, text: 'hello' }],
+        },
+      ],
       mediaCandidates: [],
     },
     settingsSnapshot: { preferredLanguage: 'en' },
@@ -70,6 +81,52 @@ test('start sends no caller authority and resolves only a parsed correlated ACK'
     fence,
   })
   assert.deepEqual(await started, { taskId: 'task-1', generation: 1, fence })
+})
+
+test('start sends only the subtitle track selected for native summarization', () => {
+  const { port, client } = createFixture()
+  const largeCues = Array.from({ length: 500 }, (_, index) => ({
+    startMs: index * 1000,
+    endMs: index * 1000 + 1000,
+    text: 'x'.repeat(17_000),
+  }))
+  const payload = createStartPayload()
+  payload.sourceSnapshot.nativeSubtitleTracks = [
+    {
+      id: 'track-1',
+      language: 'en',
+      label: 'English',
+      sourceKind: 'author',
+      cues: largeCues,
+    },
+    {
+      id: 'track-2',
+      language: 'es',
+      label: 'Spanish',
+      sourceKind: 'author',
+      cues: largeCues,
+    },
+  ]
+
+  client.startTask(payload)
+
+  const command = parseContentCommand(port.postedMessages[0])
+  assert.deepEqual(
+    command.sourceSnapshot.nativeSubtitleTracks.map(({ id }) => id),
+    ['track-1'],
+  )
+})
+
+test('ASR start omits subtitle tracks from the task snapshot', () => {
+  const { port, client } = createFixture()
+  const payload = createStartPayload()
+  payload.sourceChoice = 'asr'
+  delete payload.subtitleTrackId
+
+  client.startTask(payload)
+
+  const command = parseContentCommand(port.postedMessages[0])
+  assert.deepEqual(command.sourceSnapshot.nativeSubtitleTracks, [])
 })
 
 test('parseContentMessage rejects malformed ACKs before correlation', async () => {
