@@ -1,11 +1,18 @@
+import {
+  serializeMarkdownHeading,
+  serializeMarkdownInline,
+  serializeMarkdownListItem,
+  serializeMarkdownParagraph,
+} from './markdown-serializer.mjs'
 import { formatVideoOffset } from './time.mjs'
 
 function renderLocatedPoints(title, points) {
   if (!Array.isArray(points) || points.length === 0) return ''
   return `## ${title}\n\n${points
     .map((item) => {
-      if (!Number.isFinite(item.startMs)) return `- ${item.point}`
-      return `- ${formatVideoOffset(item.startMs)}: ${item.point}`
+      const point = serializeMarkdownListItem(item.point)
+      if (!Number.isFinite(item.startMs)) return `- ${point}`
+      return `- ${formatVideoOffset(item.startMs)}: ${point}`
     })
     .join('\n')}\n`
 }
@@ -19,7 +26,9 @@ function renderChapters(chapters) {
             formatVideoOffset(chapter.endMs) || 'Unknown'
           }`
         : ''
-      return `### ${chapter.title}${range}\n\n${chapter.summary || ''}`
+      return `### ${serializeMarkdownHeading(
+        chapter.title,
+      )}${range}\n\n${serializeMarkdownParagraph(chapter.summary || '')}`
     })
     .join('\n\n')}\n`
 }
@@ -28,24 +37,26 @@ function renderTranscript(transcriptSegments) {
   if (!Array.isArray(transcriptSegments) || transcriptSegments.length === 0) return ''
   return `## Transcript\n\n${transcriptSegments
     .map((segment) => {
-      const speaker = segment.speaker ? `${segment.speaker}: ` : ''
-      return `- ${formatVideoOffset(segment.startMs) || 'Unknown'} ${speaker}${segment.text}`
+      const speaker = segment.speaker ? `${serializeMarkdownListItem(segment.speaker)}\\: ` : ''
+      return `- ${
+        formatVideoOffset(segment.startMs) || 'Unknown'
+      } ${speaker}${serializeMarkdownListItem(segment.text)}`
     })
     .join('\n')}\n`
 }
 
 export function buildVideoSummaryMarkdown({ title, result, preferredLanguage }) {
   const lines = [
-    `# ${String(title || 'Video Summary').trim() || 'Video Summary'}`,
+    `# ${serializeMarkdownHeading(String(title || 'Video Summary').trim() || 'Video Summary')}`,
     '',
-    `- Status: ${result?.status || 'unknown'}`,
-    `- Preferred Language: ${preferredLanguage || 'default'}`,
+    `- Status: ${serializeMarkdownInline(result?.status || 'unknown')}`,
+    `- Preferred Language: ${serializeMarkdownInline(preferredLanguage || 'default')}`,
     '',
   ]
 
   const overview = result?.overview || result?.rawSummaryText
   if (overview) {
-    lines.push('## Overview', '', overview, '')
+    lines.push('## Overview', '', serializeMarkdownParagraph(overview), '')
   }
 
   const sections = [

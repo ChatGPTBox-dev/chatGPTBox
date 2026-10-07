@@ -37,7 +37,7 @@ const sources = {
   'test:video-summary-markdown': `
     export const buildVideoSummaryMarkdown = (input) => {
       globalThis.__VIDEO_SUMMARY_HOST_TEST__.markdownInputs.push(input)
-      return '# Synthetic markdown'
+      return '# Synthetic markdown\\n\\n\\\\<script\\\\>attacker\\\\</script\\\\>'
     }
   `,
   'test:video-summary-settings': `

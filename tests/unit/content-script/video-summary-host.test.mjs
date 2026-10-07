@@ -10,7 +10,16 @@ register('./tests/setup/video-summary-host-loader-hooks.mjs', pathToFileURL(cwd(
 let dom
 let mountVideoSummaryHost
 const originals = new Map()
-const names = ['window', 'document', 'Node', 'Event', 'MouseEvent', 'HTMLElement', 'Blob']
+const names = [
+  'window',
+  'document',
+  'Node',
+  'Event',
+  'MouseEvent',
+  'HTMLElement',
+  'Blob',
+  'FileReader',
+]
 
 before(async () => {
   dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://www.youtube.com/' })
@@ -112,7 +121,7 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-function createHostFixture({ identity, isPageCurrent = () => true } = {}) {
+function createHostFixture({ identity, isPageCurrent = () => true, title = 'Title' } = {}) {
   const pageIdentity = identity || {
     platform: 'youtube',
     videoId: 'abcdefghijk',
@@ -130,7 +139,7 @@ function createHostFixture({ identity, isPageCurrent = () => true } = {}) {
       getCurrentPageIdentity: () => pageIdentity,
       getSnapshot: async () => ({
         pageIdentity,
-        title: 'Title',
+        title,
         nativeSubtitleTracks: [
           {
             id: 'track-1',
@@ -366,6 +375,64 @@ test('reattach keeps source actions disabled until ATTACH_ACK resolves', async (
     'running',
   )
   second.host.dispose()
+})
+
+test('archive and download share serialized Markdown while host metadata stays plain', async () => {
+  const title = 'Plain <script> title / archive'
+  const identity = { platform: 'youtube', videoId: 'sink-wiring', mediaId: 'sink-wiring' }
+  const { host, port } = createHostFixture({ identity, title })
+  await flush()
+  void globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps
+    .get('youtube')
+    .onChooseSource('native-subtitle')
+  await flush()
+  await flush()
+  const start = port.messages.find((message) => message.type === 'START_TASK')
+  const fence = {
+    owner: { tabId: 7, documentId: 'doc-7', platform: 'youtube', mediaId: identity.mediaId },
+    taskId: start.taskId,
+    generation: 1,
+    attempt: 1,
+  }
+  port.emitMessage({
+    type: 'START_ACK',
+    requestId: start.requestId,
+    taskId: start.taskId,
+    status: 'started',
+    fence,
+  })
+  await flush()
+  port.emitMessage({
+    type: 'TASK_EVENT',
+    fence,
+    event: {
+      type: 'TASK_COMPLETED',
+      checkpointAvailable: true,
+      result: { status: 'complete', overview: '<script>attacker</script>' },
+    },
+  })
+  await flush()
+  const props = globalThis.__VIDEO_SUMMARY_HOST_TEST__.viewProps.get('youtube')
+  await props.onArchive()
+  await props.onDownloadMarkdown()
+
+  const expectedMarkdown = '# Synthetic markdown\n\n\\<script\\>attacker\\</script\\>'
+  const session = globalThis.__VIDEO_SUMMARY_HOST_TEST__.sessions.at(-1)
+  const [blob, filename] = globalThis.__VIDEO_SUMMARY_HOST_TEST__.savedFiles.at(-1)
+  const downloadedText = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.addEventListener('load', () => resolve(reader.result))
+    reader.addEventListener('error', () => reject(reader.error))
+    reader.readAsText(blob)
+  })
+
+  assert.equal(session.conversationRecords[0].answer, expectedMarkdown)
+  assert.equal(downloadedText, expectedMarkdown)
+  assert.equal(session.sessionName, `YouTube summary: ${title}`)
+  assert.equal(session.question, `Summarize the YouTube video "${title}".`)
+  assert.equal(filename, 'plain--script--title---archive.md')
+  assert.equal(globalThis.__VIDEO_SUMMARY_HOST_TEST__.markdownInputs.at(-1).title, title)
+  host.dispose()
 })
 
 test('retry latches once and stale page generation ACK does not update UI', async () => {

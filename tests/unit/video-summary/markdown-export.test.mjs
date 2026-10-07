@@ -1,6 +1,28 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildVideoSummaryMarkdown } from '../../../src/video-summary/markdown-export.mjs'
+import {
+  serializeMarkdownHeading,
+  serializeMarkdownInline,
+  serializeMarkdownListItem,
+  serializeMarkdownParagraph,
+} from '../../../src/video-summary/markdown-serializer.mjs'
+
+const maliciousMarkdown =
+  '<script>x</script> <img src=x> [link](javascript:x) https://evil.example # heading - list ``` | pipe'
+
+test('context serializers escape structured Markdown fields and normalize line endings', () => {
+  const escaped =
+    '&lt;script&gt;x&lt;/script&gt; &lt;img src=x&gt; \\[link\\]\\(javascript\\:x\\) https\\:\u200b//evil\\.example \\# heading \\- list \\`\\`\\` \\| pipe'
+
+  assert.equal(serializeMarkdownHeading(`${maliciousMarkdown}\r\nnext`), `${escaped} next`)
+  assert.equal(serializeMarkdownInline(`${maliciousMarkdown}\nnext`), `${escaped} next`)
+  assert.equal(serializeMarkdownListItem(`${maliciousMarkdown}\nnext`), `${escaped} next`)
+  assert.equal(
+    serializeMarkdownParagraph(`${maliciousMarkdown}\r\n\r\n# next`),
+    `${escaped}\n\\ \n\\# next`,
+  )
+})
 
 test('markdown export renders video-relative offsets instead of Asia/Shanghai wall-clock dates', () => {
   const markdown = buildVideoSummaryMarkdown({
@@ -22,7 +44,7 @@ test('markdown export renders video-relative offsets instead of Asia/Shanghai wa
   assert.equal(markdown.includes('1970-01-01 08:00:00 Asia/Shanghai'), false)
   assert.equal(markdown.includes('00:00: Start here'), true)
   assert.equal(markdown.includes('00:00 - 01:02:03'), true)
-  assert.equal(markdown.includes('- 00:00 Host: Welcome'), true)
+  assert.equal(markdown.includes('- 00:00 Host\\: Welcome'), true)
   assert.equal(markdown.includes('- 00:00 Negative clamped'), true)
 })
 
@@ -84,5 +106,5 @@ test('markdown export uses raw summary text only when parsed overview is empty',
     },
   })
 
-  assert.match(markdown, /Only available free-text summary/)
+  assert.match(markdown, /Only available free\\-text summary/)
 })
