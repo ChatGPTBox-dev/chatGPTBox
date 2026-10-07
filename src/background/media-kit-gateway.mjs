@@ -6,6 +6,7 @@ import {
   submitMediaKitAsr,
 } from '../services/apis/volcengine-mediakit.mjs'
 import { VIDEO_SUMMARY_STORAGE_KEY } from '../video-summary/contracts.mjs'
+import { validateUploadTarget } from '../video-summary/media-policy.mjs'
 
 function getLoggerMethod(logger, level) {
   return typeof logger?.[level] === 'function' ? logger[level].bind(logger) : () => {}
@@ -117,7 +118,15 @@ export function createMediaKitGateway({ storageArea, fetchImpl = fetch, logger }
 
       try {
         const apiKey = await requireMediaKitKey(storageArea, signal)
-        const result = await requestMediaUploadTarget({ apiKey, fetchImpl, signal })
+        const issuedTarget = await requestMediaUploadTarget({ apiKey, fetchImpl, signal })
+        const result = validateUploadTarget({
+          url: issuedTarget.uploadUrl,
+          fileReference: issuedTarget.fileReference,
+          method: issuedTarget.method,
+          headers: issuedTarget.headers,
+          credentials: 'omit',
+          redirect: 'error',
+        })
         logGatewayEvent(logger, 'info', {
           ...logContext,
           status: 'passed',

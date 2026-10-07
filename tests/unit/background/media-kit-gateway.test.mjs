@@ -147,7 +147,8 @@ test('gateway forwards cancellation through key lookup and every MediaKit reques
             result: {
               file_id: 'file-1',
               method: 'PUT',
-              upload_url: 'https://upload.example.invalid/file',
+              upload_url:
+                'https://tob-upload-y.volcvod.com/tos-vod-cn-v-fixture/mediakit/upload/local/fixture?Authorization=redacted',
               upload_headers: [],
             },
           }),
@@ -185,6 +186,67 @@ test('gateway forwards cancellation through key lookup and every MediaKit reques
   })
   await assert.rejects(abortedGateway.requestUploadTarget({}, options), { name: 'AbortError' })
   assert.equal(fetchCount, 0)
+})
+
+test('gateway validates upload targets and never logs signed query values', async () => {
+  const entries = []
+  const signedValue = 'redacted'
+  const { storageArea } = createStorageArea('mk-live-test')
+  const gateway = createMediaKitGateway({
+    storageArea,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          result: {
+            file_id: 'fixture',
+            method: 'PUT',
+            upload_url: `https://tob-upload-y.volcvod.com/tos-vod-cn-v-fixture/mediakit/upload/local/fixture?Authorization=${signedValue}`,
+            upload_headers: [],
+          },
+        }),
+      ),
+    logger: {
+      info(entry) {
+        entries.push(entry)
+      },
+      warn(entry) {
+        entries.push(entry)
+      },
+    },
+  })
+
+  assert.deepEqual(await gateway.requestUploadTarget(), {
+    url: `https://tob-upload-y.volcvod.com/tos-vod-cn-v-fixture/mediakit/upload/local/fixture?Authorization=${signedValue}`,
+    fileReference: 'mediakit://fixture',
+    method: 'PUT',
+    headers: {},
+    credentials: 'omit',
+    redirect: 'error',
+  })
+  assert.equal(JSON.stringify(entries).includes(signedValue), false)
+})
+
+test('gateway rejects upload targets outside exact production policy', async () => {
+  const { storageArea } = createStorageArea('mk-live-test')
+  const gateway = createMediaKitGateway({
+    storageArea,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          result: {
+            file_id: 'fixture',
+            method: 'PUT',
+            upload_url: 'https://other.volcvod.com/mediakit/upload/local/fixture',
+            upload_headers: [],
+          },
+        }),
+      ),
+    logger: {},
+  })
+
+  await assert.rejects(gateway.requestUploadTarget(), /VIDEO_MEDIA_UPLOAD_HOST_REJECTED/)
 })
 
 test('gateway rejects requests when the standalone MediaKit key is absent', async () => {

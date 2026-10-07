@@ -251,9 +251,7 @@ export function normalizeYouTubeAudioCandidates(playerResponse) {
         localFetchRecipe: {
           primaryUrl: primaryUrl.href,
           backupUrls,
-          expiresAt,
           credentialMode: 'include',
-          rangeSupported: null,
           requiredRequestOrigin: YOUTUBE_ORIGIN,
         },
       }

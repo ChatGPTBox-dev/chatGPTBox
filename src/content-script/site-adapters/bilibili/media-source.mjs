@@ -191,9 +191,7 @@ export function normalizeBilibiliAudioCandidates(playInfo) {
         localFetchRecipe: {
           primaryUrl,
           backupUrls: backupUrls.filter((url) => new URL(url).protocol === 'https:'),
-          expiresAt: parseExpiry(primaryUrl),
           credentialMode: 'include',
-          rangeSupported: null,
           requiredRequestOrigin: 'https://www.bilibili.com/',
         },
       }

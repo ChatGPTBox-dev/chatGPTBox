@@ -13,9 +13,9 @@ import { resolveBilibiliSourceSnapshot } from '../../../src/content-script/site-
 const videoUrl = 'https://video.example.invalid/video/BVTESTCASE01'
 const multipartVideoUrl = 'https://video.example.invalid/video/BVTESTCASE01?p=2'
 const primaryUrl =
-  'https://audio-primary.example.invalid/audio.m4s?deadline=1700000000&fixture=primary'
+  'https://upos-sz-mirrorcos.bilivideo.com/audio.m4s?deadline=1700000000&fixture=primary'
 const backupUrl =
-  'https://audio-backup.example.invalid/audio.m4s?deadline=1700000000&fixture=backup'
+  'https://upos-sz-mirrorali.bilivideo.com/audio.m4s?deadline=1700000000&fixture=backup'
 const playInfo = {
   data: {
     dash: {
@@ -140,7 +140,7 @@ test('filters out non-HTTPS audio candidates', () => {
           },
           {
             id: 2,
-            baseUrl: 'https://secure.example/audio.m4s',
+            baseUrl: 'https://secure.bilivideo.com/audio.m4s',
             backupUrl: [],
             mimeType: 'audio/mp4',
             codecs: 'mp4a.40.2',

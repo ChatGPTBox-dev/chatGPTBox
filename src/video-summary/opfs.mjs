@@ -1,4 +1,9 @@
-import { uploadMediaBlob } from '../services/apis/volcengine-mediakit.mjs'
+import {
+  validateLocalFetchRecipe,
+  validateRedirectLocation,
+  validateUploadTarget,
+  VIDEO_MEDIA_MAX_REDIRECTS,
+} from './media-policy.mjs'
 
 const VIDEO_SUMMARY_TASKS_DIR = 'video-summary-tasks'
 const DEFAULT_TASK_FILE_NAME = 'media.bin'
@@ -106,13 +111,9 @@ export function createTaskOpfsStore({
     return { quotaBytes, usageBytes, availableBytes }
   }
 
-  async function downloadCandidate({ candidate, signal, onProgress } = {}) {
-    const urls = [
-      candidate?.localFetchRecipe?.primaryUrl,
-      ...(Array.isArray(candidate?.localFetchRecipe?.backupUrls)
-        ? candidate.localFetchRecipe.backupUrls
-        : []),
-    ].filter(Boolean)
+  async function downloadCandidate({ platform, candidate, signal, onProgress } = {}) {
+    const recipe = validateLocalFetchRecipe({ platform, recipe: candidate?.localFetchRecipe })
+    const urls = [recipe.primaryUrl, ...recipe.backupUrls]
 
     if (urls.length === 0) {
       throw new Error('VIDEO_MEDIA_CANDIDATE_NOT_FOUND')
@@ -128,10 +129,24 @@ export function createTaskOpfsStore({
       if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
 
       try {
-        const response = await fetchImpl(url, {
-          credentials: candidate?.localFetchRecipe?.credentialMode,
-          signal,
-        })
+        let currentUrl = url
+        let response
+        for (let redirectCount = 0; ; redirectCount += 1) {
+          response = await fetchImpl(currentUrl, {
+            credentials: recipe.credentialMode,
+            redirect: 'manual',
+            signal,
+          })
+          if (response?.status < 300 || response.status > 399) break
+          if (redirectCount >= VIDEO_MEDIA_MAX_REDIRECTS) {
+            throw new Error('VIDEO_MEDIA_REDIRECT_LIMIT_EXCEEDED')
+          }
+          currentUrl = validateRedirectLocation({
+            platform,
+            currentUrl,
+            location: response.headers.get('location'),
+          })
+        }
         if (!response?.ok || !response.body) {
           throw new Error(`MEDIA_DOWNLOAD_${response?.status || 'FAILED'}`)
         }
@@ -146,14 +161,16 @@ export function createTaskOpfsStore({
         const blob = await fileHandle.getFile()
         return {
           blob,
-          sourceUrl: url,
+          sourceUrl: currentUrl,
           bytesWritten: writeResult.bytesWritten,
           totalBytes: writeResult.totalBytes,
           contentLength: writeResult.contentLength,
           contentType: writeResult.contentType,
         }
       } catch (error) {
-        if (error?.name === 'AbortError') throw error
+        if (error?.name === 'AbortError' || String(error?.message).startsWith('VIDEO_MEDIA_')) {
+          throw error
+        }
         lastError = error
       }
     }
@@ -161,8 +178,17 @@ export function createTaskOpfsStore({
     throw lastError || new Error('MEDIA_DOWNLOAD_FAILED')
   }
 
-  async function uploadBlob({ target, blob, onProgress } = {}) {
-    await uploadMediaBlob({ target, blob, fetchImpl })
+  async function uploadBlob({ target, blob, signal, onProgress } = {}) {
+    const validatedTarget = validateUploadTarget(target)
+    const response = await fetchImpl(validatedTarget.url, {
+      method: validatedTarget.method,
+      headers: validatedTarget.headers,
+      body: blob,
+      credentials: validatedTarget.credentials,
+      redirect: validatedTarget.redirect,
+      signal,
+    })
+    if (!response?.ok) throw new Error(`MEDIA_UPLOAD_${response?.status || 'FAILED'}`)
     onProgress?.({
       bytesWritten: blob?.size ?? 0,
       totalBytes: blob?.size ?? 0,

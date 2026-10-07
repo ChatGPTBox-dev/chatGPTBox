@@ -14,15 +14,14 @@ function createCandidate(overrides = {}) {
       bandwidth: 128000,
     },
     remoteCandidate: {
-      url: 'https://cdn.example.invalid/audio.m4s?deadline=1790486400&token=secret',
+      url: 'https://upos-sz-mirrorcos.bilivideo.com/audio.m4s?deadline=1790486400&token=secret',
       expiresAt: 1_790_486_400_000,
     },
     localFetchRecipe: {
-      primaryUrl: 'https://www.bilibili.com/audio.m4s?deadline=1790486400&token=secret',
+      primaryUrl:
+        'https://upos-sz-mirrorali.bilivideo.com/audio.m4s?deadline=1790486400&token=secret',
       backupUrls: [],
-      expiresAt: 1_790_486_400_000,
       credentialMode: 'include',
-      rangeSupported: null,
       requiredRequestOrigin: 'https://www.bilibili.com/',
     },
     ...overrides,
@@ -92,7 +91,7 @@ test('pipeline prefers direct MediaKit URL before local download', async () => {
   })
 
   assert.deepEqual(calls, [
-    'https://cdn.example.invalid/audio.m4s?deadline=1790486400&token=secret',
+    'https://upos-sz-mirrorcos.bilivideo.com/audio.m4s?deadline=1790486400&token=secret',
   ])
   assert.deepEqual(events, [{ stage: 'submitting-url' }])
   assert.equal(transcription.segments.length, 1)
@@ -131,15 +130,14 @@ test('pipeline refreshes an expired signed candidate once before retrying the di
       mediaCandidates: [
         createCandidate({
           remoteCandidate: {
-            url: 'https://cdn.example.invalid/stale-audio.m4s?deadline=1000&token=stale',
+            url: 'https://upos-sz-mirrorcos.bilivideo.com/stale-audio.m4s?deadline=1000&token=stale',
             expiresAt: 1000,
           },
           localFetchRecipe: {
-            primaryUrl: 'https://www.bilibili.com/stale-audio.m4s?deadline=1000&token=stale',
+            primaryUrl:
+              'https://upos-sz-mirrorali.bilivideo.com/stale-audio.m4s?deadline=1000&token=stale',
             backupUrls: [],
-            expiresAt: 1000,
             credentialMode: 'include',
-            rangeSupported: null,
             requiredRequestOrigin: 'https://www.bilibili.com/',
           },
         }),
@@ -152,16 +150,14 @@ test('pipeline refreshes an expired signed candidate once before retrying the di
         mediaCandidates: [
           createCandidate({
             remoteCandidate: {
-              url: 'https://cdn.example.invalid/fresh-audio.m4s?deadline=1790486400&token=fresh',
+              url: 'https://upos-sz-mirrorcos.bilivideo.com/fresh-audio.m4s?deadline=1790486400&token=fresh',
               expiresAt: 1_790_486_400_000,
             },
             localFetchRecipe: {
               primaryUrl:
-                'https://www.bilibili.com/fresh-audio.m4s?deadline=1790486400&token=fresh',
+                'https://upos-sz-mirrorali.bilivideo.com/fresh-audio.m4s?deadline=1790486400&token=fresh',
               backupUrls: [],
-              expiresAt: 1_790_486_400_000,
               credentialMode: 'include',
-              rangeSupported: null,
               requiredRequestOrigin: 'https://www.bilibili.com/',
             },
           }),
@@ -186,7 +182,7 @@ test('pipeline refreshes an expired signed candidate once before retrying the di
     reason: 'SIGNED_URL_EXPIRED',
   })
   assert.deepEqual(calls, [
-    'https://cdn.example.invalid/fresh-audio.m4s?deadline=1790486400&token=fresh',
+    'https://upos-sz-mirrorcos.bilivideo.com/fresh-audio.m4s?deadline=1790486400&token=fresh',
   ])
   assert.equal(transcription.segments[0].text, 'fresh audio')
 })
@@ -212,8 +208,10 @@ test('pipeline performs one signed upload fallback after a documented direct-dow
         return {
           fileReference: 'mediakit://file-42',
           method: 'PUT',
-          uploadUrl: 'https://upload.example.invalid/file-42',
-          headers: { 'x-test': 'signed' },
+          url: 'https://tob-upload-y.volcvod.com/tos-vod-cn-v-fixture/mediakit/upload/local/fixture?Authorization=redacted',
+          headers: {},
+          credentials: 'omit',
+          redirect: 'error',
         }
       },
     },
@@ -257,16 +255,14 @@ test('pipeline performs one signed upload fallback after a documented direct-dow
         mediaCandidates: [
           createCandidate({
             remoteCandidate: {
-              url: 'https://cdn.example.invalid/refreshed-audio.m4s?deadline=1790486500&token=fresh',
+              url: 'https://upos-sz-mirrorcos.bilivideo.com/refreshed-audio.m4s?deadline=1790486500&token=fresh',
               expiresAt: 1_790_486_500_000,
             },
             localFetchRecipe: {
               primaryUrl:
-                'https://www.bilibili.com/refreshed-audio.m4s?deadline=1790486500&token=fresh',
+                'https://upos-sz-mirrorali.bilivideo.com/refreshed-audio.m4s?deadline=1790486500&token=fresh',
               backupUrls: [],
-              expiresAt: 1_790_486_500_000,
               credentialMode: 'include',
-              rangeSupported: null,
               requiredRequestOrigin: 'https://www.bilibili.com/',
             },
           }),
@@ -279,10 +275,19 @@ test('pipeline performs one signed upload fallback after a documented direct-dow
   })
 
   assert.deepEqual(calls, [
-    ['submit', 'https://cdn.example.invalid/audio.m4s?deadline=1790486400&token=secret'],
-    ['submit', 'https://cdn.example.invalid/refreshed-audio.m4s?deadline=1790486500&token=fresh'],
+    [
+      'submit',
+      'https://upos-sz-mirrorcos.bilivideo.com/audio.m4s?deadline=1790486400&token=secret',
+    ],
+    [
+      'submit',
+      'https://upos-sz-mirrorcos.bilivideo.com/refreshed-audio.m4s?deadline=1790486500&token=fresh',
+    ],
     ['ensure-quota', 64],
-    ['download', 'https://www.bilibili.com/refreshed-audio.m4s?deadline=1790486500&token=fresh'],
+    [
+      'download',
+      'https://upos-sz-mirrorali.bilivideo.com/refreshed-audio.m4s?deadline=1790486500&token=fresh',
+    ],
     ['request-upload-target'],
     ['upload', 'mediakit://file-42', 64],
     ['submit', 'mediakit://file-42'],
@@ -397,8 +402,14 @@ test('pipeline cleans up task files when cancellation interrupts the local fallb
   )
 
   assert.deepEqual(calls, [
-    ['submit', 'https://cdn.example.invalid/audio.m4s?deadline=1790486400&token=secret'],
-    ['submit', 'https://cdn.example.invalid/audio.m4s?deadline=1790486400&token=secret'],
+    [
+      'submit',
+      'https://upos-sz-mirrorcos.bilivideo.com/audio.m4s?deadline=1790486400&token=secret',
+    ],
+    [
+      'submit',
+      'https://upos-sz-mirrorcos.bilivideo.com/audio.m4s?deadline=1790486400&token=secret',
+    ],
     ['ensure-quota'],
     ['download'],
     ['cleanup'],
@@ -438,7 +449,7 @@ test('pipeline rejects refreshed snapshots that change platform or video identit
               mediaCandidates: [
                 createCandidate({
                   remoteCandidate: {
-                    url: 'https://cdn.example.invalid/stale.m4s',
+                    url: 'https://upos-sz-mirrorcos.bilivideo.com/stale.m4s',
                     expiresAt: 1000,
                   },
                 }),
@@ -455,6 +466,111 @@ test('pipeline rejects refreshed snapshots that change platform or video identit
       )
     })
   }
+})
+
+test('pipeline rejects media policy violations before paid or fallback work', async (t) => {
+  for (const [name, sourceSnapshot, expected] of [
+    [
+      'overlong duration',
+      createSnapshot({ durationMs: 10_800_001 }),
+      'VIDEO_MEDIA_DURATION_REJECTED',
+    ],
+    [
+      'candidate duration mismatch',
+      createSnapshot({
+        mediaCandidates: [
+          createCandidate({
+            mediaMetadata: { ...createCandidate().mediaMetadata, durationMs: 5201 },
+          }),
+        ],
+      }),
+      'VIDEO_MEDIA_DURATION_MISMATCH',
+    ],
+    [
+      'wrong CDN host',
+      createSnapshot({
+        mediaCandidates: [
+          createCandidate({
+            remoteCandidate: { url: 'https://evil.test/audio', expiresAt: null },
+          }),
+        ],
+      }),
+      'VIDEO_MEDIA_HOST_REJECTED',
+    ],
+  ]) {
+    await t.test(name, async () => {
+      let paidCalls = 0
+      const pipeline = createMediaPipeline({
+        mediaKitGateway: {
+          async submitDirectAsr() {
+            paidCalls += 1
+          },
+          async requestUploadTarget() {
+            paidCalls += 1
+          },
+        },
+        opfsStoreFactory() {
+          assert.fail('policy rejection must prevent fallback')
+        },
+        logger: {},
+        clock: createClock(),
+      })
+      await assert.rejects(
+        pipeline.transcribeFromSource({
+          taskId: `task-policy-${name}`,
+          owner: { platform: 'bilibili', videoId: 'BV1task6001' },
+          sourceSnapshot,
+        }),
+        new RegExp(expected),
+      )
+      assert.equal(paidCalls, 0)
+    })
+  }
+})
+
+test('unsupported local transport fails before download and upload target request', async () => {
+  const calls = []
+  const invalidCandidate = createCandidate({
+    localFetchRecipe: {
+      ...createCandidate().localFetchRecipe,
+      headers: { Origin: 'https://www.bilibili.com' },
+    },
+  })
+  const pipeline = createMediaPipeline({
+    mediaKitGateway: {
+      async submitDirectAsr() {
+        calls.push('submit')
+        throw createFallbackError()
+      },
+      async requestUploadTarget() {
+        calls.push('request-upload-target')
+      },
+    },
+    opfsStoreFactory() {
+      calls.push('create-store')
+      return {
+        async downloadCandidate() {
+          calls.push('download')
+        },
+        async cleanup() {
+          calls.push('cleanup')
+        },
+      }
+    },
+    logger: {},
+    clock: createClock(),
+  })
+
+  await assert.rejects(
+    pipeline.transcribeFromSource({
+      taskId: 'task-unsupported-transport',
+      owner: { platform: 'bilibili', videoId: 'BV1task6001' },
+      sourceSnapshot: createSnapshot({ mediaCandidates: [invalidCandidate] }),
+      requestSourceRefresh: async () => createSnapshot({ mediaCandidates: [invalidCandidate] }),
+    }),
+    /VIDEO_MEDIA_LOCAL_TRANSPORT_UNSUPPORTED/,
+  )
+  assert.deepEqual(calls, [])
 })
 
 test('pipeline reports a generic error when no media candidate exists', async () => {

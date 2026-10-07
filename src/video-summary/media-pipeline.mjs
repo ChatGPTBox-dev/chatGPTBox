@@ -1,5 +1,13 @@
 import { normalizeMediaKitTranscription } from '../services/apis/volcengine-mediakit.mjs'
 import { logPipelineEvent, sanitizePipelineCandidate, serializePipelineError } from './logging.mjs'
+import {
+  localFetchRequiresUnsupportedHeaders,
+  validateCandidateDuration,
+  validateCanonicalDuration,
+  validateInitialMediaUrl,
+  validateLocalFetchRecipe,
+  validateUploadTarget,
+} from './media-policy.mjs'
 
 const DIRECT_REFRESH_REASON = 'DIRECT_DOWNLOAD_FAILED'
 const EXPIRY_REFRESH_REASON = 'SIGNED_URL_EXPIRED'
@@ -28,6 +36,25 @@ function requireCandidate(sourceSnapshot) {
   const candidate = sourceSnapshot?.mediaCandidates?.[0]
   if (!candidate) throw new Error('VIDEO_MEDIA_CANDIDATE_NOT_FOUND')
   return candidate
+}
+
+function validateSourceMedia({ sourceSnapshot, owner }) {
+  const candidates = sourceSnapshot?.mediaCandidates
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    throw new Error('VIDEO_MEDIA_CANDIDATE_NOT_FOUND')
+  }
+  const canonicalDurationMs = validateCanonicalDuration(sourceSnapshot?.durationMs)
+  const platform =
+    sourceSnapshot?.pageIdentity?.platform ?? sourceSnapshot?.platform ?? owner?.platform
+  for (const candidate of candidates) {
+    validateCandidateDuration(canonicalDurationMs, candidate?.mediaMetadata?.durationMs)
+    validateInitialMediaUrl({ platform, url: candidate?.remoteCandidate?.url })
+    if (localFetchRequiresUnsupportedHeaders(candidate?.localFetchRecipe)) {
+      throw new Error('VIDEO_MEDIA_LOCAL_TRANSPORT_UNSUPPORTED')
+    }
+    validateLocalFetchRecipe({ platform, recipe: candidate?.localFetchRecipe })
+  }
+  return platform
 }
 
 function isSignedCandidateExpired(candidate, nowMs) {
@@ -150,6 +177,7 @@ async function runLocalUploadFallback({
   taskId,
   owner,
   candidate,
+  platform,
   settingsSnapshot,
   signal,
   onEvent,
@@ -163,6 +191,7 @@ async function runLocalUploadFallback({
     })
 
     const download = await opfsStore.downloadCandidate({
+      platform,
       candidate,
       signal,
       onProgress(progress) {
@@ -170,7 +199,7 @@ async function runLocalUploadFallback({
       },
     })
 
-    const target = await mediaKitGateway.requestUploadTarget()
+    const target = validateUploadTarget(await mediaKitGateway.requestUploadTarget())
     await opfsStore.uploadBlob({
       target,
       blob: download.blob,
@@ -230,6 +259,7 @@ export function createMediaPipeline({ mediaKitGateway, opfsStoreFactory, logger,
       onEvent,
     }) {
       let currentSnapshot = sourceSnapshot
+      let platform = validateSourceMedia({ sourceSnapshot: currentSnapshot, owner })
       let currentCandidate = requireCandidate(currentSnapshot)
       let refreshed = false
 
@@ -241,6 +271,7 @@ export function createMediaPipeline({ mediaKitGateway, opfsStoreFactory, logger,
           requestSourceRefresh,
           reason: EXPIRY_REFRESH_REASON,
         })
+        platform = validateSourceMedia({ sourceSnapshot: currentSnapshot, owner })
         currentCandidate = requireCandidate(currentSnapshot)
         refreshed = true
       }
@@ -307,6 +338,7 @@ export function createMediaPipeline({ mediaKitGateway, opfsStoreFactory, logger,
               taskId,
               owner,
               candidate: currentCandidate,
+              platform,
               settingsSnapshot,
               signal,
               onEvent,
@@ -322,6 +354,7 @@ export function createMediaPipeline({ mediaKitGateway, opfsStoreFactory, logger,
           taskId,
           owner,
           candidate: currentCandidate,
+          platform,
           settingsSnapshot,
           signal,
           onEvent,

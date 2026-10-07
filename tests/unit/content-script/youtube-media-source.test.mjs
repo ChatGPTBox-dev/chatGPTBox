@@ -172,6 +172,13 @@ test('accepts timed-text JSON strings and rejects malformed payloads safely', ()
 
 test('normalizes only HTTPS audio-only adaptive candidates and secure backups', async () => {
   const playerResponse = await loadJson('player-response-authored-auto.json')
+  const [format] = playerResponse.streamingData.adaptiveFormats
+  format.url =
+    'https://rr1---sn.fixture.googlevideo.com/media.m4a?expire=4102444800&fixture=primary'
+  format.backupUrls = [
+    'https://rr2---sn.fixture.googlevideo.com/media.m4a?expire=4102444800&fixture=backup',
+    'http://audio-insecure.example.invalid/media.m4a?expire=4102444800',
+  ]
   const [candidate] = normalizeYouTubeAudioCandidates(playerResponse)
 
   assert.deepEqual(candidate, {
@@ -185,18 +192,16 @@ test('normalizes only HTTPS audio-only adaptive candidates and secure backups', 
       bandwidth: 129000,
     },
     remoteCandidate: {
-      url: 'https://audio-primary.example.invalid/media.m4a?expire=4102444800&fixture=primary',
+      url: 'https://rr1---sn.fixture.googlevideo.com/media.m4a?expire=4102444800&fixture=primary',
       expiresAt: 4102444800000,
     },
     localFetchRecipe: {
       primaryUrl:
-        'https://audio-primary.example.invalid/media.m4a?expire=4102444800&fixture=primary',
+        'https://rr1---sn.fixture.googlevideo.com/media.m4a?expire=4102444800&fixture=primary',
       backupUrls: [
-        'https://audio-backup.example.invalid/media.m4a?expire=4102444800&fixture=backup',
+        'https://rr2---sn.fixture.googlevideo.com/media.m4a?expire=4102444800&fixture=backup',
       ],
-      expiresAt: 4102444800000,
       credentialMode: 'include',
-      rangeSupported: null,
       requiredRequestOrigin: 'https://www.youtube.com/',
     },
   })
