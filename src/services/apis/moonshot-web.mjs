@@ -1,7 +1,6 @@
-import { pushRecord, setAbortController } from './shared.mjs'
+import { createApiResponseError, pushRecord, setAbortController } from './shared.mjs'
 import { setUserConfig } from '../../config/index.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
-import { isEmpty } from 'lodash-es'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 
 export class MoonshotWeb {
@@ -442,10 +441,7 @@ export class Conversation {
           reject(resp)
           return
         }
-        const error = await resp.json().catch(() => ({}))
-        reject(
-          new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`),
-        )
+        reject(await createApiResponseError(resp))
       },
     })
     return returnPromise

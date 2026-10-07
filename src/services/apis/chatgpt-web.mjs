@@ -1,9 +1,8 @@
 // web version
 
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
-import { isEmpty } from 'lodash-es'
 import { getUserConfig, Models } from '../../config/index.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import { createApiResponseError, pushRecord, setAbortController } from './shared.mjs'
 import Browser from 'webextension-polyfill'
 import { v4 as uuidv4 } from 'uuid'
 import { t } from 'i18next'
@@ -431,10 +430,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
           if (resp.status === 403) {
             throw new Error('CLOUDFLARE')
           }
-          const error = await resp.json().catch(() => ({}))
-          throw new Error(
-            !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
-          )
+          throw await createApiResponseError(resp)
         },
       })
     } finally {

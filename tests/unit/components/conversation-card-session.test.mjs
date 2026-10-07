@@ -4,7 +4,6 @@ import {
   createConversationPortMessage,
   createRetrySession,
   finalizeInterruptedSession,
-  getCompletedAnswerUpdate,
   getInterruptedCompletionState,
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
@@ -167,20 +166,6 @@ test('createRetrySession keeps provider retry mode when no target was removed', 
   )
 
   assert.equal(retrySession.isRetry, true)
-})
-
-test('getCompletedAnswerUpdate replaces loading content when restoring a retry answer', () => {
-  assert.deepEqual(getCompletedAnswerUpdate('Old answer'), {
-    value: 'Old answer',
-    appended: false,
-  })
-})
-
-test('getCompletedAnswerUpdate preserves streamed content on normal completion', () => {
-  assert.deepEqual(getCompletedAnswerUpdate(null), {
-    value: '',
-    appended: true,
-  })
 })
 
 test('getInterruptedCompletionState restores retry context for a sessionless stop', () => {

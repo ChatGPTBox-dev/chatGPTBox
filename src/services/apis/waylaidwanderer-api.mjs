@@ -1,7 +1,11 @@
-import { pushRecord, setAbortController } from './shared.mjs'
+import {
+  createApiResponseError,
+  parseJsonMessage,
+  pushRecord,
+  setAbortController,
+} from './shared.mjs'
 import { getUserConfig } from '../../config/index.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
-import { isEmpty } from 'lodash-es'
 
 /**
  * @param {Runtime.Port} port
@@ -42,13 +46,8 @@ export async function generateAnswersWithWaylaidwandererApi(port, question, sess
         port.postMessage({ answer: null, done: true, session: session })
         return
       }
-      let data
-      try {
-        data = JSON.parse(message)
-      } catch (error) {
-        console.debug('json error', error)
-        return
-      }
+      const data = parseJsonMessage(message)
+      if (data === undefined) return
       if (data.conversationId) session.conversationId = data.conversationId
       if (data.parentMessageId) session.parentMessageId = data.parentMessageId
       if (data.encryptedConversationSignature)
@@ -77,8 +76,7 @@ export async function generateAnswersWithWaylaidwandererApi(port, question, sess
       port.onMessage.removeListener(messageListener)
       port.onDisconnect.removeListener(disconnectListener)
       if (resp instanceof Error) throw resp
-      const error = await resp.json().catch(() => ({}))
-      throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
+      throw await createApiResponseError(resp)
     },
   })
 }
