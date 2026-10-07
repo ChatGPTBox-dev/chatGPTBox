@@ -28,7 +28,6 @@ export function validateFinalSummaryOutput({ parsed, finishReason }) {
   return validate({
     meaningful:
       hasText(parsed?.overview) ||
-      anyText(parsed?.keyPoints, ['point']) ||
       anyText(parsed?.chapters, ['title', 'summary']) ||
       anyText(parsed?.keyMoments, ['point']),
     finishReason,

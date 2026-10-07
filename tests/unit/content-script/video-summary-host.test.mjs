@@ -445,6 +445,7 @@ test('archive and download share serialized Markdown while host metadata stays p
       result: {
         status: 'complete',
         overview: '<script>attacker</script>',
+        keyMoments: [{ segmentId: 's1', startMs: 1234, point: 'Claim with supporting evidence' }],
         transcriptSegments: [
           { id: 's1', startMs: 1234, endMs: 5678, speaker: 'Host', text: 'First line' },
           { id: 's2', startMs: 3661001, endMs: 3662500, text: 'Second\nline' },
@@ -457,6 +458,7 @@ test('archive and download share serialized Markdown while host metadata stays p
   await props.onArchive()
   await props.onDownloadMarkdown()
   await props.onDownloadTranscript()
+  await props.onAskAboutVideo()
 
   const expectedMarkdown = '# Synthetic markdown\n\n\\<script\\>attacker\\</script\\>'
   const session = globalThis.__VIDEO_SUMMARY_HOST_TEST__.sessions.at(-1)
@@ -480,6 +482,10 @@ test('archive and download share serialized Markdown while host metadata stays p
   assert.equal(transcriptFilename, 'plain--script--title---archive-transcript.txt')
   assert.equal(transcriptBlob.type, 'text/plain;charset=utf-8')
   assert.equal(globalThis.__VIDEO_SUMMARY_HOST_TEST__.markdownInputs.at(-1).title, title)
+  const prompt = globalThis.__VIDEO_SUMMARY_HOST_TEST__.toolbarProps.at(-1).prompt
+  assert.match(prompt, /Key content:/)
+  assert.match(prompt, /Claim with supporting evidence/)
+  assert.doesNotMatch(prompt, /Key points:/)
   host.dispose()
 })
 

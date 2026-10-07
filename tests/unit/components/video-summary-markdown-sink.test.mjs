@@ -23,7 +23,6 @@ const malicious = [
 const result = {
   status: malicious,
   overview: `${malicious}\n## multiline-heading\n- multiline-list\n\`\`\`\nmultiline-code\n\`\`\``,
-  keyPoints: [{ startMs: 1_000, point: malicious }],
   keyMoments: [{ startMs: 2_000, point: malicious }],
   chapters: [
     {
@@ -80,9 +79,9 @@ function assertInertSink(container) {
     container.innerHTML,
   )
   assert.equal(container.querySelectorAll('h1').length, 1)
-  assert.equal(container.querySelectorAll('h2').length, 5)
+  assert.equal(container.querySelectorAll('h2').length, 4)
   assert.equal(container.querySelectorAll('h3').length, 1)
-  assert.equal(container.querySelectorAll('ul').length, 4)
+  assert.equal(container.querySelectorAll('ul').length, 3)
   assert.equal(container.querySelectorAll('ol').length, 0)
   assert.match(container.textContent, /attacker-link/)
   assert.match(container.textContent, /evil\.example/)

@@ -4,13 +4,11 @@ export const SUMMARY_TEXT_LIMITS = Object.freeze({
   chunkPointCharacters: 120,
   candidateCount: 5,
   candidateCharacters: 120,
-  overviewCharacters: 1000,
-  keyPointCount: 12,
-  keyPointCharacters: 200,
+  overviewCharacters: 1600,
   chapterCount: 20,
-  chapterDescriptionCharacters: 180,
-  keyMomentCount: 15,
-  keyMomentCharacters: 120,
+  chapterDescriptionCharacters: 300,
+  keyMomentCount: 20,
+  keyMomentCharacters: 240,
 })
 
 const HEADING_ALIASES = new Map([
@@ -24,13 +22,10 @@ const HEADING_ALIASES = new Map([
   ['摘要', 'overview'],
   ['overview', 'overview'],
   ['summary', 'overview'],
-  ['核心要点', 'keyPoints'],
-  ['要点', 'keyPoints'],
-  ['key points', 'keyPoints'],
   ['章节', 'chapters'],
   ['chapters', 'chapters'],
-  ['关键时刻', 'keyMoments'],
-  ['key moments', 'keyMoments'],
+  ['关键内容', 'keyMoments'],
+  ['key content', 'keyMoments'],
 ])
 
 const SEGMENT_MARKER = /\[segment:([^\]\s]+)\]/i
@@ -169,13 +164,6 @@ export function parseFinalSummaryMarkdown(text, { allowedSegmentIds = new Set() 
       (sections.get('overview') || []).join('\n'),
       SUMMARY_TEXT_LIMITS.overviewCharacters,
     ),
-    keyPoints: parseLocations(
-      sections.get('keyPoints'),
-      allowedSegmentIds,
-      SUMMARY_TEXT_LIMITS.keyPointCount,
-      SUMMARY_TEXT_LIMITS.keyPointCharacters,
-      'point',
-    ),
     chapters: parseChapters(sections.get('chapters'), allowedSegmentIds),
     keyMoments: parseLocations(
       sections.get('keyMoments'),
@@ -231,35 +219,42 @@ Compact local summary.
   ]
 }
 
-export function buildFinalSummaryMessages({ chunkResults, preferredLanguage }) {
+function keyContentTarget(durationMs) {
+  const normalizedDuration = Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0
+  if (normalizedDuration <= 10 * 60 * 1000) return '4–6'
+  if (normalizedDuration <= 30 * 60 * 1000) return '6–10'
+  if (normalizedDuration <= 60 * 60 * 1000) return '10–15'
+  return '15–20'
+}
+
+export function buildFinalSummaryMessages({ chunkResults, preferredLanguage, durationMs }) {
+  const target = keyContentTarget(durationMs)
   return [
     {
       role: 'system',
       content: `${summaryInstructions(preferredLanguage)}
 Synthesize the supplied compact chunk results in source order.
 Use only validated candidate segment IDs supplied in the chunk results as anchors.
-Write medium-detail output. The overview should cover necessary background and context, the main argument or narrative, supporting evidence and reasoning, conclusions, and practical takeaways when supported by the source material.
-Each key point should explain the claim, its supporting evidence or reasoning, and why it matters or its practical implication. Do not fabricate absent evidence or force every dimension when unsupported.
-Each chapter description should explain what the chapter covers, how it advances the overall narrative or argument, and its stage conclusion.
-Avoid repetition across the overview, key points, chapters, and key moments; preserve concrete facts from the source. Keep key moments concise.
+Write a rich but scannable summary grounded only in the source.
+The overview should explain the topic and necessary context, follow the main argument or narrative, retain important evidence and examples, and state supported conclusions and implications.
+Write ${target} key-content items when the source supports that many. Do not pad sparse material, repeat ideas, or invent details to reach the lower bound.
+Each key-content item should combine an important claim or event with its relevant evidence, example, reasoning, or consequence.
+Keep responsibilities distinct: the overview provides synthesis and narrative; key content captures the most important timestamped information; chapters provide navigation and structural progression.
+Each chapter description should explain what the chapter covers and how it advances the video.
+Preserve important facts, names, numbers, caveats, and examples. Avoid repetition across all sections.
 Overview: at most ${SUMMARY_TEXT_LIMITS.overviewCharacters} characters.
-Key points: at most ${SUMMARY_TEXT_LIMITS.keyPointCount}, each at most ${
-        SUMMARY_TEXT_LIMITS.keyPointCharacters
+Key content: at most ${SUMMARY_TEXT_LIMITS.keyMomentCount}, each at most ${
+        SUMMARY_TEXT_LIMITS.keyMomentCharacters
       } characters.
 Chapters: at most ${SUMMARY_TEXT_LIMITS.chapterCount}, each description at most ${
         SUMMARY_TEXT_LIMITS.chapterDescriptionCharacters
       } characters.
-Key moments: at most ${SUMMARY_TEXT_LIMITS.keyMomentCount}, each at most ${
-        SUMMARY_TEXT_LIMITS.keyMomentCharacters
-      } characters.
 ## 整体摘要
 Overall summary.
-## 核心要点
-- [segment:<id>] Key point.
+## 关键内容
+- [segment:<id>] Key content.
 ## 章节
-- [segment:<id>] Chapter title — Brief description.
-## 关键时刻
-- [segment:<id>] Key moment description.`,
+- [segment:<id>] Chapter title — Description.`,
     },
     { role: 'user', content: JSON.stringify({ chunkResults }) },
   ]

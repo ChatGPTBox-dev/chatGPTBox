@@ -60,8 +60,7 @@ export function buildVideoSummaryMarkdown({ title, result, preferredLanguage }) 
   }
 
   const sections = [
-    renderLocatedPoints('Key Points', result?.keyPoints),
-    renderLocatedPoints('Key Moments', result?.keyMoments),
+    renderLocatedPoints('Key Content', result?.keyMoments),
     renderChapters(result?.chapters),
     renderTranscript(result?.transcriptSegments),
   ].filter(Boolean)

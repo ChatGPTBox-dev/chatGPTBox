@@ -400,7 +400,7 @@ test('runner uses staged Markdown text generation without tool calls', async () 
           }
         }
         return {
-          text: '## Overview\nfinal\n## Key Points\n- [segment:s1] anchored point\n- [segment:s2] invalid point\n## Chapters\n- [segment:s1] Opening — intro\n## Key Moments\n- [segment:s2] moment',
+          text: '## Overview\nfinal\n## Key Content\n- [segment:s1] anchored point\n- [segment:s2] invalid point\n## Chapters\n- [segment:s1] Opening — intro',
           finishReason: 'stop',
         }
       },
@@ -456,10 +456,12 @@ test('runner uses staged Markdown text generation without tool calls', async () 
     false,
   )
   assert.equal(result.chapters[0].startMs, 0)
-  assert.deepEqual(result.keyPoints, [
+  assert.equal('keyPoints' in result, false)
+  assert.deepEqual(result.keyMoments, [
     { segmentId: 's1', startMs: transcription.segments[0].startMs, point: 'anchored point' },
     { segmentId: null, startMs: null, point: 'invalid point' },
   ])
+  assert.match(calls.at(-1).messages[0].content, /4–6 key-content items/)
 })
 
 test('article-only final Markdown output is preserved as an unanchored complete summary', async () => {
@@ -482,7 +484,7 @@ test('article-only final Markdown output is preserved as an unanchored complete 
           }
         }
         return {
-          text: '## Overview\nA prose-only article summary.\n## Key Points\n- durable point',
+          text: '## Overview\nA prose-only article summary.\n## Key Content\n- durable point',
           finishReason: 'stop',
         }
       },
@@ -509,7 +511,7 @@ test('article-only final Markdown output is preserved as an unanchored complete 
   const result = emitted.findLast((event) => event.type === 'TASK_RESULT').result
   assert.equal(result.status, 'complete')
   assert.equal(result.overview, 'A prose-only article summary.')
-  assert.deepEqual(result.keyPoints, [{ segmentId: null, startMs: null, point: 'durable point' }])
+  assert.deepEqual(result.keyMoments, [{ segmentId: null, startMs: null, point: 'durable point' }])
   assert.equal(result.rawSummaryText.includes('A prose-only article summary.'), true)
 })
 
@@ -592,7 +594,7 @@ test('one failed chunk is checkpointed while successful chunks still synthesize 
           }
         }
         return {
-          text: '## Overview\npartial final\n## Key Points\n- point\n## Chapters\n- [segment:s1] Opening — intro',
+          text: '## Overview\npartial final\n## Key Content\n- point\n## Chapters\n- [segment:s1] Opening — intro',
           finishReason: 'stop',
         }
       },
@@ -748,10 +750,10 @@ test('temporarily unavailable model capability fails with a transcript checkpoin
 test('invalid final Markdown falls back to local summaries with an incomplete warning', async (t) => {
   const cases = [
     ['empty', '', 'stop'],
-    ['heading-only', '## Overview\n## Key Points\n## Chapters\n## Key Moments', 'stop'],
+    ['heading-only', '## Overview\n## Key Content\n## Chapters', 'stop'],
     [
       'truncated',
-      '## Overview\ntruncated but parseable\n## Key Points\n- point\n## Chapters\n- [segment:s1] Opening — intro',
+      '## Overview\ntruncated but parseable\n## Key Content\n- point\n## Chapters\n- [segment:s1] Opening — intro',
       'length',
     ],
   ]
@@ -945,7 +947,7 @@ test('retry from summarizing reruns only failed ranges when a checkpoint has fai
         }
 
         return {
-          text: '## Overview\nFinal overview\n## Key Points\n- Point 1\n- Point 2\n## Chapters\n- [segment:s1] Opening — Opening summary\n- [segment:s7] Second half — Second half summary\n## Key Moments\n- [segment:s1] Moment 1\n- [segment:s7] Moment 2',
+          text: '## Overview\nFinal overview\n## Key Content\n- Point 1\n- Point 2\n## Chapters\n- [segment:s1] Opening — Opening summary\n- [segment:s7] Second half — Second half summary\n- [segment:s1] Moment 1\n- [segment:s7] Moment 2',
           finishReason: 'stop',
         }
       },
@@ -1018,7 +1020,7 @@ test('retry from synthesis falls back to stored local chunks when final generati
         }
         if (failSynthesis) throw new Error('SYNTHESIS_DOWN')
         return {
-          text: '## Overview\ninitial final\n## Key Points\n- point\n## Chapters\n- [segment:s1] Opening — intro',
+          text: '## Overview\ninitial final\n## Key Content\n- point\n## Chapters\n- [segment:s1] Opening — intro',
           finishReason: 'stop',
         }
       },
@@ -1145,7 +1147,7 @@ test('retry from synthesis calls only final generation with stored chunk results
           }
         }
         return {
-          text: `## Overview\nfinal ${calls.length}\n## Key Points\n- point\n## Chapters\n- [segment:s1] Opening — intro`,
+          text: `## Overview\nfinal ${calls.length}\n## Key Content\n- point\n## Chapters\n- [segment:s1] Opening — intro`,
           finishReason: 'stop',
         }
       },

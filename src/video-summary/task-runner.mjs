@@ -61,7 +61,6 @@ function createTranscriptOnlyResult(transcription, reason) {
   return {
     status: 'degraded',
     overview: '',
-    keyPoints: [],
     keyMoments: [],
     chapters: [],
     transcriptSegments: Array.isArray(transcription?.segments)
@@ -270,6 +269,7 @@ async function summarizeChunk({
 
 async function synthesizeSummary({
   localChunkResults,
+  transcription,
   command,
   capabilities,
   emit,
@@ -292,6 +292,7 @@ async function synthesizeSummary({
     messages: buildFinalSummaryMessages({
       chunkResults: localChunkResults,
       preferredLanguage: command.settingsSnapshot?.preferredLanguage,
+      durationMs: transcription.durationMs,
     }),
     maxOutputTokens: resolveTaskMaxOutputTokens(command, capabilities, FINAL_MAX_OUTPUT_TOKENS),
     signal: controller.signal,
@@ -425,6 +426,7 @@ async function summarizeChunks({
   try {
     const synthesis = await synthesizeSummary({
       localChunkResults: sortedChunkResults,
+      transcription,
       command,
       capabilities,
       emit,
@@ -580,6 +582,7 @@ export function createVideoTaskRunner({
       try {
         const synthesis = await synthesizeSummary({
           localChunkResults: checkpoint.successfulChunkResults,
+          transcription: checkpoint.transcription,
           command,
           capabilities,
           emit,

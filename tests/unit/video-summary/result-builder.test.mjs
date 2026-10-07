@@ -60,7 +60,7 @@ test('preserves unanchored free-text entries without inventing timestamps', () =
   })
 })
 
-test('normalizes final key points with exact transcript locations and no inferred timestamps', () => {
+test('omits obsolete final key points', () => {
   const result = buildStructuredSummaryResult({
     transcription: createTranscription(),
     localChunkResults: [
@@ -84,13 +84,10 @@ test('normalizes final key points with exact transcript locations and no inferre
     failedRanges: [],
   })
 
-  assert.deepEqual(result.keyPoints, [
-    { segmentId: 's2', startMs: 1000, point: 'Anchored point' },
-    { segmentId: null, startMs: null, point: 'Invalid point' },
-  ])
+  assert.equal('keyPoints' in result, false)
 })
 
-test('uses local summaries, points, and candidates when final output is absent', () => {
+test('uses local summaries and candidates when final output is absent', () => {
   const result = buildStructuredSummaryResult({
     transcription: createTranscription(),
     localChunkResults: [
@@ -115,10 +112,7 @@ test('uses local summaries, points, and candidates when final output is absent',
 
   assert.equal(result.rawSummaryText, '')
   assert.equal(result.overview, 'first local\n\nsecond local')
-  assert.deepEqual(result.keyPoints, [
-    { segmentId: null, startMs: null, point: 'local point' },
-    { segmentId: null, startMs: null, point: 'another point' },
-  ])
+  assert.equal('keyPoints' in result, false)
   assert.deepEqual(result.keyMoments, [
     { segmentId: 's2', startMs: 1000, point: 'local candidate' },
     { segmentId: null, startMs: null, point: 'unanchored candidate' },
@@ -205,7 +199,7 @@ test('result builder emits degraded output when synthesis fails but local summar
   assert.equal(result.status, 'degraded')
   assert.equal(result.transcriptSegments.length, 4)
   assert.equal(result.overview.includes('overview'), true)
-  assert.deepEqual(result.keyPoints, [{ segmentId: null, startMs: null, point: 'point' }])
+  assert.equal('keyPoints' in result, false)
 })
 
 test('result builder emits partial output with deterministic chapters and failed-range coverage', () => {
@@ -242,6 +236,7 @@ test('result builder emits partial output with deterministic chapters and failed
         { segmentId: 's4', point: 'ending moment' },
         { segmentId: 'missing', point: 'invalid' },
         { segmentId: 's1', point: 'opening moment' },
+        { segmentId: 's2', point: '  Opening   Moment  ' },
       ],
     },
     failedRanges: [{ startSegmentId: 's3', endSegmentId: 's3', reason: 'CHUNK_FAILED' }],

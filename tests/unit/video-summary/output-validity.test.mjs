@@ -25,7 +25,6 @@ test('chunk output validity requires meaningful non-truncated content', () => {
 test('final output validity checks every semantic field and truncation', () => {
   const meaningfulOutputs = [
     { overview: ' overview ' },
-    { keyPoints: [{ point: ' point ' }] },
     { chapters: [{ title: ' title ' }] },
     { chapters: [{ summary: ' summary ' }] },
     { keyMoments: [{ point: ' moment ' }] },
@@ -41,6 +40,13 @@ test('final output validity checks every semantic field and truncation', () => {
       reason: null,
     })
   }
+  assert.deepEqual(
+    validateFinalSummaryOutput({
+      parsed: { keyPoints: [{ point: 'obsolete' }] },
+      finishReason: 'stop',
+    }),
+    { valid: false, reason: 'MODEL_OUTPUT_EMPTY' },
+  )
   assert.deepEqual(
     validateFinalSummaryOutput({ parsed: { overview: 'usable' }, finishReason: 'length' }),
     { valid: false, reason: 'MODEL_OUTPUT_INCOMPLETE' },

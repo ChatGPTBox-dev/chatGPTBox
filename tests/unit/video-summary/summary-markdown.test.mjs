@@ -63,53 +63,71 @@ test('final protocol sends compact chunk data as JSON and fixed constraints as i
       candidates: [{ segmentId: 's2', text: 'location', anchored: true }],
     },
   ]
-  const messages = buildFinalSummaryMessages({ chunkResults, preferredLanguage: 'en' })
+  const messages = buildFinalSummaryMessages({
+    chunkResults,
+    preferredLanguage: 'en',
+    durationMs: 45 * 60 * 1000,
+  })
   assert.deepEqual(
     messages.map(({ role }) => role),
     ['system', 'user'],
   )
   assert.deepEqual(JSON.parse(messages[1].content), { chunkResults })
+  const prompt = messages[0].content
   for (const expression of [
     /## 整体摘要/,
-    /## 核心要点\n- \[segment:<id>\] Key point\./,
+    /## 关键内容\n- \[segment:<id>\] Key content\./,
     /## 章节/,
-    /## 关键时刻/,
     /\[segment:<id>\]/,
-    /Overview: at most 1000 characters/,
-    /Key points: at most 12, each at most 200 characters/,
-    /Chapters: at most 20, each description at most 180 characters/,
-    /Key moments: at most 15, each at most 120 characters/,
+    /Overview: at most 1600 characters/,
+    /Key content: at most 20, each at most 240 characters/,
+    /Chapters: at most 20, each description at most 300 characters/,
+    /10–15 key-content items/,
+    /do not pad/i,
     /language.*en/i,
     /only.*candidate/i,
-    /background.*context.*main (?:argument|narrative).*supporting evidence.*reasoning.*conclusions.*practical takeaways/is,
-    /Each key point.*claim.*supporting evidence.*reasoning.*why it matters.*practical implication/is,
-    /Do not fabricate absent evidence or force every dimension when unsupported/i,
-    /Each chapter description.*what the chapter covers.*advances the overall (?:narrative|argument).*stage conclusion/is,
-    /Avoid repetition across.*overview.*key points.*chapters.*key moments/is,
-    /preserve concrete facts.*source/is,
-    /key moments.*concise/is,
+    /overview.*topic.*context.*argument|narrative.*evidence.*examples.*conclusions.*implications/is,
+    /key-content item.*claim or event.*evidence.*example.*reasoning.*consequence/is,
+    /overview provides synthesis and narrative.*key content.*timestamped.*chapters provide navigation/is,
+    /preserve important facts.*names.*numbers.*caveats.*examples/is,
   ])
-    assert.match(messages[0].content, expression)
+    assert.match(prompt, expression)
+  assert.doesNotMatch(prompt, /## 核心要点|## 关键时刻/)
+})
+
+test('final protocol adapts key-content detail to video duration boundaries', () => {
+  for (const [durationMs, expected] of [
+    [10 * 60 * 1000, '4–6'],
+    [10 * 60 * 1000 + 1, '6–10'],
+    [30 * 60 * 1000, '6–10'],
+    [30 * 60 * 1000 + 1, '10–15'],
+    [60 * 60 * 1000, '10–15'],
+    [60 * 60 * 1000 + 1, '15–20'],
+  ]) {
+    const prompt = buildFinalSummaryMessages({ chunkResults: [], durationMs })[0].content
+    assert.match(prompt, new RegExp(`${expected} key-content items`))
+  }
 })
 
 test('final parser preserves unanchored text and validates known IDs', () => {
   const rawText =
-    'Preface\n## Summary\nOverall text\n## Key Points\n- [segment:s1] anchored point\n- [segment:invented] invalid point\n- plain point\n## Chapters\n- [segment:s1] Opening — intro\n- [segment:invented] Invalid — retained\n- No marker — still retained\n## Key Moments\n- [segment:s2] conclusion'
-  assert.deepEqual(parseFinalSummaryMarkdown(rawText, options), {
+    'Preface\n## Summary\nOverall text\n## Key Content\n- [segment:s2] conclusion with evidence\n- [segment:invented] invalid content\n- plain content\n## Chapters\n- [segment:s1] Opening — intro\n- [segment:invented] Invalid — retained\n- No marker — still retained'
+  const parsed = parseFinalSummaryMarkdown(rawText, options)
+  assert.deepEqual(parsed, {
     overview: 'Overall text',
-    keyPoints: [
-      { segmentId: 's1', point: 'anchored point', anchored: true },
-      { segmentId: null, point: 'invalid point', anchored: false },
-      { segmentId: null, point: 'plain point', anchored: false },
-    ],
     chapters: [
       { segmentId: 's1', title: 'Opening', summary: 'intro', anchored: true },
       { segmentId: null, title: 'Invalid', summary: 'retained', anchored: false },
       { segmentId: null, title: 'No marker', summary: 'still retained', anchored: false },
     ],
-    keyMoments: [{ segmentId: 's2', point: 'conclusion', anchored: true }],
+    keyMoments: [
+      { segmentId: 's2', point: 'conclusion with evidence', anchored: true },
+      { segmentId: null, point: 'invalid content', anchored: false },
+      { segmentId: null, point: 'plain content', anchored: false },
+    ],
     rawText,
   })
+  assert.equal('keyPoints' in parsed, false)
 })
 
 for (const headings of [
@@ -131,22 +149,21 @@ for (const headings of [
 }
 
 for (const headings of [
-  ['整体摘要', '核心要点', '章节', '关键时刻'],
-  ['摘要', '要点', '章节', '关键时刻'],
-  ['Overview', 'Key Points', 'Chapters', 'Key Moments'],
-  ['SUMMARY', 'KEY POINTS', 'CHAPTERS', 'KEY MOMENTS'],
+  ['整体摘要', '关键内容', '章节'],
+  ['摘要', '关键内容', '章节'],
+  ['Overview', 'Key Content', 'Chapters'],
+  ['SUMMARY', 'KEY CONTENT', 'CHAPTERS'],
 ]) {
   test(`final aliases and reordered ATX sections: ${headings.join(', ')}`, () => {
     const parsed = parseFinalSummaryMarkdown(
-      `# ${headings[3]}\n* [segment:s2] Moment\n### ${headings[2]} ###\n1. [segment:s1] Title\n  Description\n  continued\n## ${headings[1]}\n1) Point\n## ${headings[0]}\nOverview`,
+      `# ${headings[1]}\n* [segment:s2] Content\n### ${headings[2]} ###\n1. [segment:s1] Title\n  Description\n  continued\n## ${headings[0]}\nOverview`,
       options,
     )
     assert.equal(parsed.overview, 'Overview')
-    assert.deepEqual(parsed.keyPoints, [{ segmentId: null, point: 'Point', anchored: false }])
     assert.deepEqual(parsed.chapters, [
       { segmentId: 's1', title: 'Title', summary: 'Description continued', anchored: true },
     ])
-    assert.deepEqual(parsed.keyMoments, [{ segmentId: 's2', point: 'Moment', anchored: true }])
+    assert.deepEqual(parsed.keyMoments, [{ segmentId: 's2', point: 'Content', anchored: true }])
   })
 }
 
@@ -164,15 +181,14 @@ for (const separator of [' — ', ' - ', ': ', '：']) {
 
 test('missing, unknown and truncated sections retain useful parsed content and exact raw text', () => {
   const rawText =
-    '  Preface\r\n## Key Points\r\n- first\r\n- partial\r\n## Unknown\r\n- ignored\r\n## Chapters\r\n- [segment:s1] Opening — unfinished'
+    '  Preface\r\n## Key Content\r\n- first\r\n- partial\r\n## Unknown\r\n- ignored\r\n## Chapters\r\n- [segment:s1] Opening — unfinished'
   const parsed = parseFinalSummaryMarkdown(rawText, options)
   assert.equal(parsed.rawText, rawText)
   assert.equal(parsed.overview, '')
-  assert.deepEqual(parsed.keyPoints, [
+  assert.deepEqual(parsed.keyMoments, [
     { segmentId: null, point: 'first', anchored: false },
     { segmentId: null, point: 'partial', anchored: false },
   ])
-  assert.deepEqual(parsed.keyMoments, [])
   assert.equal(parsed.chapters[0].summary, 'unfinished')
   assert.deepEqual(
     parseChunkSummaryMarkdown('## Chunk Summary\nOnly summary', options).candidates,
@@ -194,7 +210,6 @@ test('article-only and empty output remain available verbatim without invented s
     })
     assert.deepEqual(parseFinalSummaryMarkdown(rawText, options), {
       overview: '',
-      keyPoints: [],
       chapters: [],
       keyMoments: [],
       rawText,
@@ -204,10 +219,9 @@ test('article-only and empty output remain available verbatim without invented s
 
 test('deduplicates IDs and normalized text after parsing, keeping the first useful occurrence', () => {
   const parsed = parseFinalSummaryMarkdown(
-    '## Key Points\n- Same   point\n- same point\n## Chapters\n- [segment:s1]\n- [segment:s1] Opening — Intro\n- [segment:s1] Repeated — Other\n- [segment:s2] opening — intro\n- Unanchored — distinct\n## Key Moments\n- [segment:s1] Moment\n- [segment:s1] repeated ID\n- [segment:s2] moment\n- plain\n- PLAIN',
+    '## Chapters\n- [segment:s1]\n- [segment:s1] Opening — Intro\n- [segment:s1] Repeated — Other\n- [segment:s2] opening — intro\n- Unanchored — distinct\n## Key Content\n- [segment:s1] Moment\n- [segment:s1] repeated ID\n- [segment:s2] moment\n- plain\n- PLAIN',
     options,
   )
-  assert.deepEqual(parsed.keyPoints, [{ segmentId: null, point: 'Same   point', anchored: false }])
   assert.equal(parsed.chapters.length, 2)
   assert.equal(parsed.chapters[0].title, 'Opening')
   assert.deepEqual(parsed.keyMoments, [
@@ -231,39 +245,30 @@ test('parser enforces every fixed item and character limit locally', () => {
     chunkPointCharacters: 120,
     candidateCount: 5,
     candidateCharacters: 120,
-    overviewCharacters: 1000,
-    keyPointCount: 12,
-    keyPointCharacters: 200,
+    overviewCharacters: 1600,
     chapterCount: 20,
-    chapterDescriptionCharacters: 180,
-    keyMomentCount: 15,
-    keyMomentCharacters: 120,
+    chapterDescriptionCharacters: 300,
+    keyMomentCount: 20,
+    keyMomentCharacters: 240,
   })
   assert.equal(Object.isFrozen(SUMMARY_TEXT_LIMITS), true)
   const entries = Array.from(
     { length: 25 },
-    (_, index) => `- [segment:id${index}] ${index}-${'乙'.repeat(220)}`,
+    (_, index) => `- [segment:id${index}] ${index}-${'乙'.repeat(320)}`,
   ).join('\n')
   const parsed = parseFinalSummaryMarkdown(
-    `## 整体摘要\n${'甲'.repeat(
-      1100,
-    )}\n## 核心要点\n${entries}\n## 章节\n${entries}\n## 关键时刻\n${entries}`,
+    `## 整体摘要\n${'甲'.repeat(1700)}\n## 章节\n${entries}\n## 关键内容\n${entries}`,
     options,
   )
-  assert.equal(parsed.overview.length, 1000)
-  assert.equal(parsed.keyPoints.length, 12)
-  assert.equal(
-    parsed.keyPoints.every(({ point }) => point.length <= 200),
-    true,
-  )
+  assert.equal(parsed.overview.length, 1600)
   assert.equal(parsed.chapters.length, 20)
   assert.equal(
-    parsed.chapters.every(({ summary }) => summary.length === 180),
+    parsed.chapters.every(({ summary }) => summary.length === 300),
     true,
   )
-  assert.equal(parsed.keyMoments.length, 15)
+  assert.equal(parsed.keyMoments.length, 20)
   assert.equal(
-    parsed.keyMoments.every(({ point }) => point.length === 120),
+    parsed.keyMoments.every(({ point }) => point.length === 240),
     true,
   )
   const chunk = parseChunkSummaryMarkdown(
@@ -284,13 +289,13 @@ test('parser enforces every fixed item and character limit locally', () => {
 })
 
 test('character limits preserve complete Unicode code points and deduplicate after clamping', () => {
-  const text = '😀'.repeat(210)
+  const text = '😀'.repeat(250)
   const parsed = parseFinalSummaryMarkdown(
-    `## Summary\n${'😀'.repeat(1100)}\n## Key Points\n- ${text}a\n- ${text}b`,
+    `## Summary\n${'😀'.repeat(1700)}\n## Key Content\n- ${text}a\n- ${text}b`,
     options,
   )
-  assert.equal(Array.from(parsed.overview).length, 1000)
-  assert.deepEqual(parsed.keyPoints, [
-    { segmentId: null, point: '😀'.repeat(200), anchored: false },
+  assert.equal(Array.from(parsed.overview).length, 1600)
+  assert.deepEqual(parsed.keyMoments, [
+    { segmentId: null, point: '😀'.repeat(240), anchored: false },
   ])
 })

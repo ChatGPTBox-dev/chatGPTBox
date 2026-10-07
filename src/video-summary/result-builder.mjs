@@ -1,37 +1,5 @@
 const UNANCHORED_LOCATION_WARNING = 'VIDEO_SUMMARY_LOCATIONS_PARTIALLY_UNAVAILABLE'
 
-function dedupeStrings(values) {
-  return Array.from(new Set((Array.isArray(values) ? values : []).filter(Boolean)))
-}
-
-function buildKeyPoints({ localChunkResults, synthesisResult, coveredIndexes, segmentIndex }) {
-  const sourcePoints = Array.isArray(synthesisResult?.keyPoints)
-    ? synthesisResult.keyPoints
-    : dedupeStrings(
-        (Array.isArray(localChunkResults) ? localChunkResults : []).flatMap((chunkResult) =>
-          Array.isArray(chunkResult?.keyPoints) ? chunkResult.keyPoints : [],
-        ),
-      )
-  const seen = new Set()
-  const keyPoints = []
-
-  for (const sourcePoint of sourcePoints) {
-    const point = String(sourcePoint?.point ?? sourcePoint ?? '').trim()
-    if (!point || seen.has(point)) continue
-    seen.add(point)
-
-    const info = segmentIndex.get(sourcePoint?.segmentId)
-    const anchored = info && coveredIndexes.has(info.index)
-    keyPoints.push({
-      segmentId: anchored ? info.segment.id : null,
-      startMs: anchored ? info.segment.startMs : null,
-      point,
-    })
-  }
-
-  return keyPoints
-}
-
 function buildSegmentIndex(segments) {
   return new Map(segments.map((segment, index) => [segment.id, { segment, index }]))
 }
@@ -234,13 +202,16 @@ function buildKeyMoments({ localChunkResults, synthesisResult, coveredIndexes, s
   const sourceMoments = getMomentCandidates(localChunkResults, synthesisResult)
   const anchored = []
   const unanchored = []
-  const seen = new Set()
+  const seenSegmentIds = new Set()
+  const seenPoints = new Set()
 
   for (const moment of sourceMoments) {
     const point = String(moment?.point ?? moment?.text ?? '').trim()
-    if (!point) continue
+    const normalizedPoint = point.replace(/\s+/g, ' ').toLowerCase()
+    if (!point || seenPoints.has(normalizedPoint)) continue
 
     if (isUnanchoredCandidate(moment)) {
+      seenPoints.add(normalizedPoint)
       unanchored.push({
         segmentId: null,
         startMs: null,
@@ -250,9 +221,10 @@ function buildKeyMoments({ localChunkResults, synthesisResult, coveredIndexes, s
     }
 
     const info = segmentIndex.get(moment?.segmentId)
-    if (!info || !coveredIndexes.has(info.index) || seen.has(info.segment.id)) continue
+    if (!info || !coveredIndexes.has(info.index) || seenSegmentIds.has(info.segment.id)) continue
 
-    seen.add(info.segment.id)
+    seenSegmentIds.add(info.segment.id)
+    seenPoints.add(normalizedPoint)
     anchored.push({
       segmentId: info.segment.id,
       startMs: info.segment.startMs,
@@ -345,18 +317,11 @@ export function buildStructuredSummaryResult({
     hasUnanchoredSummaryLocations: hasUnanchoredLocations(chapters, keyMoments),
   })
   const overview = buildOverview(localChunkResults, synthesisResult)
-  const keyPoints = buildKeyPoints({
-    localChunkResults,
-    synthesisResult,
-    coveredIndexes,
-    segmentIndex,
-  })
 
   return {
     status,
     overview,
     rawSummaryText: String(synthesisResult?.rawText || '').trim(),
-    keyPoints,
     keyMoments,
     chapters,
     transcriptSegments: segments.map((segment) => ({ ...segment })),

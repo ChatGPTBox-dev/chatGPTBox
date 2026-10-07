@@ -152,12 +152,11 @@ test('renders structured results, warnings, timestamps, actions, and retry', () 
       result: {
         status: 'partial',
         overview: 'Overview',
-        keyPoints: [
-          { startMs: 1000, point: 'Anchored point' },
-          { startMs: null, point: 'Unanchored point' },
-        ],
         chapters: [{ startMs: 0, endMs: 1000, title: 'Opening', summary: 'Chapter text' }],
-        keyMoments: [{ startMs: 0, point: 'Intro moment' }],
+        keyMoments: [
+          { startMs: 1000, point: 'Anchored content' },
+          { startMs: null, point: 'Unanchored content' },
+        ],
         transcriptSegments: [
           { id: 's1', startMs: 1000, endMs: 2000, speaker: 'Host', text: 'Welcome' },
         ],
@@ -174,13 +173,16 @@ test('renders structured results, warnings, timestamps, actions, and retry', () 
   })
 
   assert.match(container.textContent, /Overview/)
-  assert.match(container.textContent, /Anchored point/)
-  assert.match(container.textContent, /Unanchored point/)
+  assert.match(container.textContent, /Anchored content/)
+  assert.match(container.textContent, /Unanchored content/)
   assert.match(container.textContent, /Chapter text/)
   assert.match(container.textContent, /Host: Welcome/)
   assert.match(container.textContent, /00:01 - 00:02/)
   assert.match(container.textContent, /Some chapter or key-moment locations are unavailable\./)
-  assert.equal(container.querySelectorAll('[data-section="key-points"] [data-seek-ms]').length, 1)
+  assert.equal(container.querySelector('[data-section="key-points"]'), null)
+  assert.equal(container.querySelector('[data-section="key-moments"]'), null)
+  assert.equal(container.querySelectorAll('[data-section="key-content"] [data-seek-ms]').length, 1)
+  assert.match(container.querySelector('[data-section="key-content"]').textContent, /Key content/)
   for (const selector of [
     '[data-seek-ms="1000"]',
     '[data-action="retry-summary"]',

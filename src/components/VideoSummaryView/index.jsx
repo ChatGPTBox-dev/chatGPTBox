@@ -250,7 +250,6 @@ export default function VideoSummaryView({
 
   const result = taskState?.result || null
   const warnings = Array.isArray(result?.warnings) ? result.warnings : []
-  const keyPoints = Array.isArray(result?.keyPoints) ? result.keyPoints : []
   const chapters = Array.isArray(result?.chapters) ? result.chapters : []
   const keyMoments = Array.isArray(result?.keyMoments) ? result.keyMoments : []
   const resultTranscriptSegments = Array.isArray(result?.transcriptSegments)
@@ -355,21 +354,6 @@ export default function VideoSummaryView({
             {result.overview || result.rawSummaryText ? (
               <p>{result.overview || result.rawSummaryText}</p>
             ) : null}
-            {keyPoints.length > 0 ? (
-              <details data-section="key-points">
-                <summary>{t('Key points')}</summary>
-                <ul>
-                  {keyPoints.map((item) => (
-                    <li key={`${item.point}-${item.startMs}`}>
-                      {Number.isFinite(item.startMs) ? (
-                        <TimestampButton startMs={item.startMs} onSeekTo={onSeekTo} />
-                      ) : null}
-                      <span>{item.point}</span>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
             {chapters.length > 0 ? (
               <details data-section="chapters">
                 <summary>{t('Chapters')}</summary>
@@ -391,19 +375,19 @@ export default function VideoSummaryView({
               </details>
             ) : null}
             {keyMoments.length > 0 ? (
-              <details data-section="key-moments">
-                <summary>{t('Key moments')}</summary>
+              <details data-section="key-content">
+                <summary>{t('Key content')}</summary>
                 <ul>
-                  {keyMoments.map((moment) => (
-                    <li key={`${moment.point}-${moment.startMs}`}>
-                      {Number.isFinite(moment.startMs) ? (
+                  {keyMoments.map((item) => (
+                    <li key={`${item.point}-${item.startMs}`}>
+                      {Number.isFinite(item.startMs) ? (
                         <TimestampButton
-                          startMs={moment.startMs}
-                          label={timestampLabel(moment.startMs, null, t('Unknown'))}
+                          startMs={item.startMs}
+                          label={timestampLabel(item.startMs, null, t('Unknown'))}
                           onSeekTo={onSeekTo}
                         />
                       ) : null}
-                      <span>{moment.point}</span>
+                      <span>{item.point}</span>
                     </li>
                   ))}
                 </ul>
