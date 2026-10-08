@@ -75,6 +75,16 @@ export function setAbortController(port, onStop, onDisconnect) {
   }
 }
 
+// The outer request owns the listeners; protocol attempts only borrow its context.
+export async function withAbortController(port, callback, abortContext) {
+  const requestAbort = abortContext || setAbortController(port)
+  try {
+    return await callback(requestAbort)
+  } finally {
+    if (!abortContext) requestAbort.cleanController()
+  }
+}
+
 export function pushRecord(session, question, answer) {
   const recordLength = session.conversationRecords.length
   let lastRecord
