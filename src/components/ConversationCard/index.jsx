@@ -50,6 +50,7 @@ import {
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
 } from './session.mjs'
+import { createAnswerBuffer, createFrameScheduler } from './answer-buffer.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
 const UNMATCHED_API_MODE_VALUE = '__current-session-api-mode__'
@@ -183,6 +184,7 @@ function ConversationCard(props) {
       const newSession = initSession({ ...session, question: props.question })
       partialAnswerRef.current = ''
       retryRecordRef.current = null
+      answerBufferRef.current.discard()
       setSession(newSession)
       await postMessage({ session: newSession })
     }
@@ -217,6 +219,19 @@ function ConversationCard(props) {
     })
   }
 
+  const answerBufferRef = useRef(null)
+  if (answerBufferRef.current === null) {
+    answerBufferRef.current = createAnswerBuffer({
+      ...createFrameScheduler(),
+      render: (answer) => updateAnswer(answer, false, 'answer'),
+    })
+  }
+
+  // A buffered frame can outlive a hidden page, so drop it when the card goes away.
+  useEffect(() => {
+    return () => answerBufferRef.current?.discard()
+  }, [])
+
   const portMessageListener = (msg) => {
     if (disposedRef.current) return
     if (isSupersededRequestMessage(msg, requestGenerationIdRef.current)) return
@@ -224,12 +239,13 @@ function ConversationCard(props) {
 
     if (msg.answer) {
       partialAnswerRef.current = msg.answer
-      updateAnswer(msg.answer, false, 'answer')
+      answerBufferRef.current.push(msg.answer)
     }
     if (msg.session) {
       setSession(msg.done ? { ...msg.session, isRetry: false } : msg.session)
     }
     if (msg.done) {
+      answerBufferRef.current.flush()
       const partialAnswer = partialAnswerRef.current
       const retryRecord = retryRecordRef.current
       const completionState = getInterruptedCompletionState(msg, partialAnswer, retryRecord)
@@ -245,6 +261,7 @@ function ConversationCard(props) {
       setIsReady(true)
     }
     if (msg.error) {
+      answerBufferRef.current.flush()
       const retryRecord = retryRecordRef.current
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       switch (msg.error) {
@@ -427,10 +444,17 @@ function ConversationCard(props) {
         return
       }
       if (disposedRef.current) return
+      // A dropped transport ends the stream without a final message, so flush here: the newest
+      // chunk still renders on a hidden page, where animation frames are paused. A foreground
+      // generation (Bing web) streams through its own transport, though, so this keepalive
+      // port dropping must not unlock sending.
+      if (foregroundPortsRef.current.size === 0) {
+        answerBufferRef.current.flush()
+        setIsReady(true)
+      }
       const nextPort = Browser.runtime.connect()
       portRef.current = nextPort
       setPort(nextPort)
-      setIsReady(true)
     }
 
     const closeChatsMessageListener = (message) => {
@@ -475,6 +499,7 @@ function ConversationCard(props) {
   }, [port, conversationItemData])
 
   const getRetryFn = (session) => async () => {
+    answerBufferRef.current.discard()
     updateAnswer(`<p class="gpt-loading">${t('Waiting for response...')}</p>`, false, 'answer')
     setIsReady(false)
 
@@ -701,6 +726,7 @@ function ConversationCard(props) {
               }
               partialAnswerRef.current = ''
               retryRecordRef.current = null
+              answerBufferRef.current.discard()
               Browser.runtime.sendMessage({
                 type: 'DELETE_CONVERSATION',
                 data: {
@@ -831,6 +857,7 @@ function ConversationCard(props) {
             )
             partialAnswerRef.current = ''
             retryRecordRef.current = null
+            answerBufferRef.current.discard()
             setConversationItemData([...conversationItemData, newQuestion, newAnswer])
             setIsReady(false)
 
