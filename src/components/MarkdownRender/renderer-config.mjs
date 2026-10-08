@@ -10,7 +10,11 @@ export const PLUGINS = { math: mathPlugin(), code: highlightPlugin(highlightOpti
 export const COMPONENTS = { a: Hyperlink }
 // Fullscreen and the HTML preview expect the host to hide its own chrome around them, which
 // this card does not do; the copy button is the part that works on its own.
+// `reasoning: false` stops the renderer building a collapsible block out of a `<think>`-style tag
+// in the markdown. Thinking is shown from the API field alone, so a tag in an answer or a question
+// must not be able to produce one.
 export const CONTROLS = {
+  reasoning: false,
   code: { fullscreen: false, preview: false },
   table: { fullscreen: false },
 }

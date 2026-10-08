@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import PropTypes from 'prop-types'
 import { HyperMarkdown } from '@aeven-ai/hypermarkdown'
 import { createListStartNormalizer } from './list-markers.mjs'
-import { escapeReasoningTags } from './special-tags.mjs'
 import { createStreamDelta } from './stream-delta.mjs'
 import { waitingPlaceholder } from './waiting-placeholder.mjs'
+import { writeInPieces } from './write-pieces.mjs'
 import ReasoningPanel from './ReasoningPanel.jsx'
 import { ALLOWED_TAGS, COMPONENTS, CONTROLS, PLUGINS } from './renderer-config.mjs'
 
@@ -29,9 +29,9 @@ export function MarkdownRender({ children, done = true, reasoning = '' }) {
   // The card's placeholder is not answer text, so until real text arrives the thinking is
   // still the part that is streaming.
   const answerStarted = children !== '' && children !== waitingPlaceholder(t)
-  // Thinking is rendered from its own field, so any reasoning tag left in ordinary content is
-  // just text: it is escaped so the renderer cannot turn it into a block or strip it.
-  const content = escapeReasoningTags(children)
+  // Thinking is rendered from its own field, so the answer reaches the renderer exactly as it
+  // arrived; the renderer is configured not to build a reasoning block out of it.
+  const content = children
 
   // Answers arrive as a growing snapshot, but the renderer takes deltas and caches the
   // blocks it has settled, so only the new text is parsed on each update.
@@ -41,7 +41,7 @@ export function MarkdownRender({ children, done = true, reasoning = '' }) {
     const step = deltaRef.current.next(content, done)
     if (!step) return
     if (step.reset) renderer.reset()
-    renderer.write(step.write, step.finalize)
+    writeInPieces(renderer, step.write, step.finalize)
   })
 
   // The renderer draws its own markers with `li::before`, but a nested bullet list inherits

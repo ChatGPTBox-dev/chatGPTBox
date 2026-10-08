@@ -4,16 +4,16 @@ import PropTypes from 'prop-types'
 import { HyperMarkdown } from '@aeven-ai/hypermarkdown'
 import { ChevronDownIcon } from '@primer/octicons-react'
 import { createStreamDelta } from './stream-delta.mjs'
-import { escapeReasoningTags } from './special-tags.mjs'
 import { ALLOWED_TAGS, COMPONENTS, CONTROLS, PLUGINS } from './renderer-config.mjs'
+import { writeInPieces } from './write-pieces.mjs'
 
 /**
  * The collapsible block that shows a model's thinking.
  *
- * Whether it exists is decided by the reasoning field alone. The thinking reaches its own
- * renderer as plain markdown, so nothing written in the answer or the question -- a literal
- * `<think>`, a code fence, an escaped tag -- can open, close or reshape the block. The answer
- * streams through a separate renderer for the same reason.
+ * Whether it exists is decided by the reasoning field alone, and the renderer is configured not
+ * to build a block out of a `<think>`-style tag found in markdown (see renderer-config.mjs), so
+ * the only thinking the card can show is the one the API sent. The answer streams through a
+ * separate renderer for the same reason.
  *
  * The markup mirrors the renderer's own reasoning block (`.reasoning-*`, styled by
  * hypermarkdown.css) so that stylesheet keeps working unchanged. The timer behaves the same
@@ -54,12 +54,10 @@ export function ReasoningPanel({ reasoning, streaming }) {
   useLayoutEffect(() => {
     const renderer = rendererRef.current
     if (!renderer) return
-    // The thinking is text from the model too, so a reasoning tag written inside it stays
-    // literal rather than opening another block.
-    const step = deltaRef.current.next(escapeReasoningTags(reasoning), !streaming)
+    const step = deltaRef.current.next(reasoning, !streaming)
     if (!step) return
     if (step.reset) renderer.reset()
-    renderer.write(step.write, step.finalize)
+    writeInPieces(renderer, step.write, step.finalize)
   })
 
   const title = streaming

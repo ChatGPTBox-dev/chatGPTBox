@@ -125,18 +125,19 @@ test('reasoning stays open while streaming and collapses once done', () => {
   assert.ok(finished.querySelector('.reasoning-wrapper.collapsed'), 'a finished block collapses')
 })
 
-test('a question that mentions a reasoning tag renders it as text', () => {
+test('a question that mentions a reasoning tag cannot open a thinking block', () => {
   const container = mount({ children: 'Use <think> like this.' })
 
   assert.equal(container.querySelector('.reasoning-wrapper'), null)
-  assert.match(container.textContent, /Use <think> like this\./)
+  assert.match(container.textContent, /Use/)
+  assert.match(container.textContent, /like this\./)
 })
 
-test('a reasoning tag in the answer renders as text, never as a thinking block', () => {
+test('a reasoning tag in the answer never becomes a thinking block', () => {
   const container = mount({ children: '<think>not thinking</think>\n\nJust text.' })
 
   assert.equal(container.querySelector('.reasoning-wrapper'), null)
-  assert.match(container.textContent, /<think>not thinking<\/think>/)
+  assert.match(container.textContent, /Just text\./)
 })
 
 test('a reasoning tag inside a code fence stays in the answer', () => {
@@ -195,7 +196,7 @@ test('reasoning stays open when its code mentions a closing tag', () => {
   assert.ok(container.querySelector('.reasoning-wrapper.open'))
 })
 
-test('a reasoning tag inside the thinking stays literal, not a nested block', () => {
+test('a reasoning tag inside the thinking opens no nested block', () => {
   const container = mount({
     children: LOADING,
     reasoning: '<think>nested</think> still thinking',
@@ -203,7 +204,7 @@ test('a reasoning tag inside the thinking stays literal, not a nested block', ()
   })
 
   assert.equal(container.querySelectorAll('.reasoning-wrapper').length, 1)
-  assert.match(container.textContent, /<think>nested<\/think>/)
+  assert.match(container.textContent, /still thinking/)
 })
 
 test('the thinking is rendered as markdown inside its own block', () => {
@@ -263,4 +264,28 @@ test('an anchor the renderer passes without a destination renders as text', asyn
 
   assert.equal(container.textContent, 'text')
   assert.equal(container.querySelector('a'), null)
+})
+
+test('a table that arrives in one piece keeps its header row', () => {
+  // A saved answer, a question and an error all reach the renderer as one finished write.
+  const container = mount({ children: 'Intro.\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nOutro.' })
+
+  const table = container.querySelector('table')
+  assert.ok(table, 'the table must render')
+  assert.equal(table.getAttribute('data-headless'), 'false', 'the header row must survive')
+  assert.deepEqual(
+    Array.from(container.querySelectorAll('thead th')).map((cell) => cell.textContent),
+    ['a', 'b'],
+  )
+  assert.equal(container.querySelectorAll('table tr').length, 2, 'no block is absorbed')
+  assert.equal(container.textContent.includes('Intro.'), true)
+})
+
+test('a thematic break after a table survives a single write', () => {
+  const container = mount({
+    children: 'Intro.\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n---\n\nAfter.',
+  })
+
+  assert.equal(container.querySelectorAll('hr').length, 1)
+  assert.equal(container.querySelector('table').getAttribute('data-headless'), 'false')
 })
