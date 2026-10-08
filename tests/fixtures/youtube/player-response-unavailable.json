@@ -1,0 +1,12 @@
+{
+  "playabilityStatus": {
+    "status": "UNPLAYABLE",
+    "reason": "Synthetic unavailable fixture"
+  },
+  "videoDetails": {
+    "videoId": "SYNTHVID001",
+    "title": "Unavailable synthetic video",
+    "lengthSeconds": "0",
+    "isLiveContent": false
+  }
+}

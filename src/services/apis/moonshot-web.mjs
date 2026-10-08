@@ -1,4 +1,4 @@
-import { pushRecord, setAbortController } from './shared.mjs'
+import { createAdapterDiagnostics, pushRecord, setAbortController } from './shared.mjs'
 import { setUserConfig } from '../../config/index.mjs'
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
@@ -376,6 +376,7 @@ export class Conversation {
       // eslint-disable-next-line no-unused-vars
       rawResponse = () => {},
       signal = null,
+      diagnostics = console,
     } = {},
   ) {
     // {"messages":[{"role":"user","content":"hello"}],"refs":[],"use_search":true}
@@ -404,12 +405,12 @@ export class Conversation {
       signal: signal,
       body: JSON.stringify(body),
       onMessage(message) {
-        console.debug('sse message', message)
+        diagnostics.debug('sse message', message)
         let parsed
         try {
           parsed = JSON.parse(message)
         } catch (error) {
-          console.debug('json error', error)
+          diagnostics.debug('json error', error)
           return
         }
         if (parsed.error) {
@@ -584,7 +585,14 @@ export class Message {
  * @param {Session} session
  * @param {UserConfig} config
  */
-export async function generateAnswersWithMoonshotWebApi(port, question, session, config) {
+export async function generateAnswersWithMoonshotWebApi(
+  port,
+  question,
+  session,
+  config,
+  adapterOptions,
+) {
+  const diagnostics = createAdapterDiagnostics(adapterOptions)
   const { controller, cleanController } = setAbortController(port)
   let bot
   try {
@@ -609,7 +617,7 @@ export async function generateAnswersWithMoonshotWebApi(port, question, session,
 
   const doneFunc = () => {
     pushRecord(session, question, answer)
-    console.debug('conversation history', { content: session.conversationRecords })
+    diagnostics.debug('conversation history', { content: session.conversationRecords })
     port.postMessage({ answer: answer, done: true, session: session })
   }
 
@@ -618,6 +626,7 @@ export async function generateAnswersWithMoonshotWebApi(port, question, session,
     done: doneFunc,
     model,
     signal: controller.signal,
+    diagnostics,
   }
 
   if (!session.moonshot_conversation)

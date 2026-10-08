@@ -1,9 +1,20 @@
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
-import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
+import {
+  createAdapterDiagnostics,
+  getCompletionPromptBase,
+  pushRecord,
+  setAbortController,
+} from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+
+const CONTEXT_PROVIDER_CODES = new Set([
+  'context_length_exceeded',
+  'model_context_window_exceeded',
+  'prompt_too_long',
+])
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -60,7 +71,9 @@ export async function generateAnswersWithOpenAICompatible({
   extraBody = {},
   extraHeaders = {},
   allowLegacyResponseField = false,
+  adapterOptions,
 }) {
+  const diagnostics = createAdapterDiagnostics(adapterOptions)
   const {
     controller,
     messageListener,
@@ -76,7 +89,12 @@ export async function generateAnswersWithOpenAICompatible({
   session.conversationRecords = conversationRecords
   const safeExtraBody = { ...extraBody }
   delete safeExtraBody.temperature
-  if (endpointType === 'completion') {
+  if (adapterOptions?.toolPolicy === 'none') {
+    for (const field of ['tools', 'tool_choice', 'toolChoice', 'functions', 'function_call']) {
+      delete safeExtraBody[field]
+    }
+  }
+  if (endpointType === 'completion' && !adapterOptions?.requestMessages) {
     const prompt =
       (await getCompletionPromptBase()) +
       getConversationPairs(conversationRecords.slice(-config.maxConversationContextLength), true) +
@@ -91,11 +109,10 @@ export async function generateAnswersWithOpenAICompatible({
       ...safeExtraBody,
     }
   } else {
-    const messages = getConversationPairs(
-      conversationRecords.slice(-config.maxConversationContextLength),
-      false,
-    )
-    messages.push({ role: 'user', content: question })
+    const messages = adapterOptions?.requestMessages
+      ? adapterOptions.requestMessages.map(({ role, content }) => ({ role, content }))
+      : getConversationPairs(conversationRecords.slice(-config.maxConversationContextLength), false)
+    if (!adapterOptions?.requestMessages) messages.push({ role: 'user', content: question })
     const tokenParams = getChatCompletionsTokenParams(
       provider,
       model,
@@ -138,7 +155,7 @@ export async function generateAnswersWithOpenAICompatible({
       try {
         data = JSON.parse(message)
       } catch (error) {
-        console.debug('json error', error)
+        diagnostics.debug('json error', error)
         return
       }
 
@@ -167,7 +184,7 @@ export async function generateAnswersWithOpenAICompatible({
                   ...(stoppedGenerationId === undefined ? {} : { stoppedGenerationId }),
                 })
               } catch (e) {
-                console.warn('[openai-compatible-core] Failed to post session on abort:', e)
+                diagnostics.warn('[openai-compatible-core] Failed to post session on abort')
               }
             }
           } else {
@@ -184,7 +201,12 @@ export async function generateAnswersWithOpenAICompatible({
       port.onDisconnect.removeListener(disconnectListener)
       if (resp instanceof Error) throw resp
       const error = await resp.json().catch(() => ({}))
-      throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
+      const providerCode = String(error?.error?.code || '').toLowerCase()
+      const responseError = new Error(
+        !isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`,
+      )
+      if (CONTEXT_PROVIDER_CODES.has(providerCode)) responseError.providerCode = providerCode
+      throw responseError
     },
   })
 }

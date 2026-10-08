@@ -50,6 +50,44 @@ test('azure-openai: composes URL, strips trailing slash, sends api-key header', 
   assert.equal(capturedInit.headers['Content-Type'], 'application/json')
 })
 
+test('azure-openai: video-summary body preserves roles and has no tool fields', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const config = {
+    azureEndpoint: 'https://myinstance.openai.azure.com',
+    azureApiKey: 'az-key',
+    azureDeploymentName: 'gpt-4o',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 256,
+  }
+  const session = { modelName: 'azureOpenAi', conversationRecords: [], isRetry: false }
+  const port = createFakePort()
+  const requestMessages = [
+    { role: 'system', content: 'fixed instruction' },
+    { role: 'user', content: '{"transcript":"untrusted"}' },
+  ]
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithAzureOpenaiApi(
+    port,
+    'flattened question must not be used',
+    session,
+    config,
+    { requestMessages, toolPolicy: 'none' },
+  )
+
+  const body = JSON.parse(capturedInit.body)
+  assert.deepEqual(body.messages, requestMessages)
+  assert.equal('tools' in body, false)
+  assert.equal('tool_choice' in body, false)
+  assert.equal('toolChoice' in body, false)
+})
+
 test('azure-openai: endpoint without trailing slash works', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
@@ -289,4 +327,128 @@ test('azure-openai: throws on error response with JSON body', async (t) => {
     /invalid subscription key/,
   )
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
+test('azure-openai: preserves only recognized context provider codes', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const config = {
+    azureEndpoint: 'https://myinstance.openai.azure.com',
+    azureApiKey: 'bad-key',
+    azureDeploymentName: 'gpt-4o',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 128,
+  }
+
+  for (const { providerError, expectedProviderCode } of [
+    {
+      providerError: { code: 'context_length_exceeded', message: 'private context details' },
+      expectedProviderCode: 'context_length_exceeded',
+    },
+    {
+      providerError: { code: 'invalid_request_error', message: 'prompt is too long' },
+      expectedProviderCode: undefined,
+    },
+  ]) {
+    const session = { modelName: 'azureOpenAi', conversationRecords: [], isRetry: false }
+    const port = createFakePort()
+    t.mock.method(globalThis, 'fetch', async () =>
+      createMockSseResponse([], {
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        json: async () => ({ error: providerError }),
+      }),
+    )
+
+    await assert.rejects(
+      generateAnswersWithAzureOpenaiApi(port, 'private prompt', session, config),
+      (error) => {
+        assert.equal(error.providerCode, expectedProviderCode)
+        return true
+      },
+    )
+  }
+})
+
+test('azure-openai: isolated diagnostics do not emit raw SSE or console output', async (t) => {
+  const consoleMessages = []
+  t.mock.method(console, 'debug', (...args) => consoleMessages.push(args.join(' ')))
+  const config = {
+    azureEndpoint: 'https://myinstance.openai.azure.com',
+    azureApiKey: 'az-key',
+    azureDeploymentName: 'gpt-4o',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 128,
+  }
+  setStorage(config)
+  const diagnostics = []
+  const session = {
+    modelName: 'azureOpenAi',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"SECRET_ANSWER"},"finish_reason":"stop"}]}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithAzureOpenaiApi(port, 'SECRET_PROMPT', session, config, {
+    diagnostics: {
+      debug(message, details) {
+        diagnostics.push({ message, details })
+      },
+    },
+  })
+
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_ANSWER'), false)
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_PROMPT'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_ANSWER'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_PROMPT'), false)
+  assert.equal(diagnostics.length > 0, true)
+})
+
+test('azure-openai: uses an isolated config override instead of stored defaults', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    azureEndpoint: 'https://stored.openai.azure.com',
+    azureApiKey: 'stored-key',
+    azureDeploymentName: 'stored-deployment',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 99,
+  })
+
+  const session = {
+    modelName: 'azureOpenAi',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  const configOverride = {
+    azureEndpoint: 'https://override.openai.azure.com/',
+    azureApiKey: 'override-key',
+    azureDeploymentName: 'override-deployment',
+    maxConversationContextLength: 1,
+    maxResponseTokenLength: 777,
+  }
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
+    ])
+  })
+
+  await generateAnswersWithAzureOpenaiApi(port, 'Q', session, configOverride)
+
+  assert.equal(
+    capturedInput,
+    'https://override.openai.azure.com/openai/deployments/override-deployment/chat/completions?api-version=2024-02-01',
+  )
+  assert.equal(capturedInit.headers['api-key'], 'override-key')
+  assert.equal(JSON.parse(capturedInit.body).max_tokens, 777)
 })

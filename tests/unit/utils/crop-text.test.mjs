@@ -38,7 +38,6 @@ test('cropText correctly splits on punctuation characters', async () => {
     customModelName: '',
   })
 
-  // Build text with comma-separated segments that exceed maxLength (~7700 chars)
   const segments = []
   for (let i = 0; i < 2000; i++) {
     segments.push(`segment${String(i).padStart(4, '0')}`)
@@ -47,10 +46,30 @@ test('cropText correctly splits on punctuation characters', async () => {
 
   const result = await cropText(text, 8000, 800, 600, false)
 
-  // Result should be shorter than original since cropping happened
   assert.ok(result.length < text.length, 'cropped text should be shorter than original')
-  // Result should still contain commas from splitting/reassembly
   assert.ok(result.includes(','), 'result should contain commas from reassembly')
+})
+
+test('cropText does not log cropped content', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    cropText: true,
+    maxResponseTokenLength: 200,
+    modelName: 'claude2WebFree',
+    apiMode: null,
+    customModelName: '',
+  })
+  const originalLog = console.log
+  const calls = []
+  console.log = (...args) => calls.push(args)
+
+  try {
+    const text = Array.from({ length: 2000 }, (_, index) => `private${index}`).join(',')
+    await cropText(text, 8000, 800, 600, false)
+  } finally {
+    console.log = originalLog
+  }
+
+  assert.deepEqual(calls, [])
 })
 
 test('cropText preserves start and end portions of long text', async () => {

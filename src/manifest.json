@@ -3,6 +3,7 @@
   "description": "Integrating ChatGPT into your browser deeply, everything you need is here",
   "version": "2.7.1",
   "manifest_version": 3,
+  "minimum_chrome_version": "116",
   "icons": {
     "16": "logo.png",
     "32": "logo.png",
@@ -26,7 +27,9 @@
     "tabs",
     "webRequest",
     "declarativeNetRequestWithHostAccess",
-    "sidePanel"
+    "sidePanel",
+    "offscreen",
+    "scripting"
   ],
   "optional_permissions": [
     "background"

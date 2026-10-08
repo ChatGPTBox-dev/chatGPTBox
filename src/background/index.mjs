@@ -63,6 +63,198 @@ import {
   shouldSkipProxyReconnect,
   tagProxyRequestGeneration,
 } from './proxy-generation-state.mjs'
+import { createMediaKitGateway } from './media-kit-gateway.mjs'
+import { createModelGateway } from './model-gateway.mjs'
+import { createModelTextDispatcher } from './model-text-dispatcher.mjs'
+import { createVideoSummaryChatgptProxy } from './video-summary-chatgpt-proxy.mjs'
+import { createVideoSummaryOffscreenRpc } from './video-summary-offscreen-rpc.mjs'
+import {
+  VIDEO_SUMMARY_OFFSCREEN_PORT_NAME,
+  closeVideoSummaryOffscreenDocument,
+  createVideoSummaryOffscreenConnectionWaiter,
+  ensureVideoSummaryOffscreenReady,
+  resetVideoSummaryOffscreenDocument,
+} from './offscreen.mjs'
+import { createVideoSummaryCoordinator } from './video-summary-coordinator.mjs'
+import { authenticateVideoSummaryOffscreenPort } from './video-summary-port-auth.mjs'
+import { createVideoSummaryRouter } from './video-summary-router.mjs'
+import { createYouTubePageDataReader, createYouTubePageDataResponse } from './youtube-page-data.mjs'
+
+const EXTENSION_URL_PREFIX = Browser.runtime.getURL('')
+const POPUP_PAGE_URL = Browser.runtime.getURL('popup.html')
+const readYouTubePageData = createYouTubePageDataReader({
+  executeScript: (details) => globalThis.chrome.scripting.executeScript(details),
+})
+const videoSummaryLogger = {
+  info(entry) {
+    console.info('[background]', entry)
+  },
+  warn(entry) {
+    console.warn('[background]', entry)
+  },
+  error(entry) {
+    console.error('[background]', entry)
+  },
+}
+const mediaKitGateway = createMediaKitGateway({
+  storageArea: Browser.storage.local,
+  fetchImpl: fetch,
+  logger: videoSummaryLogger,
+})
+const videoSummaryChatgptProxy = createVideoSummaryChatgptProxy({
+  tabs: Browser.tabs,
+  async getConfiguredTabId() {
+    return (await getUserConfig()).chatgptTabId
+  },
+  logger: videoSummaryLogger,
+})
+const modelTextDispatcher = createModelTextDispatcher({
+  getUserConfig,
+  getChatGptAccessToken,
+  getClaudeSessionKey,
+  getBingAccessToken,
+  getBardCookies,
+  generateWithChatgptPageProxy: (args) => videoSummaryChatgptProxy.generate(args),
+  generateAnswersWithChatgptWebApi,
+  generateAnswersWithClaudeWebApi,
+  generateAnswersWithMoonshotWebApi,
+  generateAnswersWithBingWebApi,
+  generateAnswersWithBardWebApi,
+  generateAnswersWithOpenAICompatibleApi,
+  generateAnswersWithClaudeApi,
+  generateAnswersWithAzureOpenaiApi,
+  generateAnswersWithWaylaidwandererApi,
+  logger: videoSummaryLogger,
+})
+function describeModelTextSupport(_config, modelIdentity) {
+  const candidate = modelIdentity || {}
+  const supported =
+    isUsingChatgptWebModel(candidate) ||
+    isUsingClaudeWebModel(candidate) ||
+    isUsingMoonshotWebModel(candidate) ||
+    isUsingBingWebModel(candidate) ||
+    isUsingGeminiWebModel(candidate) ||
+    isUsingCustomModel(candidate) ||
+    isUsingChatgptApiModel(candidate) ||
+    isUsingGptCompletionApiModel(candidate) ||
+    isUsingMoonshotApiModel(candidate) ||
+    isUsingMistralApiModel(candidate) ||
+    isUsingChatGLMApiModel(candidate) ||
+    isUsingDeepSeekApiModel(candidate) ||
+    isUsingNvidiaNimApiModel(candidate) ||
+    isUsingOllamaApiModel(candidate) ||
+    isUsingOpenRouterApiModel(candidate) ||
+    isUsingAimlApiModel(candidate) ||
+    isUsingGoogleApiModel(candidate) ||
+    isUsingXaiApiModel(candidate) ||
+    isUsingClaudeApiModel(candidate) ||
+    isUsingAzureOpenAiApiModel(candidate) ||
+    isUsingGithubThirdPartyApiModel(candidate)
+  return supported
+    ? { state: 'supported' }
+    : { state: 'unsupported', reason: 'MODEL_GATEWAY_UNSUPPORTED' }
+}
+const modelGateway = createModelGateway({
+  getUserConfig,
+  describeModelTextSupport,
+  generateTextWithModel: (args) => modelTextDispatcher.generateText(args),
+  logger: videoSummaryLogger,
+})
+const videoSummaryClock = {
+  now: () => Date.now(),
+  setTimeout: globalThis.setTimeout.bind(globalThis),
+  clearTimeout: globalThis.clearTimeout.bind(globalThis),
+}
+const videoSummaryMediaKitGateway = {
+  ...mediaKitGateway,
+  submitUploadedAsr: (args, options) => mediaKitGateway.submitDirectAsr(args, options),
+}
+const videoSummaryOffscreenState = { port: null }
+const videoSummaryOffscreenConnection = createVideoSummaryOffscreenConnectionWaiter()
+let videoSummaryOffscreenRpc
+
+function getVideoSummaryRuntime() {
+  const chromeRuntime = globalThis.chrome?.runtime
+  return {
+    id: Browser.runtime.id,
+    getURL: Browser.runtime.getURL.bind(Browser.runtime),
+    getContexts:
+      typeof chromeRuntime?.getContexts === 'function'
+        ? chromeRuntime.getContexts.bind(chromeRuntime)
+        : undefined,
+  }
+}
+
+async function ensureVideoSummaryOffscreen() {
+  await ensureVideoSummaryOffscreenReady({
+    runtime: getVideoSummaryRuntime(),
+    chromeOffscreen: globalThis.chrome?.offscreen,
+    connection: videoSummaryOffscreenConnection,
+  })
+}
+
+const videoSummaryStartupReady = closeVideoSummaryOffscreenDocument({
+  runtime: getVideoSummaryRuntime(),
+  chromeOffscreen: globalThis.chrome?.offscreen,
+}).catch((error) => {
+  videoSummaryLogger.warn({
+    event: 'video-summary-offscreen.initial-reset-failed',
+    error: error?.message || 'VIDEO_SUMMARY_OFFSCREEN_RESET_FAILED',
+  })
+})
+const videoSummaryCoordinator = createVideoSummaryCoordinator({
+  clock: videoSummaryClock,
+  ensureOffscreen: ensureVideoSummaryOffscreen,
+  sendOffscreen(command) {
+    if (command.type === 'CANCEL_TASK') videoSummaryOffscreenRpc.cancelGeneration(command.fence)
+    videoSummaryOffscreenRpc.postCommand(command)
+  },
+  sendContent(port, message) {
+    port.postMessage(structuredClone(message))
+  },
+  resetOffscreen() {
+    videoSummaryOffscreenConnection.detach(videoSummaryOffscreenState.port)
+    videoSummaryOffscreenState.port = null
+    return resetVideoSummaryOffscreenDocument({
+      runtime: getVideoSummaryRuntime(),
+      chromeOffscreen: globalThis.chrome?.offscreen,
+    })
+  },
+})
+videoSummaryOffscreenRpc = createVideoSummaryOffscreenRpc({
+  mediaKitGateway: videoSummaryMediaKitGateway,
+  modelGateway,
+  coordinator: videoSummaryCoordinator,
+  logger: videoSummaryLogger,
+  onDisconnect(port) {
+    videoSummaryOffscreenConnection.detach(port)
+    if (videoSummaryOffscreenState.port === port) videoSummaryOffscreenState.port = null
+  },
+})
+const videoSummaryRouter = createVideoSummaryRouter({
+  runtime: getVideoSummaryRuntime(),
+  coordinator: videoSummaryCoordinator,
+  logger: videoSummaryLogger,
+  startupReady: videoSummaryStartupReady,
+})
+
+function getSenderUrl(sender) {
+  return sender?.url || sender?.documentUrl || sender?.origin || null
+}
+
+function isTrustedExtensionSender(sender) {
+  const senderId = sender?.id
+  const senderUrl = getSenderUrl(sender)
+  return (
+    senderId === Browser.runtime.id ||
+    (!senderId && typeof senderUrl === 'string' && senderUrl.startsWith(EXTENSION_URL_PREFIX))
+  )
+}
+
+function isPopupSender(sender) {
+  const senderUrl = getSenderUrl(sender)
+  return typeof senderUrl === 'string' && senderUrl === POPUP_PAGE_URL
+}
 
 function postProxySession(port, session, requestGenerationId) {
   const proxyGenerationId = (port._proxyGenerationId ?? 0) + 1
@@ -692,14 +884,62 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         }
         break
       }
+      case 'YOUTUBE_PAGE_PLAYER_RESPONSE':
+        return createYouTubePageDataResponse(
+          () =>
+            readYouTubePageData({
+              sender,
+              expectedVideoId: message.data?.expectedVideoId,
+            }),
+          'player-response',
+        )
+      case 'YOUTUBE_PAGE_CAPTURE_CAPTION':
+        return createYouTubePageDataResponse(
+          () =>
+            readYouTubePageData.captureCaption({
+              sender,
+              expectedVideoId: message.data?.expectedVideoId,
+              language: message.data?.language,
+              sourceKind: message.data?.sourceKind,
+              vssId: message.data?.vssId,
+              mode: message.data?.mode,
+            }),
+          'caption-request',
+        )
+      case 'VIDEO_SUMMARY_MEDIAKIT_KEY_STATE': {
+        if (!isPopupSender(sender)) {
+          console.warn(
+            '[background] Rejecting VIDEO_SUMMARY_MEDIAKIT_KEY_STATE from non-popup sender:',
+            sender,
+          )
+          return { message: 'Unauthorized sender' }
+        }
+        return mediaKitGateway.getKeyState()
+      }
+      case 'VIDEO_SUMMARY_SET_MEDIAKIT_KEY': {
+        if (!isPopupSender(sender)) {
+          console.warn(
+            '[background] Rejecting VIDEO_SUMMARY_SET_MEDIAKIT_KEY from non-popup sender:',
+            sender,
+          )
+          return { message: 'Unauthorized sender' }
+        }
+        await mediaKitGateway.setKey(message.data?.apiKey)
+        return mediaKitGateway.getKeyState()
+      }
+      case 'VIDEO_SUMMARY_DELETE_MEDIAKIT_KEY': {
+        if (!isPopupSender(sender)) {
+          console.warn(
+            '[background] Rejecting VIDEO_SUMMARY_DELETE_MEDIAKIT_KEY from non-popup sender:',
+            sender,
+          )
+          return { message: 'Unauthorized sender' }
+        }
+        await mediaKitGateway.deleteKey()
+        return mediaKitGateway.getKeyState()
+      }
       case 'FETCH': {
-        const senderId = sender?.id
-        const senderUrl = sender?.url || sender?.documentUrl || sender?.origin
-        const extensionOrigin = new URL(Browser.runtime.getURL('/')).origin
-        const isTrustedExtensionSenderWithoutId =
-          !senderId && typeof senderUrl === 'string' && senderUrl.startsWith(`${extensionOrigin}/`)
-
-        if (senderId !== Browser.runtime.id && !isTrustedExtensionSenderWithoutId) {
+        if (!isTrustedExtensionSender(sender)) {
           console.warn('[background] Rejecting FETCH message from untrusted sender:', sender)
           return [null, { message: 'Unauthorized sender' }]
         }
@@ -1016,6 +1256,30 @@ try {
       outerTryCatchError(error)
     }
   })
+
+  if (Browser.runtime?.onConnect?.addListener) {
+    Browser.runtime.onConnect.addListener((port) => {
+      if (port?.name === VIDEO_SUMMARY_OFFSCREEN_PORT_NAME) {
+        try {
+          authenticateVideoSummaryOffscreenPort({ port, runtime: getVideoSummaryRuntime() })
+          videoSummaryOffscreenState.port = port
+          videoSummaryOffscreenRpc.attachPort(port)
+          videoSummaryOffscreenConnection.attach(port)
+        } catch {
+          port.disconnect()
+        }
+        return
+      }
+
+      videoSummaryRouter.handleConnect(port)
+    })
+  }
+
+  if (Browser.tabs?.onRemoved?.addListener) {
+    Browser.tabs.onRemoved.addListener((tabId) => {
+      videoSummaryRouter.handleTabRemoved(tabId)
+    })
+  }
 } catch (error) {
   console.error('[background] Error setting up webRequest or tabs listeners:', error)
 }
