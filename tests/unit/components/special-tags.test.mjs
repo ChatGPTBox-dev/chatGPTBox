@@ -44,3 +44,33 @@ test('prose around code is still escaped', () => {
     '`<think>` means &lt;think>thinking&lt;/think>.',
   )
 })
+
+test('a fence inside a quote keeps its content untouched', () => {
+  const quoted = '> ```html\n> <think>x</think>\n> ```\n'
+
+  assert.equal(escapeReasoningTags(quoted), quoted)
+})
+
+test('a fence longer than the example it holds keeps its content untouched', () => {
+  // The line of ``` inside must not close the ```` that opened the block.
+  const nested = '````md\n```html\n<think>x</think>\n```\n````\n'
+  assert.equal(escapeReasoningTags(nested), nested)
+
+  const tildes = '~~~html\n<think>x</think>\n~~~\n'
+  assert.equal(escapeReasoningTags(tildes), tildes)
+})
+
+test('a closer must match the opening marker, so a tildes fence does not close backticks', () => {
+  const mixed = '```html\n<think>x</think>\n~~~\n<think>y</think>\n```\n'
+
+  assert.equal(escapeReasoningTags(mixed), mixed)
+})
+
+test('prose after a closed fence is escaped again', () => {
+  const text = '```html\n<think>x</think>\n```\n\nThen <think>prose</think>.\n'
+
+  assert.equal(
+    escapeReasoningTags(text),
+    '```html\n<think>x</think>\n```\n\nThen &lt;think>prose&lt;/think>.\n',
+  )
+})

@@ -293,6 +293,48 @@ test('claude-api: thinking deltas stream as reasoning, never as the answer', asy
   })
 })
 
+test('claude-api: a thinking-only completion records no turn', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const { session, port } = setupCompletionTest()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"weighing "}}\n\n',
+      'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"options"}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithClaudeApi(port, 'CurrentQ', session)
+
+  // The OpenAI-compatible path drops a thinking-only turn for the same reason: the model must
+  // not be sent its own unfinished reasoning back as context.
+  assert.deepEqual(session.conversationRecords, [])
+  assert.equal(
+    port.postedMessages.some((message) => message.reasoning),
+    true,
+    'the thinking still reaches the card',
+  )
+  assert.deepEqual(port.postedMessages.at(-1), { answer: null, done: true, session })
+})
+
+test('claude-api: an empty answer with no thinking is still recorded', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const { session, port } = setupCompletionTest()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithClaudeApi(port, 'CurrentQ', session)
+
+  assert.deepEqual(session.conversationRecords, [{ question: 'CurrentQ', answer: '' }])
+})
+
 test('claude-api: rejects incomplete Claude responses', async (t) => {
   t.mock.method(console, 'debug', () => {})
 

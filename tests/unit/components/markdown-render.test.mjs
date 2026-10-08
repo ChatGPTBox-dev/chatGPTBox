@@ -225,3 +225,42 @@ test('the thinking highlights code the same way the answer does', () => {
   assert.ok(code, 'the thinking renders its code block')
   assert.ok(code.classList.contains('hljs'), 'the thinking uses the same highlight plugin')
 })
+
+test('a numbered list that begins at 1 is numbered from 1 once it finishes', async () => {
+  const container = mount({ children: '1. a\n2. b', done: false })
+  act(() => render(h(MarkdownRender, { children: '1. a\n2. b', done: true }), container))
+  // The renderer adds `start="0"` on its own write, and the correction lands on the observer.
+  await new Promise((resolve) => setTimeout(resolve, 32))
+
+  const list = container.querySelector('ol')
+  assert.ok(list, 'the list must render')
+  assert.equal(
+    list.hasAttribute('start'),
+    false,
+    'the finalized list must not be numbered from zero',
+  )
+})
+
+test('a numbered list that begins at 0 keeps its start', () => {
+  const container = mount({ children: '0. a\n1. b', done: true })
+
+  assert.equal(container.querySelector('ol').getAttribute('start'), '0')
+})
+
+test('a link the sanitizer refuses does not take the answer down with it', () => {
+  const container = mount({ children: 'before [x](javascript:alert(1)) after' })
+
+  assert.match(container.textContent, /before x after/)
+})
+
+test('an anchor the renderer passes without a destination renders as text', async () => {
+  const { Hyperlink } = await import('../../../src/components/MarkdownRender/Hyperlink.jsx')
+  const container = dom.window.document.createElement('div')
+  dom.window.document.body.append(container)
+  containers.add(container)
+
+  act(() => render(h(Hyperlink, { href: undefined }, 'text'), container))
+
+  assert.equal(container.textContent, 'text')
+  assert.equal(container.querySelector('a'), null)
+})

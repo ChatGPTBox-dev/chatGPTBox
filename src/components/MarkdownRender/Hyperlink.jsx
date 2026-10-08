@@ -8,6 +8,11 @@ export function Hyperlink({ href, children }) {
     rel: 'nofollow noopener noreferrer',
   }
 
+  // A destination can be missing by the time the anchor gets here -- the renderer strips one it
+  // refuses to allow, and raw HTML can leave it out. Rendering the children keeps the reply
+  // readable, where a lookup on the missing string would throw and take the answer down with it.
+  if (typeof href !== 'string' || href === '') return children
+
   return href.includes('chatgpt.com') ||
     href.includes('claude.ai') ||
     href.includes('kimi.moonshot.cn') ||
@@ -37,6 +42,6 @@ export function Hyperlink({ href, children }) {
 }
 
 Hyperlink.propTypes = {
-  href: PropTypes.string.isRequired,
-  children: PropTypes.object.isRequired,
+  href: PropTypes.string,
+  children: PropTypes.node.isRequired,
 }

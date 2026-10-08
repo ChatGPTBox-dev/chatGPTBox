@@ -2,7 +2,10 @@
 // sync.
 const REASONING_TAG_NAME = 'think|thinking|reasoning'
 const REASONING_TAG_PATTERN = new RegExp(`</?\\s*(?:${REASONING_TAG_NAME})\\b[^>]*>`, 'gi')
-const FENCE_PATTERN = /^ {0,3}(?:```+|~~~+)/
+// A fence line: any indentation, any blockquote markers, then three or more backticks or
+// tildes and whatever follows them. The renderer has no indented-code block, so a fence does
+// not have to be at the left margin -- inside a list item or a quote it is still a fence.
+const FENCE_PATTERN = /^[ \t]*(?:>[ \t]?)*(`{3,}|~{3,})([^\n]*)/
 
 function escapeTags(text) {
   // Only the leading angle bracket is escaped, so the tag still reads as "<think>".
@@ -32,17 +35,28 @@ function escapeTagsOutsideInlineCode(line) {
 }
 
 function escapeTagsOutsideCode(text) {
-  let inFence = false
+  // Markdown matches the closing fence by character and requires it to be at least as long as
+  // the opening one, so ```` ``` ```` stays open through a line of ``` and a nested example
+  // survives. Wrapping the state in an object keeps the per-line closure honest.
+  const state = { fence: null }
   return text
     .split(/(?<=\n)/)
     .map((line) => {
-      const isFenceLine = FENCE_PATTERN.test(line)
-      if (inFence) {
-        if (isFenceLine) inFence = false
+      const fenceLine = FENCE_PATTERN.exec(line)
+      if (state.fence !== null) {
+        if (
+          fenceLine &&
+          fenceLine[1][0] === state.fence[0] &&
+          fenceLine[1].length >= state.fence.length &&
+          // A closing fence carries no info string.
+          fenceLine[2].trim() === ''
+        ) {
+          state.fence = null
+        }
         return line
       }
-      if (isFenceLine) {
-        inFence = true
+      if (fenceLine) {
+        state.fence = fenceLine[1]
         return line
       }
       return escapeTagsOutsideInlineCode(line)

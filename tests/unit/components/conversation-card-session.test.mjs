@@ -4,10 +4,13 @@ import {
   createConversationPortMessage,
   createRetrySession,
   finalizeInterruptedSession,
+  getCompletedAnswerContent,
   getInterruptedCompletionState,
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
 } from '../../../src/components/ConversationCard/session.mjs'
+
+const PLACEHOLDER = '<p class="gpt-loading">Waiting for response...</p>'
 
 test('finalizeInterruptedSession appends a partial answer without mutating the source session', () => {
   const session = {
@@ -191,4 +194,32 @@ test('getInterruptedCompletionState finalizes on proxy disconnect with a session
       restoredRetryAnswer: 'Old answer',
     },
   )
+})
+
+test('getCompletedAnswerContent finishes with the answer the stream produced', () => {
+  assert.equal(
+    getCompletedAnswerContent(null, 'The answer.', PLACEHOLDER, PLACEHOLDER),
+    'The answer.',
+  )
+})
+
+test('getCompletedAnswerContent restores a retry answer that outranks the stream', () => {
+  assert.equal(
+    getCompletedAnswerContent('Restored answer', 'Partial', 'Partial', PLACEHOLDER),
+    'Restored answer',
+  )
+})
+
+test('getCompletedAnswerContent clears the placeholder a reasoning-only turn left behind', () => {
+  assert.equal(getCompletedAnswerContent(null, '', PLACEHOLDER, PLACEHOLDER), '')
+})
+
+test('getCompletedAnswerContent keeps an answer a duplicate completion would blank', () => {
+  // ChatGPT Web and Waylaidwanderer send a second, contentless completion at the end of the
+  // stream; by then the buffered answer has already been consumed.
+  assert.equal(getCompletedAnswerContent(null, '', 'The answer.', PLACEHOLDER), 'The answer.')
+})
+
+test('getCompletedAnswerContent leaves an already cleared answer alone', () => {
+  assert.equal(getCompletedAnswerContent(null, '', '', PLACEHOLDER), '')
 })

@@ -4,6 +4,7 @@ import {
   parseJsonMessage,
   pushRecord,
   setAbortController,
+  shouldRecordTurn,
 } from './shared.mjs'
 import { FETCH_RESPONSE_STREAM_FAILED, fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
@@ -95,7 +96,8 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
           controller.abort()
           throw completionError
         }
-        pushRecord(session, question, answer)
+        // Thinking-only completions are not recorded, exactly like the OpenAI-compatible path.
+        if (shouldRecordTurn(answer, reasoning)) pushRecord(session, question, answer)
         console.debug('conversation history', { content: session.conversationRecords })
         port.postMessage({ answer: null, done: true, session: session })
         completedSuccessfully = true

@@ -87,6 +87,22 @@ export function pushRecord(session, question, answer) {
 }
 
 /**
+ * Whether a finished turn belongs in the conversation records.
+ *
+ * A turn that was nothing but thinking has no answer to record; keeping it out of the records
+ * is what stops a model being sent its own unfinished reasoning back as context. A plain empty
+ * answer is still recorded, as it always has been. Every provider that can stream reasoning
+ * shares this rule so the paths cannot drift apart.
+ *
+ * @param {string} answer
+ * @param {string} reasoning
+ * @returns {boolean}
+ */
+export function shouldRecordTurn(answer, reasoning) {
+  return Boolean(answer) || !reasoning
+}
+
+/**
  * The user-facing error for a non-ok HTTP response: the provider's JSON body when there is
  * one, and the status line otherwise. Every transport reports failures the same way.
  *

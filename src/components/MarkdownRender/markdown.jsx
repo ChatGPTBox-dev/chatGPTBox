@@ -2,7 +2,7 @@ import { memo, useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import PropTypes from 'prop-types'
 import { HyperMarkdown } from '@aeven-ai/hypermarkdown'
-import { normalizeListStarts } from './list-markers.mjs'
+import { createListStartNormalizer } from './list-markers.mjs'
 import { escapeReasoningTags } from './special-tags.mjs'
 import { createStreamDelta } from './stream-delta.mjs'
 import { waitingPlaceholder } from './waiting-placeholder.mjs'
@@ -24,31 +24,14 @@ export function MarkdownRender({ children, done = true, reasoning = '' }) {
   const containerRef = useRef(null)
   const deltaRef = useRef(null)
   if (deltaRef.current === null) deltaRef.current = createStreamDelta()
+  const listStartsRef = useRef(null)
+  if (listStartsRef.current === null) listStartsRef.current = createListStartNormalizer()
   // The card's placeholder is not answer text, so until real text arrives the thinking is
   // still the part that is streaming.
   const answerStarted = children !== '' && children !== waitingPlaceholder(t)
   // Thinking is rendered from its own field, so any reasoning tag left in ordinary content is
   // just text: it is escaped so the renderer cannot turn it into a block or strip it.
   const content = escapeReasoningTags(children)
-
-  // The renderer draws its own markers with `li::before`, but a nested bullet list inherits
-  // the numbered marker of the list around it and its counter ignores `start`. The markers
-  // are therefore drawn by the browser (see content-script/styles.scss), which needs the
-  // streaming-only `start="0"` cleaned up.
-  useLayoutEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-    const correctStarts = () => normalizeListStarts(container)
-    correctStarts()
-    const observer = new MutationObserver(correctStarts)
-    observer.observe(container, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['start'],
-    })
-    return () => observer.disconnect()
-  }, [])
 
   // Answers arrive as a growing snapshot, but the renderer takes deltas and caches the
   // blocks it has settled, so only the new text is parsed on each update.
@@ -60,6 +43,30 @@ export function MarkdownRender({ children, done = true, reasoning = '' }) {
     if (step.reset) renderer.reset()
     renderer.write(step.write, step.finalize)
   })
+
+  // The renderer draws its own markers with `li::before`, but a nested bullet list inherits
+  // the numbered marker of the list around it and its counter ignores `start`. The markers are
+  // therefore drawn by the browser (see content-script/styles.scss), which needs the
+  // `start="0"` the renderer adds to a finalized list that began at 1 cleaned up. This runs
+  // after the write above, so it sees the DOM the renderer just produced.
+  useLayoutEffect(() => {
+    listStartsRef.current.apply(containerRef.current)
+  })
+
+  // The renderer also writes into its container on its own, outside a render of this
+  // component; the observer is what catches those.
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const observer = new MutationObserver(() => listStartsRef.current.apply(container))
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['start'],
+    })
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <div dir="auto" ref={containerRef}>

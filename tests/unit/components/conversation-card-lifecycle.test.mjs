@@ -892,6 +892,27 @@ test('a reasoning-only completion clears the placeholder and finishes the answer
   assert.equal(answer.done, true)
 })
 
+test('a duplicate completion keeps the answer that is already on screen', () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const session = { ...baseSession(), question: 'why?' }
+
+  mountCard(container, { question: 'why?', session })
+  const port = state.ports[0]
+
+  // ChatGPT Web completes at [DONE] and again at EOF, and Waylaidwanderer does the same
+  // through its `onEnd`. The second message carries no answer of its own.
+  act(() => port.onMessage.trigger({ answer: 'The answer.', done: true, session }))
+  assert.equal(state.answerProps.at(-1).content, 'The answer.')
+
+  act(() => port.onMessage.trigger({ done: true }))
+
+  const answer = state.answerProps.at(-1)
+  assert.equal(answer.content, 'The answer.', 'the tail completion must not blank the reply')
+  assert.equal(answer.done, true)
+})
+
 test('an error closes the trailing answer so its reasoning stops streaming', async () => {
   const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
   const container = document.createElement('div')

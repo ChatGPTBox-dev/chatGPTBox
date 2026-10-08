@@ -45,6 +45,7 @@ import {
   createConversationPortMessage,
   createRetrySession,
   finalizeInterruptedSession,
+  getCompletedAnswerContent,
   getInterruptedCompletionState,
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
@@ -242,6 +243,36 @@ function ConversationCard(props) {
     })
   }
 
+  /**
+   * Finish the trailing answer once the stream has ended.
+   *
+   * Replacing the content with what the stream buffered is what clears a loading placeholder
+   * left by a reasoning-only turn. Resolving that against the item's current content keeps a
+   * duplicate, contentless completion from blanking a reply that is already on screen.
+   * @param {string|null} restoredRetryAnswer
+   * @param {string} partialAnswer
+   */
+  const finishAnswer = (restoredRetryAnswer, partialAnswer) => {
+    setConversationItemData((old) => {
+      const index = findLastIndex(old, (v) => v.type === 'answer' || v.type === 'error')
+      if (index === -1) return old
+      const item = old[index]
+      const copy = [...old]
+      copy[index] = new ConversationItemData(
+        'answer',
+        getCompletedAnswerContent(
+          restoredRetryAnswer,
+          partialAnswer,
+          item.content,
+          waitingPlaceholder(t),
+        ),
+        true,
+        item.reasoning,
+      )
+      return copy
+    })
+  }
+
   const streamBufferRef = useRef(null)
   if (streamBufferRef.current === null) {
     streamBufferRef.current = createStreamBuffer({
@@ -282,9 +313,7 @@ function ConversationCard(props) {
       }
       partialAnswerRef.current = ''
       retryRecordRef.current = null
-      // Replacing the content with the streamed answer (instead of appending nothing) is
-      // what clears a loading placeholder left by a reasoning-only turn.
-      updateAnswer(completionState.restoredRetryAnswer ?? partialAnswer, false, 'answer', true)
+      finishAnswer(completionState.restoredRetryAnswer, partialAnswer)
       setIsReady(true)
     }
     if (msg.error) {

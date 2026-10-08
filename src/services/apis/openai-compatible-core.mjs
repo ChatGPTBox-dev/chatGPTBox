@@ -6,6 +6,7 @@ import {
   parseJsonMessage,
   pushRecord,
   setAbortController,
+  shouldRecordTurn,
 } from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
@@ -171,10 +172,7 @@ export async function generateAnswersWithOpenAICompatible({
   const finish = () => {
     if (finished) return
     finished = true
-    // A turn that was nothing but thinking has no answer to record; keeping it out of the
-    // records is what stops the model from being sent its own unfinished reasoning back as
-    // context. A plain empty answer is still recorded, as it always has been.
-    if (answer || !reasoning) pushRecord(session, question, answer)
+    if (shouldRecordTurn(answer, reasoning)) pushRecord(session, question, answer)
     port.postMessage({ answer: null, done: true, session: session })
   }
 
