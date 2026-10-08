@@ -38,7 +38,6 @@ import {
 import '../_locales/i18n'
 import { openUrl } from '../utils/open-url'
 import {
-  getBardCookies,
   getBingAccessToken,
   getChatGptAccessToken,
   getClaudeSessionKey,
@@ -46,7 +45,7 @@ import {
 } from '../services/wrappers.mjs'
 import { refreshMenu } from './menus.mjs'
 import { registerCommands } from './commands.mjs'
-import { generateAnswersWithBardWebApi } from '../services/apis/bard-web.mjs'
+import { generateAnswersWithGeminiWebApi } from '../services/apis/gemini-web.mjs'
 import { generateAnswersWithClaudeWebApi } from '../services/apis/claude-web.mjs'
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
@@ -568,13 +567,12 @@ async function executeApi(
       }
     } else if (isUsingGeminiWebModel(session)) {
       console.debug('[background] Using Gemini Web Model')
-      const cookies = await getBardCookies()
       if (!isLatestSessionRequest()) return
-      await generateAnswersWithBardWebApi(
+      await generateAnswersWithGeminiWebApi(
         port,
         session.question,
         session,
-        cookies,
+        config,
         isLatestSessionRequest,
       )
     } else if (isUsingOpenAICompatibleApiSession(session)) {
