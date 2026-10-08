@@ -277,10 +277,15 @@ function FloatingToolbar(props) {
             const p = getClientPosition(props.container)
             props.container.style.position = 'fixed'
             setPosition(p)
-            const nextPrompt = await genPrompt(selection)
-            if (!mountedRef.current || requestVersion !== toolRequestVersionRef.current) return
-            setPrompt(nextPrompt)
-            setTriggered(true)
+            try {
+              const nextPrompt = await genPrompt(selection)
+              if (!mountedRef.current || requestVersion !== toolRequestVersionRef.current) return
+              setPrompt(nextPrompt)
+              setTriggered(true)
+            } catch (error) {
+              if (!mountedRef.current || requestVersion !== toolRequestVersionRef.current) return
+              console.error('[FloatingToolbar] Failed to generate selection tool prompt:', error)
+            }
           },
         }),
       )
