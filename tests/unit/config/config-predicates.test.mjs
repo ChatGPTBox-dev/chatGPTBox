@@ -58,7 +58,11 @@ const representativeChatgptApiModelNames = [
   'chatgptApi6_1Sol',
 ]
 const representativeGptCompletionApiModelNames = ['gptApiInstruct']
-const representativeClaudeApiModelNames = ['claudeOpus48Api', 'claudeSonnet46Api']
+const representativeClaudeApiModelNames = [
+  'claudeOpus48Api',
+  'claudeSonnet46Api',
+  'claudeHaiku55Api',
+]
 const representativeOpenRouterApiModelNames = [
   'openRouter_anthropic_claude_sonnet4_6',
   'openRouter_openai_gpt_5_5',
@@ -92,6 +96,12 @@ test('GPT-6 defaults use GPT-6.1 Sol and GPT-6 Luna', () => {
   assert.equal(defaultApiModeIds.includes('chatgptApi6Sol'), false)
   assert.equal(defaultApiModeIds.includes('chatgptApi5_6Sol'), false)
   assert.equal(defaultApiModeIds.includes('chatgptApi5_6Luna'), false)
+})
+
+test('Claude defaults use Haiku 5.5 and keep Haiku 4.5 selectable', () => {
+  assert.equal(defaultApiModeIds.includes('claudeHaiku55Api'), true)
+  assert.equal(defaultApiModeIds.includes('claudeHaiku45Api'), false)
+  assert.ok(claudeApiModelKeys.includes('claudeHaiku45Api'))
 })
 
 test('getNavigatorLanguage returns zh-Hant for zh-TW style locales', () => {
