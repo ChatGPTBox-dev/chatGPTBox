@@ -68,6 +68,47 @@ test('findMissingEnv accepts required secrets', () => {
   assert.deepEqual(findMissingEnv(env), [])
 })
 
+test('findMissingEnv does not require Chrome credentials when publishing through the action', () => {
+  const env = {
+    CHROME_PUBLISH_VIA_ACTION: 'true',
+    FIREFOX_EXTENSION_ID: 'chatgptbox',
+    FIREFOX_JWT_ISSUER: 'firefox-issuer',
+    FIREFOX_JWT_SECRET: 'firefox-secret',
+    EDGE_PRODUCT_ID: 'edge-product',
+    EDGE_CLIENT_ID: 'edge-client',
+    EDGE_API_KEY: 'edge-key',
+  }
+
+  assert.deepEqual(findMissingEnv(env), [])
+})
+
+test('findMissingEnv requires Firefox and Edge credentials in action mode', () => {
+  const requiredStoreEnv = [
+    'FIREFOX_EXTENSION_ID',
+    'FIREFOX_JWT_ISSUER',
+    'FIREFOX_JWT_SECRET',
+    'EDGE_PRODUCT_ID',
+    'EDGE_CLIENT_ID',
+    'EDGE_API_KEY',
+  ]
+  const env = {
+    CHROME_PUBLISH_VIA_ACTION: 'true',
+    FIREFOX_EXTENSION_ID: 'chatgptbox',
+    FIREFOX_JWT_ISSUER: 'firefox-issuer',
+    FIREFOX_JWT_SECRET: 'firefox-secret',
+    EDGE_PRODUCT_ID: 'edge-product',
+    EDGE_CLIENT_ID: 'edge-client',
+    EDGE_API_KEY: 'edge-key',
+  }
+
+  for (const name of requiredStoreEnv) {
+    const envWithoutStoreValue = { ...env }
+    delete envWithoutStoreValue[name]
+
+    assert.deepEqual(findMissingEnv(envWithoutStoreValue), [name])
+  }
+})
+
 test('findMissingEnv treats whitespace-only secrets as missing', () => {
   const env = {
     CHROME_EXTENSION_ID: 'chrome-id',
@@ -99,6 +140,19 @@ test('buildPublishExtensionArgs includes all stores and dry run', () => {
     '--dry-run',
     '--chrome-zip',
     'build/chromium.zip',
+    '--firefox-zip',
+    'build/firefox.zip',
+    '--firefox-sources-zip',
+    'build/firefox-sources.zip',
+    '--edge-zip',
+    'build/chromium.zip',
+  ])
+})
+
+test('buildPublishExtensionArgs skips Chrome when it is published through the action', () => {
+  const args = buildPublishExtensionArgs({ dryRun: false, skipChrome: true })
+
+  assert.deepEqual(args, [
     '--firefox-zip',
     'build/firefox.zip',
     '--firefox-sources-zip',
