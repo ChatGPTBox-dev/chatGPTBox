@@ -82,7 +82,7 @@ test('findMissingEnv does not require Chrome credentials when publishing through
   assert.deepEqual(findMissingEnv(env), [])
 })
 
-test('findMissingEnv still requires Firefox and Edge credentials when publishing Chrome through the action', () => {
+test('findMissingEnv requires Firefox and Edge credentials in action mode', () => {
   const requiredStoreEnv = [
     'FIREFOX_EXTENSION_ID',
     'FIREFOX_JWT_ISSUER',
