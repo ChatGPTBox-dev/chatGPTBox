@@ -45,22 +45,22 @@ jobs:
         with:
           format: YYYY_MMDD_HHmm
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Chromium_Build_${{ steps.current-time.outputs.formattedTime }}
           path: build/chromium/*
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Firefox_Build_${{ steps.current-time.outputs.formattedTime }}
           path: build/firefox/*
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Chromium_Build_WithoutKatex_${{ steps.current-time.outputs.formattedTime }}
           path: build/chromium-without-katex-and-tiktoken/*
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Firefox_Build_WithoutKatex_${{ steps.current-time.outputs.formattedTime }}
           path: build/firefox-without-katex-and-tiktoken/*
