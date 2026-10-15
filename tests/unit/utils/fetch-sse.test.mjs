@@ -8,6 +8,98 @@ import {
 } from '../../../src/utils/fetch-sse.mjs'
 import { createMockSseResponse } from '../helpers/sse-response.mjs'
 
+for (const prefix of ['{"answer":"', ' ']) {
+  test(`fetchSSE cancels oversized buffered responses (${JSON.stringify(prefix)})`, async (t) => {
+    const limit = 16 * 1024 * 1024
+    const chunks = [new TextEncoder().encode(prefix), new Uint8Array(limit).fill(32)]
+    const cancel = t.mock.fn(async () => {
+      throw new Error('Cancellation failed')
+    })
+    const read = t.mock.fn(async () => ({ done: chunks.length === 0, value: chunks.shift() }))
+    t.mock.method(globalThis, 'fetch', async () => ({
+      ok: true,
+      body: { getReader: () => ({ read, cancel }) },
+    }))
+    const onError = t.mock.fn()
+    const onMessage = t.mock.fn()
+    const onEnd = t.mock.fn()
+    await fetchSSE('https://example.com/json', {
+      bufferJsonResponse: true,
+      onStart: async () => {},
+      onMessage,
+      onEnd,
+      onError,
+    })
+    assert.equal(read.mock.callCount(), 2)
+    assert.equal(cancel.mock.callCount(), 1)
+    assert.equal(onError.mock.callCount(), 1)
+    assert.match(onError.mock.calls[0].arguments[0].message, /16 MiB/)
+    assert.equal(onMessage.mock.callCount(), 0)
+    assert.equal(onEnd.mock.callCount(), 0)
+  })
+}
+
+test('fetchSSE accepts buffered JSON exactly at the byte limit', async (t) => {
+  const json = `{"answer":"${' '.repeat(16 * 1024 * 1024 - 16)}臺"}`
+  assert.equal(new TextEncoder().encode(json).byteLength, 16 * 1024 * 1024)
+  t.mock.method(globalThis, 'fetch', async () => createMockSseResponse([json]))
+  const messages = []
+  await fetchSSE('https://example.com/json', {
+    bufferJsonResponse: true,
+    onStart: async () => {},
+    onMessage: (message) => messages.push(message),
+    onEnd: async () => {},
+    onError: async (error) => {
+      throw error
+    },
+  })
+  assert.deepEqual(messages, [json, '[DONE]'])
+})
+
+test('fetchSSE counts UTF-8 bytes and does not await stalled cancellation', async (t) => {
+  const bytes = new TextEncoder().encode(`{"answer":"${'臺'.repeat(6 * 1024 * 1024)}"}`)
+  const cancel = t.mock.fn(() => new Promise(() => {}))
+  const read = t.mock.fn(async () => ({ done: false, value: bytes }))
+  t.mock.method(globalThis, 'fetch', async () => ({
+    ok: true,
+    body: {
+      getReader: () => ({ read, cancel }),
+    },
+  }))
+  const onError = t.mock.fn()
+  const onMessage = t.mock.fn()
+  const onEnd = t.mock.fn()
+  await fetchSSE('https://example.com/json', {
+    bufferJsonResponse: true,
+    onStart: async () => {},
+    onMessage,
+    onEnd,
+    onError,
+  })
+  assert.equal(cancel.mock.callCount(), 1)
+  assert.equal(read.mock.callCount(), 1)
+  assert.equal(onError.mock.callCount(), 1)
+  assert.match(onError.mock.calls[0].arguments[0].message, /16 MiB/)
+  assert.equal(onMessage.mock.callCount(), 0)
+  assert.equal(onEnd.mock.callCount(), 0)
+})
+
+test('fetchSSE does not apply the JSON limit to SSE chunks or cumulative delivery', async (t) => {
+  const event = `data: ${'x'.repeat(16 * 1024 * 1024)}\n\n`
+  t.mock.method(globalThis, 'fetch', async () => createMockSseResponse([event, event]))
+  let count = 0
+  await fetchSSE('https://example.com/sse', {
+    bufferJsonResponse: true,
+    onStart: async () => {},
+    onMessage: () => count++,
+    onEnd: async () => {},
+    onError: async (error) => {
+      throw error
+    },
+  })
+  assert.equal(count, 2)
+})
+
 test('fetchSSE streams SSE chunks and calls lifecycle callbacks', async (t) => {
   t.mock.method(console, 'debug', () => {})
   const starts = []
@@ -67,6 +159,214 @@ test('fetchSSE converts a plain JSON first chunk into fake SSE data', async (t) 
   assert.deepEqual(messages, ['{"answer":"ok"}', '[DONE]'])
   assert.equal(endCount, 1)
 })
+
+for (const bufferJsonResponse of [false, true]) {
+  test(`fetchSSE buffers split JSON only when opted in (${bufferJsonResponse})`, async (t) => {
+    t.mock.method(console, 'debug', () => {})
+    const messages = []
+    const onEnd = t.mock.fn()
+    const onError = t.mock.fn()
+    const fetchMock = t.mock.method(globalThis, 'fetch', async () =>
+      createMockSseResponse(['{"answer":', '"ok"}']),
+    )
+
+    await fetchSSE('https://example.com/json', {
+      bufferJsonResponse,
+      onStart: async () => {},
+      onMessage: (message) => messages.push(message),
+      onEnd,
+      onError,
+    })
+
+    assert.deepEqual(messages, bufferJsonResponse ? ['{"answer":"ok"}', '[DONE]'] : [])
+    assert.equal(onEnd.mock.callCount(), 1)
+    assert.equal(onError.mock.callCount(), 0)
+    assert.equal(Object.hasOwn(fetchMock.mock.calls[0].arguments[1], 'bufferJsonResponse'), false)
+  })
+}
+
+test('fetchSSE buffers JSON whitespace and split UTF-8 bytes until EOF', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const json = JSON.stringify({ answer: '臺灣 🌏' })
+  const bytes = new TextEncoder().encode(` \r\n\t${json}`)
+  const messages = []
+  let reachedEOF = false
+  const onStart = t.mock.fn()
+  t.mock.method(globalThis, 'fetch', async () => ({
+    ok: true,
+    body: {
+      getReader() {
+        let index = 0
+        return {
+          async read() {
+            if (index < bytes.length) return { value: bytes.slice(index, ++index), done: false }
+            reachedEOF = true
+            return { done: true }
+          },
+        }
+      },
+    },
+  }))
+
+  await fetchSSE('https://example.com/json', {
+    bufferJsonResponse: true,
+    onStart,
+    onMessage(message) {
+      assert.equal(reachedEOF, true)
+      messages.push(message)
+    },
+    onEnd: async () => {},
+    onError: async (error) => {
+      throw error
+    },
+  })
+
+  assert.deepEqual(messages, [json, '[DONE]'])
+  assert.equal(onStart.mock.callCount(), 1)
+})
+
+test('fetchSSE inspects each undecided whitespace chunk only once', async (t) => {
+  const chunks = [...Array(64).fill(' '.repeat(32)), '{"answer":"ok"}']
+  const messages = []
+  const trimStart = String.prototype.trimStart
+  let inspectedCharacters = 0
+  t.mock.method(String.prototype, 'trimStart', function () {
+    inspectedCharacters += this.length
+    return trimStart.call(this)
+  })
+  t.mock.method(globalThis, 'fetch', async () => createMockSseResponse(chunks))
+
+  await fetchSSE('https://example.com/json', {
+    bufferJsonResponse: true,
+    onStart: async () => {},
+    onMessage: (message) => messages.push(message),
+    onEnd: async () => {},
+    onError: async (error) => {
+      throw error
+    },
+  })
+
+  assert.deepEqual(messages, ['{"answer":"ok"}', '[DONE]'])
+  assert.equal(inspectedCharacters, chunks.join('').length)
+})
+
+test('fetchSSE opt-in keeps SSE delivery incremental', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const messages = []
+  const response = createMockSseResponse(['\n', 'data: {"delta":"A"}\n\n', 'data: [DONE]\n\n'])
+  const reader = response.body.getReader()
+  let reads = 0
+  t.mock.method(response.body, 'getReader', () => ({
+    async read() {
+      reads += 1
+      if (reads === 3) assert.deepEqual(messages, ['{"delta":"A"}'])
+      return reader.read()
+    },
+  }))
+  t.mock.method(globalThis, 'fetch', async () => response)
+
+  await fetchSSE('https://example.com/sse', {
+    bufferJsonResponse: true,
+    onStart: async () => {},
+    onMessage: (message) => messages.push(message),
+    onEnd: async () => {},
+    onError: async (error) => {
+      throw error
+    },
+  })
+
+  assert.deepEqual(messages, ['{"delta":"A"}', '[DONE]'])
+})
+
+test('fetchSSE reports truncated buffered JSON without calling onEnd', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const onError = t.mock.fn()
+  const onEnd = t.mock.fn()
+  const onMessage = t.mock.fn()
+  t.mock.method(globalThis, 'fetch', async () => createMockSseResponse(['{"answer":', '"ok"']))
+
+  await fetchSSE('https://example.com/json', {
+    bufferJsonResponse: true,
+    onStart: async () => {},
+    onMessage,
+    onEnd,
+    onError,
+  })
+
+  assert.equal(onError.mock.callCount(), 1)
+  assert.ok(onError.mock.calls[0].arguments[0] instanceof SyntaxError)
+  assert.equal(onMessage.mock.callCount(), 0)
+  assert.equal(onEnd.mock.callCount(), 0)
+})
+
+for (const callback of ['onStart', 'onMessage']) {
+  test(`fetchSSE forwards buffered JSON ${callback} failures once`, async (t) => {
+    t.mock.method(console, 'debug', () => {})
+    const failure = new Error('callback failed')
+    const onError = t.mock.fn()
+    const onEnd = t.mock.fn()
+    const messages = []
+    t.mock.method(globalThis, 'fetch', async () => createMockSseResponse(['{"answer":', '"ok"}']))
+
+    await assert.rejects(
+      fetchSSE('https://example.com/json', {
+        bufferJsonResponse: true,
+        onStart: async () => {},
+        onMessage: (message) => messages.push(message),
+        onEnd,
+        onError,
+        [callback]: async () => {
+          throw failure
+        },
+      }),
+      (error) => error === failure,
+    )
+
+    assert.equal(onError.mock.callCount(), 1)
+    assert.equal(onError.mock.calls[0].arguments[0], failure)
+    assert.equal(onEnd.mock.callCount(), 0)
+    assert.deepEqual(messages, [])
+  })
+}
+
+for (const aborted of [false, true]) {
+  test(`fetchSSE does not emit buffered JSON after a read failure (aborted: ${aborted})`, async (t) => {
+    const failure = aborted
+      ? new DOMException('Request aborted', 'AbortError')
+      : new TypeError('Connection lost')
+    const response = createMockSseResponse(['{"answer":"ok"}'])
+    const reader = response.body.getReader()
+    let reads = 0
+    t.mock.method(response.body, 'getReader', () => ({
+      async read() {
+        if (reads++) throw failure
+        return reader.read()
+      },
+    }))
+    t.mock.method(globalThis, 'fetch', async () => response)
+    const onError = t.mock.fn()
+    const onEnd = t.mock.fn()
+    const onMessage = t.mock.fn()
+
+    await fetchSSE('https://example.com/json', {
+      bufferJsonResponse: true,
+      onStart: async () => {},
+      onMessage,
+      onEnd,
+      onError,
+    })
+
+    assert.equal(onMessage.mock.callCount(), 0)
+    assert.equal(onEnd.mock.callCount(), aborted ? 1 : 0)
+    assert.equal(onError.mock.callCount(), aborted ? 0 : 1)
+    if (aborted) {
+      assert.deepEqual(onEnd.mock.calls[0].arguments, [true])
+    } else {
+      assert.equal(onError.mock.calls[0].arguments[0], failure)
+      assert.equal(failure.code, FETCH_RESPONSE_STREAM_FAILED)
+    }
+  })
+}
 
 test('fetchSSE forwards non-ok responses to onError', async (t) => {
   t.mock.method(console, 'debug', () => {})

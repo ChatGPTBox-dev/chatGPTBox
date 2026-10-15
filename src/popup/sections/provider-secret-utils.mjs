@@ -1,6 +1,7 @@
 import { LEGACY_API_KEY_FIELD_BY_PROVIDER_ID } from '../../config/openai-provider-mappings.mjs'
 import { isApiModeSelected } from '../../utils/model-name-convert.mjs'
 import { createProviderId } from './api-modes-provider-utils.mjs'
+import { normalizeExplicitApiProtocol } from '../../services/apis/provider-registry.mjs'
 
 function normalizeText(value) {
   return String(value || '').trim()
@@ -23,6 +24,7 @@ function createMaterializedProviderName(sourceProvider, selectedApiMode) {
 
 function buildMaterializedProvider(sourceProvider, selectedApiMode, existingProviders) {
   const providerName = createMaterializedProviderName(sourceProvider, selectedApiMode)
+  const apiProtocol = normalizeExplicitApiProtocol(sourceProvider?.apiProtocol)
   const sourceProviderId =
     normalizeText(sourceProvider?.sourceProviderId) || normalizeText(sourceProvider?.id)
   return {
@@ -36,6 +38,10 @@ function buildMaterializedProvider(sourceProvider, selectedApiMode, existingProv
     completionsUrl: normalizeText(sourceProvider?.completionsUrl),
     enabled: sourceProvider?.enabled !== false,
     allowLegacyResponseField: sourceProvider?.allowLegacyResponseField !== false,
+    ...(apiProtocol ? { apiProtocol } : {}),
+    ...(normalizeText(sourceProvider?.responsesUrl)
+      ? { responsesUrl: normalizeText(sourceProvider?.responsesUrl) }
+      : {}),
     ...(sourceProviderId ? { sourceProviderId } : {}),
   }
 }

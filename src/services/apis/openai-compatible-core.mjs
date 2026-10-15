@@ -1,7 +1,7 @@
 import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { isEmpty } from 'lodash-es'
-import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
+import { getCompletionPromptBase, pushRecord, withAbortController } from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
 
@@ -46,8 +46,17 @@ function hasFinished(data) {
  * @param {Record<string, any>} [params.extraBody]
  * @param {Record<string, string>} [params.extraHeaders]
  * @param {boolean} [params.allowLegacyResponseField]
+ * @param {ReturnType<typeof import('./shared.mjs').setAbortController>} [params.abortContext]
  */
-export async function generateAnswersWithOpenAICompatible({
+export async function generateAnswersWithOpenAICompatible(params) {
+  return withAbortController(
+    params.port,
+    (abortContext) => generateCompatibleRequest({ ...params, abortContext }),
+    params.abortContext,
+  )
+}
+
+async function generateCompatibleRequest({
   port,
   question,
   session,
@@ -60,14 +69,10 @@ export async function generateAnswersWithOpenAICompatible({
   extraBody = {},
   extraHeaders = {},
   allowLegacyResponseField = false,
+  abortContext,
 }) {
-  const {
-    controller,
-    messageListener,
-    disconnectListener,
-    getStopGenerationId,
-    isCurrentSessionRequest,
-  } = setAbortController(port)
+  const { controller, getStopGenerationId, isCurrentSessionRequest } = abortContext
+  if (controller.signal.aborted) return
 
   let requestBody
   const conversationRecords = Array.isArray(session.conversationRecords)
@@ -114,6 +119,7 @@ export async function generateAnswersWithOpenAICompatible({
     }
   }
 
+  if (controller.signal.aborted) return
   let answer = ''
   let finished = false
   const finish = () => {
@@ -129,7 +135,7 @@ export async function generateAnswersWithOpenAICompatible({
     headers: buildHeaders(apiKey, extraHeaders),
     body: JSON.stringify(requestBody),
     onMessage(message) {
-      if (finished) return
+      if (finished || controller.signal.aborted) return
       if (message.trim() === '[DONE]') {
         finish()
         return
@@ -151,37 +157,30 @@ export async function generateAnswersWithOpenAICompatible({
     },
     async onStart() {},
     async onEnd(aborted = false) {
-      try {
-        if (!finished) {
-          if (aborted) {
-            const shouldPostSession = Boolean(answer) || session.isRetry
-            if (shouldPostSession && isCurrentSessionRequest()) {
-              if (answer) {
-                pushRecord(session, question, answer)
-              }
-              session.isRetry = false
-              try {
-                const stoppedGenerationId = getStopGenerationId()
-                port.postMessage({
-                  session,
-                  ...(stoppedGenerationId === undefined ? {} : { stoppedGenerationId }),
-                })
-              } catch (e) {
-                console.warn('[openai-compatible-core] Failed to post session on abort:', e)
-              }
+      if (!finished) {
+        if (aborted || controller.signal.aborted) {
+          const shouldPostSession = Boolean(answer) || session.isRetry
+          if (shouldPostSession && isCurrentSessionRequest()) {
+            if (answer) {
+              pushRecord(session, question, answer)
             }
-          } else {
-            finish()
+            session.isRetry = false
+            try {
+              const stoppedGenerationId = getStopGenerationId()
+              port.postMessage({
+                session,
+                ...(stoppedGenerationId === undefined ? {} : { stoppedGenerationId }),
+              })
+            } catch (e) {
+              console.warn('[openai-compatible-core] Failed to post session on abort:', e)
+            }
           }
+        } else {
+          finish()
         }
-      } finally {
-        port.onMessage.removeListener(messageListener)
-        port.onDisconnect.removeListener(disconnectListener)
       }
     },
     async onError(resp) {
-      port.onMessage.removeListener(messageListener)
-      port.onDisconnect.removeListener(disconnectListener)
       if (resp instanceof Error) throw resp
       const error = await resp.json().catch(() => ({}))
       throw new Error(!isEmpty(error) ? JSON.stringify(error) : `${resp.status} ${resp.statusText}`)
