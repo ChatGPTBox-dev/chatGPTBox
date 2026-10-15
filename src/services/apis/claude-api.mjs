@@ -1,5 +1,5 @@
 import { getUserConfig } from '../../config/index.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import { createAdapterDiagnostics, pushRecord, setAbortController } from './shared.mjs'
 import { FETCH_RESPONSE_STREAM_FAILED, fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
@@ -16,17 +16,29 @@ function getThinkingConfig(model) {
  * @param {string} question
  * @param {Session} session
  */
-export async function generateAnswersWithClaudeApi(port, question, session) {
+export async function generateAnswersWithClaudeApi(
+  port,
+  question,
+  session,
+  configOverride,
+  adapterOptions,
+) {
   const { controller, messageListener, disconnectListener } = setAbortController(port)
-  const config = await getUserConfig()
+  const config = configOverride || (await getUserConfig())
+  const diagnostics = createAdapterDiagnostics(adapterOptions)
   const apiUrl = config.customAnthropicApiUrl
   const model = getModelValue(session)
 
-  const prompt = getConversationPairs(
-    session.conversationRecords.slice(-config.maxConversationContextLength),
-    false,
-  )
-  prompt.push({ role: 'user', content: question })
+  const requestMessages = adapterOptions?.requestMessages
+  const prompt = requestMessages
+    ? requestMessages
+        .filter(({ role }) => role === 'user')
+        .map(({ role, content }) => ({ role, content }))
+    : getConversationPairs(
+        session.conversationRecords.slice(-config.maxConversationContextLength),
+        false,
+      )
+  if (!requestMessages) prompt.push({ role: 'user', content: question })
 
   const body = {
     model,
@@ -34,6 +46,12 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     stream: true,
     max_tokens: config.maxResponseTokenLength,
     ...getTemperatureParams(config, model),
+  }
+  if (requestMessages) {
+    body.system = requestMessages
+      .filter(({ role }) => role === 'system')
+      .map(({ content }) => content)
+      .join('\n\n')
   }
   const thinking = getThinkingConfig(model)
   if (thinking) body.thinking = thinking
@@ -54,13 +72,13 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
     },
     body: JSON.stringify(body),
     onMessage(message) {
-      console.debug('sse message', message)
+      diagnostics.debug('sse message', message)
 
       let data
       try {
         data = JSON.parse(message)
       } catch (error) {
-        console.debug('json error', error)
+        diagnostics.debug('json error', error)
         return
       }
       if (data?.type === 'error') {
@@ -84,6 +102,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
           completionError = new Error(
             'Claude reached the model context window limit. Clear the conversation and try again.',
           )
+          completionError.code = 'MODEL_CONTEXT_WINDOW_EXCEEDED'
         }
         if (stopReason === 'refusal') {
           completionError = new Error('Claude declined to respond to this request.')
@@ -96,7 +115,7 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
           throw completionError
         }
         pushRecord(session, question, answer)
-        console.debug('conversation history', { content: session.conversationRecords })
+        diagnostics.debug('conversation history', { content: session.conversationRecords })
         port.postMessage({ answer: null, done: true, session: session })
         completedSuccessfully = true
         return

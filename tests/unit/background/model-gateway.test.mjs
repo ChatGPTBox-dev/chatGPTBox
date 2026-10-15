@@ -1,0 +1,338 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { createModelGateway } from '../../../src/background/model-gateway.mjs'
+
+function createLogger(entries) {
+  return {
+    info(entry) {
+      entries.push(['info', entry])
+    },
+    warn(entry) {
+      entries.push(['warn', entry])
+    },
+    error(entry) {
+      entries.push(['error', entry])
+    },
+  }
+}
+
+function createGateway(overrides = {}) {
+  return createModelGateway({
+    getUserConfig: async () => ({}),
+    describeModelTextSupport: () => ({ state: 'supported' }),
+    generateTextWithModel: async () => ({ text: 'summary', finishReason: 'stop' }),
+    logger: createLogger([]),
+    ...overrides,
+  })
+}
+
+test('describeCapabilities reports Kimi Web as text-capable', async () => {
+  const gateway = createModelGateway({
+    getUserConfig: async () => ({ kimiMoonShotRefreshToken: 'secret' }),
+    describeModelTextSupport: (config, modelIdentity) => {
+      assert.deepEqual(config, { kimiMoonShotRefreshToken: 'secret' })
+      assert.deepEqual(modelIdentity, { modelName: 'moonshotWebFree' })
+      return { state: 'supported' }
+    },
+    generateTextWithModel: async () => ({ text: 'unused', finishReason: null }),
+    logger: createLogger([]),
+  })
+
+  assert.deepEqual(await gateway.describeCapabilities({ modelName: 'moonshotWebFree' }), {
+    supported: true,
+    state: 'supported',
+    reason: null,
+    condition: null,
+    inputTokenBudget: 4000,
+    maxOutputTokens: 20_000,
+  })
+})
+
+test('describeCapabilities preserves unsupported, temporary, and actionable conditions', async () => {
+  const descriptors = [
+    {
+      support: { state: 'unsupported', reason: 'MODEL_GATEWAY_UNSUPPORTED' },
+      expected: {
+        supported: false,
+        state: 'unsupported',
+        reason: 'MODEL_GATEWAY_UNSUPPORTED',
+        condition: null,
+        inputTokenBudget: 4000,
+        maxOutputTokens: 20_000,
+      },
+    },
+    {
+      support: { state: 'temporary', reason: 'MODEL_TEMPORARY_FAILURE', condition: 'temporary' },
+      expected: {
+        supported: false,
+        state: 'temporary',
+        reason: 'MODEL_TEMPORARY_FAILURE',
+        condition: 'temporary',
+        inputTokenBudget: 4000,
+        maxOutputTokens: 20_000,
+      },
+    },
+  ]
+
+  for (const { support, expected } of descriptors) {
+    const gateway = createGateway({ describeModelTextSupport: () => support })
+    assert.deepEqual(await gateway.describeCapabilities({ modelName: 'test-model' }), expected)
+  }
+
+  for (const condition of ['login-required', 'provider-page-required']) {
+    const error = Object.assign(new Error('private provider detail'), {
+      code:
+        condition === 'login-required' ? 'MODEL_LOGIN_REQUIRED' : 'MODEL_PROVIDER_PAGE_REQUIRED',
+      condition,
+    })
+    const gateway = createGateway({
+      describeModelTextSupport() {
+        throw error
+      },
+    })
+    assert.deepEqual(await gateway.describeCapabilities({ modelName: 'test-model' }), {
+      supported: false,
+      state: 'temporary',
+      reason: error.code,
+      condition,
+      inputTokenBudget: 4000,
+      maxOutputTokens: 20_000,
+    })
+  }
+})
+
+test('describeCapabilities converts unknown failures to a safe temporary descriptor', async () => {
+  const gateway = createGateway({
+    describeModelTextSupport() {
+      throw new Error('secret provider response')
+    },
+  })
+
+  assert.deepEqual(await gateway.describeCapabilities({ modelName: 'test-model' }), {
+    supported: false,
+    state: 'temporary',
+    reason: 'MODEL_TEMPORARY_FAILURE',
+    condition: 'temporary',
+    inputTokenBudget: 4000,
+    maxOutputTokens: 20_000,
+  })
+})
+
+test('generateText forwards immutable inputs, bounded output tokens, and an abort signal', async () => {
+  const entries = []
+  let capturedArgs
+  const gateway = createGateway({
+    generateTextWithModel: async (args, options) => {
+      capturedArgs = { ...args, ...options }
+      args.modelSnapshot.modelName = 'mutated'
+      args.messages[0].content = 'mutated'
+      return { text: 'private returned summary', finishReason: 'length', raw: 'private payload' }
+    },
+    logger: createLogger(entries),
+  })
+  const modelSnapshot = Object.freeze({
+    modelName: 'moonshotWebFree',
+    apiMode: Object.freeze({ groupName: 'web', providerId: 'kimi' }),
+  })
+  const messages = Object.freeze([
+    Object.freeze({ role: 'system', content: 'fixed instruction' }),
+    Object.freeze({ role: 'user', content: 'private transcript content' }),
+  ])
+
+  const result = await gateway.generateText({
+    requestId: 'request-1',
+    taskId: 'task-1',
+    modelSnapshot,
+    messages,
+    maxOutputTokens: 50_000,
+    requestKind: 'video-summary',
+    toolPolicy: 'none',
+  })
+
+  assert.deepEqual(result, { text: 'private returned summary', finishReason: 'length' })
+  assert.notEqual(capturedArgs.modelSnapshot, modelSnapshot)
+  assert.notEqual(capturedArgs.messages, messages)
+  assert.equal(capturedArgs.maxOutputTokens, 20_000)
+  assert.equal(capturedArgs.requestKind, 'video-summary')
+  assert.equal(capturedArgs.toolPolicy, 'none')
+  assert.equal(typeof capturedArgs.signal?.aborted, 'boolean')
+  assert.deepEqual(modelSnapshot, {
+    modelName: 'moonshotWebFree',
+    apiMode: { groupName: 'web', providerId: 'kimi' },
+  })
+  assert.deepEqual(messages, [
+    { role: 'system', content: 'fixed instruction' },
+    { role: 'user', content: 'private transcript content' },
+  ])
+  const logs = JSON.stringify(entries)
+  assert.equal(logs.includes('private transcript content'), false)
+  assert.equal(logs.includes('private returned summary'), false)
+  assert.equal(logs.includes('private payload'), false)
+  assert.equal(logs.includes('"messages"'), false)
+  assert.equal(logs.includes('length'), false)
+})
+
+test('generateText rejects malformed video-summary messages and policies before dispatch', async () => {
+  let dispatchCalls = 0
+  const gateway = createGateway({
+    generateTextWithModel: async () => {
+      dispatchCalls += 1
+      return { text: 'unreachable', finishReason: 'stop' }
+    },
+  })
+  const baseRequest = {
+    requestId: 'request-invalid',
+    taskId: 'task-invalid',
+    modelSnapshot: {},
+    messages: [{ role: 'user', content: 'data' }],
+    maxOutputTokens: 100,
+    requestKind: 'video-summary',
+    toolPolicy: 'none',
+  }
+
+  for (const override of [
+    { messages: [] },
+    { messages: [{ role: 'assistant', content: 'not accepted' }] },
+    { messages: [{ role: 'user', content: 'data', name: 'extra' }] },
+    { messages: [{ role: 'user', content: '   ' }] },
+    { requestKind: 'chat' },
+    { toolPolicy: 'auto' },
+  ]) {
+    await assert.rejects(gateway.generateText({ ...baseRequest, ...override }), {
+      message:
+        'messages' in override ? 'MODEL_GATEWAY_MESSAGES_INVALID' : 'MODEL_GATEWAY_POLICY_INVALID',
+    })
+  }
+  assert.equal(dispatchCalls, 0)
+})
+
+test('generateText logs safe metadata when generation fails', async () => {
+  const entries = []
+  const gateway = createGateway({
+    generateTextWithModel: async () => {
+      throw Object.assign(new Error('private transcript and provider response'), {
+        code: 'MODEL_LOGIN_REQUIRED',
+        condition: 'login-required',
+      })
+    },
+    logger: createLogger(entries),
+  })
+
+  await assert.rejects(
+    () =>
+      gateway.generateText({
+        requestId: 'request-failed',
+        taskId: 'task-failed',
+        modelSnapshot: { modelName: 'moonshotWebFree' },
+        messages: [{ role: 'user', content: 'private transcript' }],
+        maxOutputTokens: 200,
+        requestKind: 'video-summary',
+        toolPolicy: 'none',
+      }),
+    { code: 'MODEL_LOGIN_REQUIRED' },
+  )
+
+  const logs = JSON.stringify(entries)
+  assert.equal(logs.includes('MODEL_LOGIN_REQUIRED'), true)
+  assert.equal(logs.includes('private transcript'), false)
+  assert.equal(logs.includes('provider response'), false)
+})
+
+test('generateText projects malicious failure diagnostics through the shared allowlist', async () => {
+  const entries = []
+  const error = Object.assign(new Error('SECRET_ERROR_MESSAGE'), {
+    code: 'MODEL_GATEWAY_PROVIDER_ERROR',
+    providerCode: 'PROVIDER_FAILED',
+    httpStatus: 502,
+    requestId: 'SECRET_ERROR_REQUEST_ID',
+    providerBody: 'SECRET_PROVIDER_BODY',
+    prompt: 'SECRET_PROMPT',
+    Authorization: 'SECRET_AUTHORIZATION',
+    nested: { transcript: 'SECRET_TRANSCRIPT' },
+  })
+  const gateway = createGateway({
+    generateTextWithModel: async () => {
+      throw error
+    },
+    logger: createLogger(entries),
+  })
+
+  await assert.rejects(
+    gateway.generateText({
+      requestId: 'req_gateway-1',
+      taskId: 'SECRET_TASK_ID',
+      modelSnapshot: {
+        modelName: 'SECRET_MODEL_NAME',
+        apiMode: { groupName: 'SECRET_GROUP', providerId: 'SECRET_PROVIDER_ID' },
+      },
+      messages: [{ role: 'user', content: 'SECRET_TRANSCRIPT' }],
+      maxOutputTokens: 200,
+      requestKind: 'video-summary',
+      toolPolicy: 'none',
+    }),
+    error,
+  )
+
+  assert.deepEqual(entries.at(-1), [
+    'warn',
+    {
+      event: 'video-summary.model.generate-text-failed',
+      operation: 'generateText',
+      code: 'MODEL_GATEWAY_PROVIDER_ERROR',
+      providerCode: 'PROVIDER_FAILED',
+      httpStatus: 502,
+      requestId: 'req_gateway-1',
+    },
+  ])
+  const logs = JSON.stringify(entries)
+  for (const sentinel of [
+    'SECRET_ERROR_MESSAGE',
+    'SECRET_ERROR_REQUEST_ID',
+    'SECRET_PROVIDER_BODY',
+    'SECRET_PROMPT',
+    'SECRET_AUTHORIZATION',
+    'SECRET_TRANSCRIPT',
+    'SECRET_TASK_ID',
+    'SECRET_MODEL_NAME',
+    'SECRET_GROUP',
+    'SECRET_PROVIDER_ID',
+  ]) {
+    assert.equal(logs.includes(sentinel), false, sentinel)
+  }
+})
+
+test('model operations use the caller signal and check it before work', async () => {
+  const signals = []
+  let configCalls = 0
+  const gateway = createGateway({
+    getUserConfig: async () => {
+      configCalls += 1
+      return {}
+    },
+    generateTextWithModel: async (_args, { signal }) => {
+      signals.push(signal)
+      return { text: 'ok', finishReason: 'stop' }
+    },
+  })
+  const controller = new AbortController()
+  await gateway.describeCapabilities({ modelName: 'test' }, { signal: controller.signal })
+  await gateway.generateText(
+    {
+      requestId: 'request-1',
+      taskId: 'task-1',
+      modelSnapshot: { modelName: 'test' },
+      messages: [{ role: 'user', content: 'data' }],
+      requestKind: 'video-summary',
+      toolPolicy: 'none',
+    },
+    { signal: controller.signal },
+  )
+  assert.equal(signals[0], controller.signal)
+
+  controller.abort()
+  await assert.rejects(
+    gateway.describeCapabilities({ modelName: 'test' }, { signal: controller.signal }),
+    { name: 'AbortError' },
+  )
+  assert.equal(configCalls, 1)
+})
