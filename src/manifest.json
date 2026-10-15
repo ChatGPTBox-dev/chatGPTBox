@@ -72,7 +72,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "logo.png"
+        "logo.png",
+        "katex-fonts/*.woff2"
       ],
       "matches": [
         "<all_urls>"
