@@ -1,0 +1,252 @@
+const RESPONSE_LIMIT = 16 * 1024 * 1024
+
+export function protocolError(message) {
+  const error = new Error(`Gemini Web: ${message}`)
+  error.code = 'GEMINI_WEB_PROTOCOL_ERROR'
+  return error
+}
+
+const NON_FATAL_COMPLETED_STATUS_CODES = new Set([1096])
+
+const providerErrorMessages = new Map([
+  [1013, 'Gemini encountered a temporary generation error. Please retry.'],
+  [1037, 'Gemini usage limit reached for the selected model. Check Gemini before retrying.'],
+  [1050, 'The selected model does not match this conversation. Start a new conversation.'],
+  [1052, 'The selected model is unavailable or the Gemini website protocol changed.'],
+  [1060, 'Gemini temporarily blocked requests from this network. Try again later.'],
+  [1096, 'This conversation can no longer be continued. Start a new conversation.'],
+])
+
+function providerError(code, { answerObserved = false, continuationObserved = false } = {}) {
+  const error = providerErrorMessages.has(code)
+    ? protocolError(providerErrorMessages.get(code))
+    : protocolError(
+        `The website rejected the request${
+          typeof code === 'number' ? ` (${code})` : ''
+        }. Check Gemini in your browser.`,
+      )
+  error.geminiWebProviderRejection = true
+  error.geminiWebAnswerObserved = answerObserved
+  error.geminiWebContinuationObserved = continuationObserved
+  error.geminiWebRemoteStateObserved = answerObserved || continuationObserved
+  if (typeof code === 'number') error.geminiWebProviderCode = code
+  return error
+}
+
+function decodeJson(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    // Do not expose response bodies, prompts or session tokens in diagnostics.
+    throw protocolError('Invalid response format. The website protocol may have changed.')
+  }
+}
+
+export function decodeEnvelopes(text) {
+  let rest = text.trimStart()
+  if (rest.startsWith(")]}'")) rest = rest.slice(4).trimStart()
+  const envelopes = []
+  while (rest) {
+    const marker = /^(\d+)\n/.exec(rest)
+    let frame
+    if (marker) {
+      const length = Number(marker[1])
+      // Google counts the leading LF, JSON payload, and trailing LF in UTF-16 units.
+      const start = marker[1].length
+      if (!Number.isSafeInteger(length) || length <= 0 || length > RESPONSE_LIMIT) {
+        throw protocolError('Invalid response frame length.')
+      }
+      if (rest.length < start + length) throw protocolError('Truncated response frame.')
+      frame = decodeJson(rest.slice(start, start + length))
+      rest = rest.slice(start + length).trimStart()
+    } else {
+      const end = rest.indexOf('\n')
+      frame = decodeJson(end < 0 ? rest : rest.slice(0, end))
+      rest = end < 0 ? '' : rest.slice(end + 1).trimStart()
+    }
+    if (!Array.isArray(frame) || !frame.every(Array.isArray)) {
+      throw protocolError('Invalid response envelope.')
+    }
+    for (const envelope of frame) envelopes.push(envelope)
+  }
+  return envelopes
+}
+
+function mergeConversationMetadata(metadata, incoming) {
+  if (incoming == null) return
+  if (!Array.isArray(incoming)) throw protocolError('Invalid response payload.')
+  for (const index of [0, 1]) {
+    const value = incoming[index]
+    if (value == null || value === '') continue
+    if (typeof value !== 'string') throw protocolError('Invalid conversation identifier.')
+    if (metadata[index] != null && metadata[index] !== '' && metadata[index] !== value) {
+      throw protocolError('Conversation identifiers changed during generation.')
+    }
+    metadata[index] = value
+  }
+  incoming.forEach((value, index) => {
+    if (index < 2 || value == null) return
+    metadata[index] = value
+  })
+}
+
+export function parseAnswer(text) {
+  let answer
+  const metadata = Array(10).fill(null)
+  const providerStatusCodes = []
+  let candidateId
+  let completion
+  let context
+  let servedModelId
+  let servedModelLabel
+  let servedModelNumber
+  let servedModelVariant
+  const getProviderObservation = () => ({
+    answerObserved: typeof answer === 'string' && answer.trim() !== '',
+    continuationObserved: [metadata[0], metadata[1], candidateId].some(
+      (value) => typeof value === 'string' && value !== '',
+    ),
+  })
+  for (const envelope of decodeEnvelopes(text)) {
+    if (envelope[1] != null) continue
+    const errorCode = envelope[5]?.[2]?.[0]?.[1]?.[0]
+    if (envelope[0] === 'er') throw providerError(errorCode, getProviderObservation())
+    if (envelope[0] !== 'wrb.fr') continue
+    if (typeof errorCode === 'number') providerStatusCodes.push(errorCode)
+    if (envelope[2] == null || envelope[2] === '') continue
+    if (typeof envelope[2] !== 'string') throw protocolError('Invalid response payload.')
+    const payload = decodeJson(envelope[2])
+    if (!Array.isArray(payload)) throw protocolError('Invalid response payload.')
+    mergeConversationMetadata(metadata, payload[1])
+    if (typeof payload[25] === 'string') context = payload[25]
+    if (typeof payload[39] === 'string' && payload[39]) servedModelId = payload[39]
+    if (typeof payload[42] === 'string' && payload[42]) servedModelLabel = payload[42]
+    if (Number.isInteger(payload[58])) servedModelNumber = payload[58]
+    if (Number.isInteger(payload[59])) servedModelVariant = payload[59]
+    const candidateContainer = payload[4]
+    if (candidateContainer == null) continue
+    if (!Array.isArray(candidateContainer)) throw protocolError('Invalid response payload.')
+    const candidate = candidateContainer[0]
+    if (candidate == null) continue
+    if (!Array.isArray(candidate)) throw protocolError('Invalid text candidate.')
+    const id = candidate[0]
+    if (id == null) {
+      if (candidate[1] != null || candidate[8] != null) {
+        throw protocolError('Invalid candidate identifier.')
+      }
+      continue
+    }
+    if (typeof id !== 'string') throw protocolError('Invalid candidate identifier.')
+    if (candidateId != null && candidateId !== id) {
+      throw protocolError('Candidate changed during generation.')
+    }
+    candidateId = id
+    const completionContainer = candidate[8]
+    if (completionContainer != null && !Array.isArray(completionContainer)) {
+      throw protocolError('Invalid response payload.')
+    }
+    const frameCompletion = completionContainer?.[0]
+    const contentContainer = candidate[1]
+    if (contentContainer == null) {
+      if (frameCompletion != null) completion = frameCompletion
+      continue
+    }
+    if (!Array.isArray(contentContainer)) throw protocolError('Invalid text candidate.')
+    const content = contentContainer[0]
+    if (content == null) continue
+    if (typeof content !== 'string') throw protocolError('Invalid text candidate.')
+    // Each frame is a full snapshot, not a text delta. Completion belongs to the latest snapshot.
+    if (answer !== content) completion = frameCompletion
+    else if (frameCompletion != null) completion = frameCompletion
+    answer = content
+  }
+  const fatalProviderStatusCodes = providerStatusCodes.filter(
+    (code) => !NON_FATAL_COMPLETED_STATUS_CODES.has(code),
+  )
+  const throwLatestFatalProviderError = () => {
+    if (fatalProviderStatusCodes.length > 0) {
+      throw providerError(fatalProviderStatusCodes.at(-1), getProviderObservation())
+    }
+  }
+  const throwLatestProviderError = () => {
+    const code = fatalProviderStatusCodes.at(-1) ?? providerStatusCodes.at(-1)
+    if (code != null) throw providerError(code, getProviderObservation())
+  }
+  if (typeof answer !== 'string' || !answer.trim()) {
+    throwLatestProviderError()
+    throw protocolError('No text answer was received. Check Gemini in your browser.')
+  }
+  if (completion == null) {
+    throwLatestFatalProviderError()
+    throw protocolError('Could not confirm that the answer finished generating.')
+  }
+  if (completion !== 2) {
+    throwLatestFatalProviderError()
+    throw protocolError(
+      'The answer was interrupted before completion. Check Gemini before retrying.',
+    )
+  }
+  if (![metadata[0], metadata[1], candidateId].every((id) => typeof id === 'string' && id)) {
+    throwLatestFatalProviderError()
+    throw protocolError('Missing conversation identifiers.')
+  }
+  throwLatestFatalProviderError()
+  metadata[2] = candidateId
+  if (context !== undefined) metadata[9] = context
+  return {
+    answer,
+    conversationObj: { c: metadata[0], r: metadata[1], rc: candidateId, metadata },
+    diagnostics: {
+      providerStatusCodes,
+      servedModelId,
+      servedModelLabel,
+      servedModelNumber,
+      servedModelVariant,
+    },
+  }
+}
+
+export function conversationMetadata(conversation = {}) {
+  const metadata = Array.isArray(conversation.metadata)
+    ? conversation.metadata.slice()
+    : ['', '', '', null, null, null, null, null, null, '']
+  for (const [index, key] of ['c', 'r', 'rc'].entries()) {
+    metadata[index] = conversation[key] || metadata[index] || ''
+  }
+  return metadata
+}
+
+export function buildRequest(
+  prompt,
+  conversation,
+  language,
+  requestId,
+  {
+    temporary = false,
+    modelNumber = undefined,
+    extendedThinking = false,
+    thinkingMode = undefined,
+    turnIndex = 0,
+  } = {},
+) {
+  if (!Number.isInteger(turnIndex) || turnIndex < 0) {
+    throw protocolError('Invalid conversation state. Start a new conversation.')
+  }
+  const request = Array(81).fill(null)
+  request[0] = [prompt, 0, null, null, null, null, 0]
+  request[1] = [language]
+  request[2] = conversationMetadata(conversation)
+  for (const index of [7, 10, 27, 68]) request[index] = 1
+  for (const index of [11, 18, 53]) request[index] = 0
+  for (const index of [6, 41]) request[index] = [1]
+  request[17] = [[turnIndex]]
+  request[30] = [4]
+  if (temporary) request[45] = 1
+  request[59] = requestId
+  request[61] = []
+  if (Number.isInteger(modelNumber)) {
+    request[79] = modelNumber
+    request[80] = thinkingMode === undefined ? (extendedThinking ? 2 : 1) : thinkingMode
+  }
+  return JSON.stringify([null, JSON.stringify(request)])
+}

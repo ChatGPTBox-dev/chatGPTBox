@@ -172,9 +172,10 @@ function App() {
                 pageMode={true}
                 onUpdate={(port, session, cData) => {
                   currentPort.current = port
-                  if (cData.length > 0 && cData[cData.length - 1].done) {
+                  const completed = cData.length > 0 && cData[cData.length - 1].done
+                  if (completed || session.geminiWeb_conversationUnsafe === true) {
                     updateSession(session).then(setSessions)
-                    setCurrentSession(session)
+                    if (completed) setCurrentSession(session)
                   }
                 }}
               />
