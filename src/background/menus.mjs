@@ -110,12 +110,11 @@ const onClickMenu = (info, tab) => {
 export function refreshMenu() {
   if (Browser.contextMenus.onClicked.hasListener(onClickMenu))
     Browser.contextMenus.onClicked.removeListener(onClickMenu)
-  Browser.contextMenus.removeAll().then(async () => {
-    if ((await getUserConfig()).hideContextMenu) return
+  return Browser.contextMenus.removeAll().then(async () => {
+    const config = await getUserConfig({ fresh: true })
+    if (config.hideContextMenu) return
 
-    await getPreferredLanguageKey().then((lang) => {
-      changeLanguage(lang)
-    })
+    await changeLanguage(await getPreferredLanguageKey(config))
     Browser.contextMenus.create({
       id: menuId,
       title: 'ChatGPTBox',

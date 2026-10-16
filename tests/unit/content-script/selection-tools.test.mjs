@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { register } from 'node:module'
 import { afterEach, before, describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
+import { getUserConfig } from '../../../src/config/index.mjs'
 
 // Register JSX/CJS loader hooks so the selection-tools module can be imported.
 register('./tests/setup/jsx-loader-hooks.mjs', pathToFileURL(process.cwd() + '/').href)
@@ -15,12 +16,35 @@ before(async () => {
 })
 
 afterEach(() => {
+  globalThis.__TEST_BROWSER_SHIM__.flushStorageEvents()
   globalThis.__TEST_BROWSER_SHIM__.clearStorage()
 })
 
 // ── helpers ──────────────────────────────────────────────────────────
 
 const wrappedBlock = (text) => `\n'''\n${text}\n'''`
+
+test('selection prompts use fresh language even when migration writes fail', async (t) => {
+  const shim = globalThis.__TEST_BROWSER_SHIM__
+  shim.setStorage({ preferredLanguage: 'en' })
+  for (let attempt = 0; attempt < 3; attempt++) await getUserConfig()
+  shim.deferStorageEvents()
+  shim.setStorage({ preferredLanguage: 'fr', claudeApiKey: 'TEST_LEGACY_SECRET' })
+  t.mock.method(globalThis.chrome.storage.local, 'set', (_items, callback) => {
+    globalThis.chrome.runtime.lastError = { message: 'quota exceeded' }
+    try {
+      callback()
+    } finally {
+      delete globalThis.chrome.runtime.lastError
+    }
+  })
+
+  const fresh = await getUserConfig({ fresh: true })
+  assert.equal(fresh.preferredLanguage, 'fr')
+  assert.equal((await getUserConfig()).preferredLanguage, 'fr')
+  assert.ok((await config.explain.genPrompt('passage', fresh)).startsWith('Reply in French'))
+  assert.ok((await config.explain.genPrompt('passage')).startsWith('Reply in French'))
+})
 
 // ── basic genPrompt output for every tool ────────────────────────────
 
