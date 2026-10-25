@@ -795,6 +795,10 @@ test('modelNameToDesc returns desc for stable GPT API presets', () => {
   assert.equal(modelNameToDesc('chatgptApi6_1Sol'), 'OpenAI (GPT-6.1 Sol)')
 })
 
+test('modelNameToDesc returns desc for the Claude Haiku 5.5 API preset', () => {
+  assert.equal(modelNameToDesc('claudeHaiku55Api'), 'Anthropic (Claude Haiku 5.5)')
+})
+
 test('modelNameToDesc appends extraCustomModelName for customModel', () => {
   const desc = modelNameToDesc('customModel', null, 'my-gpt')
   assert.equal(desc, 'Custom Model (my-gpt)')
