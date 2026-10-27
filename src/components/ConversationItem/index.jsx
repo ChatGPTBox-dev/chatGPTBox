@@ -63,7 +63,12 @@ export function ConversationItem({ type, content, descName, onRetry, onReplace }
                   <SyncIcon size={14} />
                 </span>
               )}
-              {descName && onReplace && <ReplaceButton onReplace={onReplace} size={14} />}
+              {descName && onReplace && (
+                <ReplaceButton
+                  onReplace={() => onReplace(content.replace(/\n<hr\/>$/, ''))}
+                  size={14}
+                />
+              )}
               {descName && (
                 <CopyButton contentFn={() => content.replace(/\n<hr\/>$/, '')} size={14} />
               )}

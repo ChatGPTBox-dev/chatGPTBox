@@ -77,3 +77,14 @@ export function getInterruptedCompletionState(message, partialAnswer, retryRecor
       shouldFinalize && !partialAnswer && retryRecord ? retryRecord.answer : null,
   }
 }
+
+// a request stopped before its first token leaves the loading placeholder marked as
+// done, which must never be written over the user's selection
+export function isReplaceableAnswer(item) {
+  return (
+    item.type === 'answer' &&
+    Boolean(item.done) &&
+    !item.content.includes('gpt-loading') &&
+    item.content.replace(/\n<hr\/>$/, '').trim() !== ''
+  )
+}
