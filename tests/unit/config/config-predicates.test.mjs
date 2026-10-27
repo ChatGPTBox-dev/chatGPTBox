@@ -312,6 +312,12 @@ test('aimlApiModelKeys does not expose duplicate picker entries', () => {
   assert.equal(new Set(signatures).size, signatures.length)
 })
 
+test('aimlApiModelKeys use the AI/ML provider label', () => {
+  for (const modelName of aimlApiModelKeys) {
+    assert.match(Models[modelName].desc, /^AI\/ML \(.+\)$/, modelName)
+  }
+})
+
 test('isUsingChatGLMApiModel detects ChatGLM models', () => {
   assert.equal(isUsingChatGLMApiModel({ modelName: 'chatglm52' }), true)
   assert.equal(isUsingChatGLMApiModel({ modelName: 'chatglm47' }), true)

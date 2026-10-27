@@ -645,67 +645,67 @@ export const Models = {
   },
   aiml_openai_gpt_5_5: {
     value: 'openai/gpt-5-5',
-    desc: 'AIML (GPT-5.5)',
+    desc: 'AI/ML (GPT-5.5)',
   },
   aiml_openai_gpt_5_4: {
     value: 'openai/gpt-5-4',
-    desc: 'AIML (GPT-5.4)',
+    desc: 'AI/ML (GPT-5.4)',
   },
   aiml_openai_gpt_5_1: {
     value: 'openai/gpt-5-1',
-    desc: 'AIML (GPT-5.1)',
+    desc: 'AI/ML (GPT-5.1)',
   },
   aiml_openai_gpt_5: {
     value: 'openai/gpt-5',
-    desc: 'AIML (GPT-5)',
+    desc: 'AI/ML (GPT-5)',
   },
   aiml_claude_opus_4_8: {
     value: 'anthropic/claude-opus-4-8',
-    desc: 'AIML (Claude Opus 4.8)',
+    desc: 'AI/ML (Claude Opus 4.8)',
   },
   aiml_claude_haiku_4_5: {
     value: 'anthropic/claude-haiku-4.5',
-    desc: 'AIML (Claude Haiku 4.5)',
+    desc: 'AI/ML (Claude Haiku 4.5)',
   },
   aiml_claude_sonnet_4_6_20260218: {
     value: 'anthropic/claude-sonnet-4-6-20260218',
-    desc: 'AIML (Claude Sonnet 4.6)',
+    desc: 'AI/ML (Claude Sonnet 4.6)',
   },
   aiml_openai_gpt_5_2: {
     value: 'openai/gpt-5-2',
-    desc: 'AIML (GPT-5.2)',
+    desc: 'AI/ML (GPT-5.2)',
   },
   aiml_google_gemini_3_5_flash: {
     value: 'google/gemini-3-5-flash',
-    desc: 'AIML (Gemini 3.5 Flash)',
+    desc: 'AI/ML (Gemini 3.5 Flash)',
   },
   aiml_google_gemini_3_flash_preview: {
     value: 'google/gemini-3-flash-preview',
-    desc: 'AIML (Gemini 3 Flash)',
+    desc: 'AI/ML (Gemini 3 Flash)',
   },
   aiml_google_gemini_3_1_pro_preview: {
     value: 'google/gemini-3-1-pro-preview',
-    desc: 'AIML (Gemini 3.1 Pro)',
+    desc: 'AI/ML (Gemini 3.1 Pro)',
   },
   aiml_google_gemini_2_5_pro: {
     value: 'google/gemini-2.5-pro',
-    desc: 'AIML (Gemini 2.5 Pro)',
+    desc: 'AI/ML (Gemini 2.5 Pro)',
   },
   aiml_google_gemini_2_5_flash: {
     value: 'google/gemini-2.5-flash',
-    desc: 'AIML (Gemini 2.5 Flash)',
+    desc: 'AI/ML (Gemini 2.5 Flash)',
   },
   aiml_moonshot_kimi_k2_5: {
     value: 'moonshot/kimi-k2-5',
-    desc: 'AIML (Kimi K2.5)',
+    desc: 'AI/ML (Kimi K2.5)',
   },
   aiml_deepseek_v4_pro: {
     value: 'deepseek/deepseek-v4-pro',
-    desc: 'AIML (DeepSeek V4 Pro)',
+    desc: 'AI/ML (DeepSeek V4 Pro)',
   },
   aiml_deepseek_v4_flash: {
     value: 'deepseek/deepseek-v4-flash',
-    desc: 'AIML (DeepSeek V4 Flash)',
+    desc: 'AI/ML (DeepSeek V4 Flash)',
   },
   googleGemini3_1Pro: {
     value: 'gemini-3.1-pro-preview',
