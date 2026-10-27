@@ -113,6 +113,7 @@ const sources = {
       const state = globalThis.__FLOATING_TOOLBAR_TEST__
       state.onClose = props.onClose
       state.onUpdate = props.onUpdate
+      state.onReplaceContent = props.onReplaceContent
       state.conversationRenderCount = (state.conversationRenderCount ?? 0) + 1
       state.lastQuestion = props.question
       useLayoutEffect(() => () => {
@@ -132,9 +133,14 @@ const sources = {
     }
   `,
   'test:floating-utils': `
+    export const captureEditableSelection = () =>
+      globalThis.__FLOATING_TOOLBAR_TEST__?.editableSelection ?? null
     export const getClientPosition = () => ({ x: 0, y: 0 })
-    export const isMobile = () => false
-    export const replaceCapturedSelection = () => false
+    export const isMobile = () => globalThis.__FLOATING_TOOLBAR_TEST__?.isMobile ?? false
+    export const replaceCapturedSelection = (captured, content) => {
+      globalThis.__FLOATING_TOOLBAR_TEST__.replaceCalls?.push({ captured, content })
+      return true
+    }
     export const setElementPositionInViewport = (container, x, y) => {
       const state = globalThis.__FLOATING_TOOLBAR_TEST__
       state.positionUpdates?.push({ container, x, y })

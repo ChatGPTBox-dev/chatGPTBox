@@ -4,6 +4,7 @@ import ConversationCard from '../ConversationCard'
 import PropTypes from 'prop-types'
 import { config as toolsConfig } from '../../content-script/selection-tools'
 import {
+  captureEditableSelection,
   getClientPosition,
   isMobile,
   replaceCapturedSelection,
@@ -34,6 +35,15 @@ function FloatingToolbar(props) {
   const lastDragEventRef = useRef(null)
   const activeTouchIdentifierRef = useRef(null)
   const toolRequestVersionRef = useRef(0)
+  // the editable target of the selection the tools work on (kept in sync on mobile)
+  const capturedSelectionRef = useRef(props.capturedSelection)
+  // the target of the shown answer, fixed when its tool is started
+  const replaceTargetRef = useRef(props.capturedSelection)
+  // stable, so completed answers keep their memoized ConversationItem while streaming
+  const onReplaceContent = useCallback(
+    (content) => replaceCapturedSelection(replaceTargetRef.current, content),
+    [],
+  )
   const windowSize = useClampWindowSize([750, 1500], [0, Infinity])
   const config = useConfig(() => {
     if (!mountedRef.current) return
@@ -169,7 +179,10 @@ function FloatingToolbar(props) {
     if (isMobile()) {
       const selectionListener = () => {
         const currentSelection = window.getSelection()?.toString()
-        if (currentSelection) setSelection(currentSelection)
+        if (currentSelection) {
+          setSelection(currentSelection)
+          capturedSelectionRef.current = captureEditableSelection(document)
+        }
       }
       document.addEventListener('selectionchange', selectionListener)
       return () => {
@@ -252,11 +265,7 @@ function FloatingToolbar(props) {
                 dockable={props.dockable}
                 onDock={onDock}
                 onUpdate={onUpdate}
-                onReplaceContent={
-                  props.capturedSelection
-                    ? (content) => replaceCapturedSelection(props.capturedSelection, content)
-                    : null
-                }
+                onReplaceContent={replaceTargetRef.current ? onReplaceContent : null}
                 waitForTrigger={prompt && !triggered && !selection}
               />
             </div>
@@ -280,6 +289,7 @@ function FloatingToolbar(props) {
           title: name,
           onClick: async () => {
             const requestVersion = ++toolRequestVersionRef.current
+            const replaceTarget = capturedSelectionRef.current
             if (positionTimerRef.current !== null) {
               clearTimeout(positionTimerRef.current)
               positionTimerRef.current = null
@@ -290,6 +300,7 @@ function FloatingToolbar(props) {
             try {
               const nextPrompt = await genPrompt(selection)
               if (!mountedRef.current || requestVersion !== toolRequestVersionRef.current) return
+              replaceTargetRef.current = replaceTarget
               setPrompt(nextPrompt)
               setTriggered(true)
             } catch (error) {

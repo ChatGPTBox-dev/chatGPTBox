@@ -41,6 +41,10 @@ const resetState = () => {
   const state = globalThis.__FLOATING_TOOLBAR_TEST__
   state.onClose = null
   state.onUpdate = null
+  state.onReplaceContent = null
+  state.isMobile = false
+  state.editableSelection = null
+  state.replaceCalls = []
   state.cleanupCount = 0
   state.cleanupSawConnectedContainer = false
   state.container = null
@@ -197,6 +201,54 @@ test('the newest async selection-tool result wins when completions arrive out of
   assert.deepEqual(state.observedStateUpdates, [])
   assert.equal(state.lastQuestion, 'second prompt')
   assert.equal(state.conversationRenderCount, renderCount)
+
+  act(() => render(null, container))
+})
+
+test('on mobile, Replace targets the editable selection the tool was started with', async () => {
+  const state = globalThis.__FLOATING_TOOLBAR_TEST__
+  state.isMobile = true
+  const initialTarget = { id: 'initial' }
+  const extendedTarget = { id: 'extended' }
+  let promptSelection = null
+  state.genPrompt = async (selection) => {
+    promptSelection = selection
+    return 'prompt'
+  }
+
+  const container = createContainer()
+  mountToolbar(container, { capturedSelection: initialTarget })
+
+  // the user extends the selection with the selection handles
+  const sentence = document.createTextNode('the whole sentence')
+  document.body.append(sentence)
+  const range = document.createRange()
+  range.selectNodeContents(sentence)
+  window.getSelection().removeAllRanges()
+  window.getSelection().addRange(range)
+  state.editableSelection = extendedTarget
+  act(() => {
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+
+  const button = container.querySelector('.chatgptbox-selection-toolbar-button')
+  assert.ok(button)
+  await act(async () => {
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  assert.equal(promptSelection, 'the whole sentence')
+  assert.equal(typeof state.onReplaceContent, 'function')
+
+  // selection changes while the answer is shown do not move its target
+  state.editableSelection = { id: 'later' }
+  act(() => {
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  state.onReplaceContent('answer')
+
+  assert.deepEqual(state.replaceCalls, [{ captured: extendedTarget, content: 'answer' }])
 
   act(() => render(null, container))
 })

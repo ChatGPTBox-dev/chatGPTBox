@@ -23,6 +23,7 @@ const sources = {
   `,
   'test:subscription-selection-tools': 'export const config = {}',
   'test:subscription-utils': `
+    export const captureEditableSelection = () => null
     export const getClientPosition = () => ({ x: 0, y: 0 })
     export const isMobile = () => true
     export const replaceCapturedSelection = () => false
