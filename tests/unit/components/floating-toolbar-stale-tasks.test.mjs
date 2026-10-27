@@ -253,6 +253,41 @@ test('on mobile, Replace targets the editable selection the tool was started wit
   act(() => render(null, container))
 })
 
+test('on mobile, text field selections missing from window.getSelection() still update the target', async () => {
+  const state = globalThis.__FLOATING_TOOLBAR_TEST__
+  state.isMobile = true
+  const extendedTarget = { kind: 'text-field', text: 'the whole sentence' }
+  let promptSelection = null
+  state.genPrompt = async (selection) => {
+    promptSelection = selection
+    return 'prompt'
+  }
+
+  const container = createContainer()
+  mountToolbar(container, { capturedSelection: { id: 'initial' } })
+
+  // Firefox keeps the selection of a text field out of window.getSelection()
+  window.getSelection().removeAllRanges()
+  state.editableSelection = extendedTarget
+  act(() => {
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+
+  const button = container.querySelector('.chatgptbox-selection-toolbar-button')
+  assert.ok(button)
+  await act(async () => {
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  assert.equal(promptSelection, 'the whole sentence')
+  state.onReplaceContent('answer')
+
+  assert.deepEqual(state.replaceCalls, [{ captured: extendedTarget, content: 'answer' }])
+
+  act(() => render(null, container))
+})
+
 test('a current selection-tool prompt failure is contained and the toolbar remains usable', async () => {
   const failedPrompt = deferred()
   const retryPrompt = deferred()

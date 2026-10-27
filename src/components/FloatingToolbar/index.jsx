@@ -178,10 +178,14 @@ function FloatingToolbar(props) {
   useEffect(() => {
     if (isMobile()) {
       const selectionListener = () => {
-        const currentSelection = window.getSelection()?.toString()
+        const capturedSelection = captureEditableSelection(document)
+        const currentSelection =
+          window.getSelection()?.toString() ||
+          // Firefox does not expose text field selections via window.getSelection()
+          (capturedSelection?.kind === 'text-field' ? capturedSelection.text : '')
         if (currentSelection) {
           setSelection(currentSelection)
-          capturedSelectionRef.current = captureEditableSelection(document)
+          capturedSelectionRef.current = capturedSelection
         }
       }
       document.addEventListener('selectionchange', selectionListener)
