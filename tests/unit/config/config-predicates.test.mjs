@@ -67,7 +67,11 @@ const representativeOpenRouterApiModelNames = [
   'openRouter_anthropic_claude_sonnet4_6',
   'openRouter_openai_gpt_5_5',
 ]
-const representativeAimlApiModelNames = ['aiml_claude_sonnet_4_6_20260218', 'aiml_openai_gpt_5_5']
+const representativeAimlApiModelNames = [
+  'aiml_claude_sonnet_4_6',
+  'aiml_openai_gpt_5_5',
+  'aiml_openai_gpt_6_1_sol',
+]
 
 const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
 
@@ -128,6 +132,7 @@ test('canonicalized legacy model keys still match their provider predicates', ()
     ['moonshot_k2', isUsingMoonshotApiModel],
     ['openRouter_deepseek_deepseek_chat_v3_0324_free', isUsingOpenRouterApiModel],
     ['aiml_openai_o3_2025_04_16', isUsingAimlApiModel],
+    ['aiml_claude_sonnet_4_6_20260218', isUsingAimlApiModel],
   ]
 
   for (const [legacyModelKey, predicate] of cases) {
