@@ -316,6 +316,40 @@ test('replaceCapturedSelection skips execCommand when focus moved to another fie
   assert.equal(element.dispatchedEvents.length, 1)
 })
 
+test('replaceCapturedSelection falls back when execCommand only changes another part of the field', () => {
+  const element = createTextField({ value: 'say helo world', start: 4, end: 8 })
+  const doc = createDocument({
+    activeElement: element,
+    execCommand: () => {
+      element.value = 'say helo world!' // a page handler edited the field elsewhere
+      return true
+    },
+  })
+  const captured = captureEditableSelection(doc)
+
+  const replaced = replaceCapturedSelection(captured, 'hello', doc)
+
+  assert.equal(replaced, true)
+  assert.equal(element.value, 'say hello world')
+  assert.equal(element.dispatchedEvents.length, 1)
+})
+
+test('replaceCapturedSelection refuses a text field that became a password field', () => {
+  const element = createTextField({
+    tagName: 'INPUT',
+    type: 'text',
+    value: 'secret',
+    start: 0,
+    end: 6,
+  })
+  const doc = createDocument({ activeElement: element })
+  const captured = captureEditableSelection(doc)
+  element.type = 'password'
+
+  assert.equal(replaceCapturedSelection(captured, 'answer', doc), false)
+  assert.equal(element.value, 'secret')
+})
+
 test('replaceCapturedSelection refuses stale text field content', () => {
   const element = createTextField({ value: 'hello world', start: 0, end: 5 })
   const doc = createDocument({ activeElement: element })
@@ -493,6 +527,41 @@ test('replaceCapturedSelection rechecks contenteditable content after focusing',
 
   assert.equal(replaceCapturedSelection(captured, 'new text', doc), false)
   assert.equal(range.deletedContents, false)
+})
+
+test('replaceCapturedSelection refuses contenteditable text that was made non-editable', () => {
+  const element = createContentEditableElement()
+  const range = createRange(element, 'old text')
+  const doc = createDocument({ selection: createSelection(range) })
+  const captured = captureEditableSelection(doc)
+  // the span holding the selected text got contenteditable="false" in the meantime
+  range.commonAncestorContainer = { nodeType: 1, isContentEditable: false, parentElement: element }
+
+  assert.equal(replaceCapturedSelection(captured, 'new text', doc), false)
+  assert.equal(range.deletedContents, false)
+})
+
+test('replaceCapturedSelection keeps line breaks in the contenteditable fallback', () => {
+  const element = createContentEditableElement()
+  const range = createRange(element, 'old text')
+  const doc = createDocument({ selection: createSelection(range) })
+  doc.createElement = (tagName) => ({ nodeType: 1, tagName: tagName.toUpperCase() })
+  doc.createDocumentFragment = () => ({
+    nodeType: 11,
+    childNodes: [],
+    appendChild(node) {
+      this.childNodes.push(node)
+    },
+  })
+  const captured = captureEditableSelection(doc)
+
+  assert.equal(replaceCapturedSelection(captured, 'first line\nsecond line', doc), true)
+  const [inserted] = range.insertedNodes
+  assert.equal(inserted.nodeType, 11)
+  assert.deepEqual(
+    inserted.childNodes.map((node) => node.textContent ?? node.tagName),
+    ['first line', 'BR', 'second line'],
+  )
 })
 
 test('replaceCapturedSelection refuses stale contenteditable ranges', () => {

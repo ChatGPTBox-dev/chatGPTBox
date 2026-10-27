@@ -94,12 +94,11 @@ const setNativeValue = (element, value) => {
 
 const replaceInTextField = (captured, text, doc) => {
   const { element, start, end, text: originalText, fieldValue: value } = captured
+  // the field must still qualify for capture, e.g. not have become a password field
   const isUnchanged = () =>
-    element.isConnected !== false &&
-    !element.readOnly &&
-    !element.disabled &&
-    (element.value ?? '') === value
+    element.isConnected !== false && isTextField(element) && (element.value ?? '') === value
   if (!isUnchanged()) return false
+  const replacedValue = value.slice(0, start) + text + value.slice(end)
 
   if (typeof element.focus === 'function') element.focus()
   // focus handlers of the page may have changed the field in the meantime
@@ -114,15 +113,17 @@ const replaceInTextField = (captured, text, doc) => {
   ) {
     element.setSelectionRange(start, end)
     try {
-      // execCommand keeps the native undo history working where supported
-      replaced = doc.execCommand('insertText', false, text) && element.value !== value
+      // execCommand keeps the native undo history working where supported; it is
+      // only trusted when the field now holds the replacement, as page handlers may
+      // change another part of the field while the command reports success
+      replaced = doc.execCommand('insertText', false, text) && element.value === replacedValue
     } catch (error) {
       replaced = false
     }
     if (text === originalText) replaced = true
   }
   if (!replaced) {
-    setNativeValue(element, value.slice(0, start) + text + value.slice(end))
+    setNativeValue(element, replacedValue)
     dispatchInputEvent(element)
   }
   if (typeof element.setSelectionRange === 'function') {
@@ -132,10 +133,28 @@ const replaceInTextField = (captured, text, doc) => {
   return true
 }
 
+// a single text node would render line breaks as spaces in a normal-whitespace
+// editing host, so they become <br> elements (the text is never parsed as HTML)
+const createTextContent = (text, doc) => {
+  const lines = text.split(/\r?\n/)
+  if (lines.length === 1) return doc.createTextNode(text)
+  const fragment = doc.createDocumentFragment()
+  lines.forEach((line, index) => {
+    if (index > 0) fragment.appendChild(doc.createElement('br'))
+    if (line) fragment.appendChild(doc.createTextNode(line))
+  })
+  return fragment
+}
+
 const replaceInContentEditable = (captured, text, doc) => {
   const { element, range, text: originalText } = captured
+  // re-resolving the editing host catches parts of the region that were made
+  // non-editable since capture, which the manual fallback could overwrite otherwise
   const isUnchanged = () =>
-    element.isConnected !== false && element.isContentEditable && range.toString() === originalText
+    element.isConnected !== false &&
+    element.isContentEditable &&
+    findContentEditableElement(range.commonAncestorContainer) === element &&
+    range.toString() === originalText
   if (!isUnchanged()) return false
 
   if (typeof element.focus === 'function') element.focus()
@@ -162,7 +181,7 @@ const replaceInContentEditable = (captured, text, doc) => {
     }
   }
   range.deleteContents()
-  range.insertNode(doc.createTextNode(text))
+  range.insertNode(createTextContent(text, doc))
   range.collapse(false)
   if (selection) {
     // re-apply the collapsed range so the cursor ends up after the inserted text
