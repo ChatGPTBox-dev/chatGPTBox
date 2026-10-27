@@ -105,7 +105,13 @@ const replaceInTextField = (captured, text, doc) => {
   // focus handlers of the page may have changed the field in the meantime
   if (!isUnchanged()) return false
   let replaced = false
-  if (typeof element.setSelectionRange === 'function' && typeof doc.execCommand === 'function') {
+  // execCommand edits the focused element, so it is only used while the captured
+  // field has the focus: a focus handler of the page may have moved it elsewhere
+  if (
+    doc.activeElement === element &&
+    typeof element.setSelectionRange === 'function' &&
+    typeof doc.execCommand === 'function'
+  ) {
     element.setSelectionRange(start, end)
     try {
       // execCommand keeps the native undo history working where supported

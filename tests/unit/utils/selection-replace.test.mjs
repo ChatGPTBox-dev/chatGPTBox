@@ -290,6 +290,32 @@ test('replaceCapturedSelection falls back when execCommand fails', () => {
   assert.equal(element.dispatchedEvents.length, 1)
 })
 
+test('replaceCapturedSelection skips execCommand when focus moved to another field', () => {
+  const element = createTextField({ value: 'helo', start: 0, end: 4 })
+  const otherField = createTextField({ value: 'other' })
+  let execCommandCalled = false
+  const doc = createDocument({
+    activeElement: element,
+    execCommand: (command, showUI, text) => {
+      execCommandCalled = true
+      doc.activeElement.value = text
+      return true
+    },
+  })
+  const captured = captureEditableSelection(doc)
+  element.focus = () => {
+    doc.activeElement = otherField // a focus handler of the page moved the focus
+  }
+
+  const replaced = replaceCapturedSelection(captured, 'hello', doc)
+
+  assert.equal(replaced, true)
+  assert.equal(execCommandCalled, false)
+  assert.equal(otherField.value, 'other')
+  assert.equal(element.value, 'hello')
+  assert.equal(element.dispatchedEvents.length, 1)
+})
+
 test('replaceCapturedSelection refuses stale text field content', () => {
   const element = createTextField({ value: 'hello world', start: 0, end: 5 })
   const doc = createDocument({ activeElement: element })
