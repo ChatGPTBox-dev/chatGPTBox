@@ -54,3 +54,12 @@ test('Claude init reports the claude.ai error when conversations are denied', as
 
   await assert.rejects(client.init(), { message: 'Permission denied.' })
 })
+
+test('Claude init reports the raw response when conversations are not a list', async () => {
+  const { client } = createClient({
+    '/api/organizations': [CHAT_ORG],
+    '/api/organizations/chat-org/chat_conversations': { data: [] },
+  })
+
+  await assert.rejects(client.init(), { message: '{"data":[]}' })
+})

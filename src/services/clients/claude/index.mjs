@@ -353,7 +353,7 @@ export class Claude {
     )
     const json = await response.json()
     if (!Array.isArray(json)) {
-      throw new Error(json?.error?.message || 'failed to load conversations')
+      throw new Error(json?.error?.message || JSON.stringify(json))
     }
     return json.map((convo) => new Conversation(this, { conversationId: convo.uuid, ...convo }))
   }
