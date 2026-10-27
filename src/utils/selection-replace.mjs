@@ -92,42 +92,41 @@ const setNativeValue = (element, value) => {
   else element.value = value
 }
 
+// single-line inputs drop line breaks from their value, so they become spaces the
+// way browsers insert them into such fields (trailing line breaks are dropped)
+const toSingleLine = (text) => text.replace(/(\r\n|\r|\n)+$/, '').replace(/\r\n|\r|\n/g, ' ')
+
 const replaceInTextField = (captured, text, doc) => {
-  const { element, start, end, text: originalText, fieldValue: value } = captured
+  const { element, start, end, fieldValue: value } = captured
   // the field must still qualify for capture, e.g. not have become a password field
   const isUnchanged = () =>
     element.isConnected !== false && isTextField(element) && (element.value ?? '') === value
   if (!isUnchanged()) return false
-  const replacedValue = value.slice(0, start) + text + value.slice(end)
+  const insertedText = element.tagName.toUpperCase() === 'INPUT' ? toSingleLine(text) : text
+  const replacedValue = value.slice(0, start) + insertedText + value.slice(end)
 
   if (typeof element.focus === 'function') element.focus()
-  // focus handlers of the page may have changed the field in the meantime
-  if (!isUnchanged()) return false
-  let replaced = false
-  // execCommand edits the focused element, so it is only used while the captured
-  // field has the focus: a focus handler of the page may have moved it elsewhere
-  if (
-    doc.activeElement === element &&
-    typeof element.setSelectionRange === 'function' &&
-    typeof doc.execCommand === 'function'
-  ) {
+  // focus handlers of the page may have changed the field or moved the focus away,
+  // and execCommand edits whichever element has the focus
+  if (!isUnchanged() || doc.activeElement !== element) return false
+  if (typeof element.setSelectionRange === 'function' && typeof doc.execCommand === 'function') {
     element.setSelectionRange(start, end)
     try {
-      // execCommand keeps the native undo history working where supported; it is
-      // only trusted when the field now holds the replacement, as page handlers may
-      // change another part of the field while the command reports success
-      replaced = doc.execCommand('insertText', false, text) && element.value === replacedValue
+      // execCommand keeps the native undo history working where supported
+      doc.execCommand('insertText', false, insertedText)
     } catch (error) {
-      replaced = false
+      // fall back to setting the value below
     }
-    if (text === originalText) replaced = true
   }
-  if (!replaced) {
+  if (element.value !== replacedValue) {
+    // page handlers may have changed the field during the command; their edits are
+    // kept instead of being overwritten with a value built from the old capture
+    if (element.value !== value) return false
     setNativeValue(element, replacedValue)
     dispatchInputEvent(element)
   }
   if (typeof element.setSelectionRange === 'function') {
-    const caretPosition = start + text.length
+    const caretPosition = start + insertedText.length
     element.setSelectionRange(caretPosition, caretPosition)
   }
   return true

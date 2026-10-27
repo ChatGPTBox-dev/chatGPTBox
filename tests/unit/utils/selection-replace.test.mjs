@@ -275,6 +275,16 @@ test('replaceCapturedSelection uses execCommand when available', () => {
   assert.equal(element.dispatchedEvents.length, 0)
 })
 
+test('replaceCapturedSelection accepts an answer equal to the selected text', () => {
+  const element = createTextField({ value: 'say hello world', start: 4, end: 9 })
+  const doc = createDocument({ activeElement: element, execCommand: () => true })
+  const captured = captureEditableSelection(doc)
+
+  assert.equal(replaceCapturedSelection(captured, 'hello', doc), true)
+  assert.equal(element.value, 'say hello world')
+  assert.equal(element.dispatchedEvents.length, 0)
+})
+
 test('replaceCapturedSelection falls back when execCommand fails', () => {
   const element = createTextField({ value: 'helo', start: 0, end: 4 })
   const doc = createDocument({
@@ -290,7 +300,7 @@ test('replaceCapturedSelection falls back when execCommand fails', () => {
   assert.equal(element.dispatchedEvents.length, 1)
 })
 
-test('replaceCapturedSelection skips execCommand when focus moved to another field', () => {
+test('replaceCapturedSelection refuses a text field that lost the focus to another field', () => {
   const element = createTextField({ value: 'helo', start: 0, end: 4 })
   const otherField = createTextField({ value: 'other' })
   let execCommandCalled = false
@@ -309,14 +319,14 @@ test('replaceCapturedSelection skips execCommand when focus moved to another fie
 
   const replaced = replaceCapturedSelection(captured, 'hello', doc)
 
-  assert.equal(replaced, true)
+  assert.equal(replaced, false)
   assert.equal(execCommandCalled, false)
   assert.equal(otherField.value, 'other')
-  assert.equal(element.value, 'hello')
-  assert.equal(element.dispatchedEvents.length, 1)
+  assert.equal(element.value, 'helo')
+  assert.equal(element.dispatchedEvents.length, 0)
 })
 
-test('replaceCapturedSelection falls back when execCommand only changes another part of the field', () => {
+test('replaceCapturedSelection keeps page edits made to the field during execCommand', () => {
   const element = createTextField({ value: 'say helo world', start: 4, end: 8 })
   const doc = createDocument({
     activeElement: element,
@@ -329,9 +339,56 @@ test('replaceCapturedSelection falls back when execCommand only changes another 
 
   const replaced = replaceCapturedSelection(captured, 'hello', doc)
 
+  assert.equal(replaced, false)
+  assert.equal(element.value, 'say helo world!')
+  assert.equal(element.dispatchedEvents.length, 0)
+})
+
+test('replaceCapturedSelection inserts line breaks as spaces into single-line inputs', () => {
+  const element = createTextField({
+    tagName: 'INPUT',
+    type: 'text',
+    value: 'say helo world',
+    start: 4,
+    end: 8,
+  })
+  let insertedText = null
+  const doc = createDocument({
+    activeElement: element,
+    execCommand: (command, showUI, text) => {
+      insertedText = text
+      element.value = 'say ' + text + ' world'
+      return true
+    },
+  })
+  const captured = captureEditableSelection(doc)
+
+  const replaced = replaceCapturedSelection(captured, 'hello\nthere\r\nfriend\n', doc)
+
   assert.equal(replaced, true)
-  assert.equal(element.value, 'say hello world')
-  assert.equal(element.dispatchedEvents.length, 1)
+  assert.equal(insertedText, 'hello there friend')
+  assert.equal(element.value, 'say hello there friend world')
+  assert.equal(element.dispatchedEvents.length, 0)
+  assert.equal(element.selectionStart, 'say hello there friend'.length)
+})
+
+test('replaceCapturedSelection keeps line breaks in textareas and writes spaces into inputs in the fallback', () => {
+  const textarea = createTextField({ value: 'helo', start: 0, end: 4 })
+  const textareaDoc = createDocument({ activeElement: textarea })
+  assert.equal(
+    replaceCapturedSelection(captureEditableSelection(textareaDoc), 'hello\nthere', textareaDoc),
+    true,
+  )
+  assert.equal(textarea.value, 'hello\nthere')
+
+  const input = createTextField({ tagName: 'INPUT', type: 'text', value: 'helo', start: 0, end: 4 })
+  const inputDoc = createDocument({ activeElement: input })
+  assert.equal(
+    replaceCapturedSelection(captureEditableSelection(inputDoc), 'hello\nthere', inputDoc),
+    true,
+  )
+  assert.equal(input.value, 'hello there')
+  assert.equal(input.dispatchedEvents.length, 1)
 })
 
 test('replaceCapturedSelection refuses a text field that became a password field', () => {
