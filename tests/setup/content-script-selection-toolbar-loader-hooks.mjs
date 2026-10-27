@@ -41,14 +41,17 @@ const sources = {
   'test:config': `
     export const chatgptWebModelKeys = []
     export const getPreferredLanguageKey = async () => 'en'
-    export const getUserConfig = () => globalThis.__SELECTION_TOOLBAR_TEST__.getUserConfig()
+    export const getUserConfig = (options) =>
+      globalThis.__SELECTION_TOOLBAR_TEST__.getUserConfig(options)
     export const isUsingChatgptWebModel = () => false
     export const setAccessToken = async () => {}
     export const setUserConfig = async () => {}
   `,
   'test:utils': `
-    export const createElementAtPosition = () => {
+    export const createElementAtPosition = (x, y) => {
       const element = document.createElement('div')
+      element.style.left = x + 'px'
+      element.style.top = y + 'px'
       document.documentElement.append(element)
       globalThis.__SELECTION_TOOLBAR_TEST__.createdContainers.push(element)
       return element
@@ -72,7 +75,8 @@ const sources = {
       storage: { onChanged: event },
     }
   `,
-  'test:language': `export const getPreferredLanguage = async () => 'English'`,
+  'test:language': `export const getPreferredLanguage = async () => 'English'
+  export const formatLanguageForPrompt = (key) => key`,
   'test:i18n-react': '',
   'test:i18next': 'export const changeLanguage = async () => {}',
   'test:init-session': 'export const initSession = () => ({})',

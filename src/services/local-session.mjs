@@ -4,7 +4,11 @@ import { getUserConfig } from '../config/index.mjs'
 import { canonicalizeSessionModelFields } from '../config/model-key-migrations.mjs'
 
 export const initDefaultSession = async () => {
-  const config = await getUserConfig()
+  // Fresh, because this names the model a new conversation starts with, and the
+  // panel holding it can have been open since before the user changed the model in
+  // another context. A cached read here would name the previous model permanently,
+  // where before this cache every call read the completed write.
+  const config = await getUserConfig({ fresh: true })
   return initSession({
     sessionName: new Date().toLocaleString(),
     modelName: config.modelName,

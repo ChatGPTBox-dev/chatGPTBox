@@ -1,4 +1,4 @@
-import { defaults } from 'lodash-es'
+import { cloneDeep, defaults } from 'lodash-es'
 import Browser from 'webextension-polyfill'
 import { isMobile } from '../utils/is-mobile.mjs'
 import {
@@ -19,6 +19,7 @@ import {
   canonicalizeModelKeyArray,
 } from './model-key-migrations.mjs'
 import { getNavigatorLanguage, resolvePreferredLanguageKey } from './language-data.mjs'
+import { hasConfigStorageChange } from './storage-keys.mjs'
 
 export { getNavigatorLanguage }
 
@@ -1065,8 +1066,8 @@ export function isUsingCustomModel(configOrSession) {
   return isInApiModeGroup(customApiModelKeys, configOrSession)
 }
 
-export async function getPreferredLanguageKey() {
-  const config = await getUserConfig()
+export async function getPreferredLanguageKey(config = null) {
+  config ??= await getUserConfig()
   if (config.preferredLanguage === 'auto') return config.userLanguage
   return config.preferredLanguage
 }
@@ -2145,11 +2146,121 @@ function migrateUserConfig(options) {
   return { migrated, dirty, storageKeysToRemove }
 }
 
+let userConfigCache = null
+let userConfigCachePromise = null
+let userConfigCacheGeneration = 0
+let userConfigCacheSequence = 0
+let nextUserConfigReadSequence = 0
+
+function invalidateUserConfigCache() {
+  userConfigCacheGeneration += 1
+  userConfigCache = null
+  userConfigCachePromise = null
+}
+
+// Writers that do not go through setUserConfig (import/export cleanup, for
+// example) are covered by this listener, because the event reaches every
+// extension context. A read that races a write from another context can still
+// return the pre-write config until the event arrives; the UI merges that event
+// into its own state, and setUserConfig closes the window for in-process writes.
+//
+// The area-wide event is used rather than storage.local.onChanged because it is
+// the one every target exposes, and the area is filtered here instead. The
+// listener runs while this module is evaluated, so a missing event would break
+// config loading entirely.
+Browser.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && hasConfigStorageChange(changes)) invalidateUserConfigCache()
+})
+
+// userLanguage and the default it feeds are derived from the browser locale rather
+// than stored, so a locale change has to invalidate the cache like a write does.
+// Without this a context that stays alive across the change, which a service worker
+// or an open panel can be for hours, keeps resolving preferredLanguage against the
+// language the user no longer has.
+if (typeof globalThis.addEventListener === 'function') {
+  globalThis.addEventListener('languagechange', () => invalidateUserConfigCache())
+}
+
 /**
- * get user config from local storage
+ * Get user config from local storage.
+ *
+ * The cache is per context, so it is invalidated by the storage event rather than
+ * by the write that caused it. A read therefore returns the previous config for as
+ * long as another context's completed write has not reached this one yet, which is
+ * invisible for most callers but not for the ones that start a session the moment
+ * the user acts: a selection made right after changing a setting in the popup used
+ * to open with the previous model, because before this cache every read went to
+ * storage. `fresh` is how such a caller opts out.
+ *
+ * @param {{fresh?: boolean}} [options]
+ *   `fresh` reads storage directly instead of the cache, for a read that has to
+ *   observe a write another context has already completed. It still populates the
+ *   cache, so the reads after it are cheap again.
  * @returns {Promise<UserConfig>}
+ *
+ * Every caller gets its own copy, as before, so one caller mutating the result
+ * cannot corrupt the cache or another caller's config. cloneDeep rather than
+ * structuredClone, which only exists from Safari 15.4 while the project declares
+ * no minimum browser version and ships a Safari build. The config is plain JSON
+ * data from storage plus the literal defaults, so a value structuredClone could not
+ * handle cannot reach the cache.
  */
-export async function getUserConfig() {
+export async function getUserConfig({ fresh = false } = {}) {
+  // A read updates the cache only if no newer result has completed since it
+  // started. The generation covers invalidation: a read that began before a change
+  // cannot publish at all. The sequence covers two reads that began after the same
+  // change and finish out of order, which is how an older read would otherwise
+  // replace the config a fresh read had already published.
+  const readAndCache = async (generation, sequence) => {
+    const { config, persisted } = await readAndMigrateUserConfig()
+    if (generation === userConfigCacheGeneration && sequence > userConfigCacheSequence) {
+      userConfigCacheSequence = sequence
+      if (persisted) {
+        userConfigCache = config
+      } else {
+        // A failed migration must also retire older cache and pending reads, so
+        // ordinary callers retry storage instead of falling back to stale settings.
+        invalidateUserConfigCache()
+      }
+    }
+    return config
+  }
+
+  if (fresh) {
+    // Deliberately not shared with any in-flight read, so this cannot join one
+    // that started before the write it has to observe.
+    const sequence = ++nextUserConfigReadSequence
+    return cloneDeep(await readAndCache(userConfigCacheGeneration, sequence))
+  }
+
+  if (userConfigCache) return cloneDeep(userConfigCache)
+  if (!userConfigCachePromise) {
+    const generation = userConfigCacheGeneration
+    const sequence = ++nextUserConfigReadSequence
+    userConfigCachePromise = readAndCache(generation, sequence).finally(() => {
+      if (generation === userConfigCacheGeneration) userConfigCachePromise = null
+    })
+  }
+  return cloneDeep(await userConfigCachePromise)
+}
+
+// Every write a read performs is reported, so the caller knows whether the
+// result it returns is backed by storage.
+const writeAndReport = async (write) => {
+  try {
+    await write()
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function readAndMigrateUserConfig() {
+  // A write that fails leaves storage unchanged, so no storage event would ever
+  // invalidate a cached result built from it. The caller only caches the config
+  // when every write below landed, which keeps a failed migration retryable.
+  let persisted = true
+
   // Also fetch old keys for migration
   const options = await Browser.storage.local.get([
     ...Object.keys(defaultConfig),
@@ -2163,27 +2274,30 @@ export async function getUserConfig() {
   if (options.claudeApiKey !== undefined) {
     if (options.anthropicApiKey === undefined) {
       options.anthropicApiKey = options.claudeApiKey
-      try {
-        await Browser.storage.local.set({ anthropicApiKey: options.claudeApiKey })
-        await Browser.storage.local.remove('claudeApiKey')
-      } catch {
-        // Retry the legacy-key cleanup on the next config read.
-      }
+      // A failure here is retried on the next config read.
+      persisted =
+        (await writeAndReport(async () => {
+          await Browser.storage.local.set({ anthropicApiKey: options.claudeApiKey })
+          await Browser.storage.local.remove('claudeApiKey')
+        })) && persisted
     } else {
-      await Browser.storage.local.remove('claudeApiKey').catch(() => {})
+      persisted =
+        (await writeAndReport(() => Browser.storage.local.remove('claudeApiKey'))) && persisted
     }
   }
   if (options.customClaudeApiUrl !== undefined) {
     if (options.customAnthropicApiUrl === undefined) {
       options.customAnthropicApiUrl = options.customClaudeApiUrl
-      try {
-        await Browser.storage.local.set({ customAnthropicApiUrl: options.customClaudeApiUrl })
-        await Browser.storage.local.remove('customClaudeApiUrl')
-      } catch {
-        // Retry the legacy-key cleanup on the next config read.
-      }
+      // A failure here is retried on the next config read.
+      persisted =
+        (await writeAndReport(async () => {
+          await Browser.storage.local.set({ customAnthropicApiUrl: options.customClaudeApiUrl })
+          await Browser.storage.local.remove('customClaudeApiUrl')
+        })) && persisted
     } else {
-      await Browser.storage.local.remove('customClaudeApiUrl').catch(() => {})
+      persisted =
+        (await writeAndReport(() => Browser.storage.local.remove('customClaudeApiUrl'))) &&
+        persisted
     }
   }
 
@@ -2262,20 +2376,17 @@ export async function getUserConfig() {
     }
     let payloadPersisted = true
     if (Object.keys(payload).length > 0) {
-      payloadPersisted = await Browser.storage.local
-        .set(payload)
-        .then(() => true)
-        .catch(() => false)
+      payloadPersisted = await writeAndReport(() => Browser.storage.local.set(payload))
     }
     if (payloadPersisted && storageKeysToRemove.length > 0) {
-      try {
-        await Browser.storage.local.remove(storageKeysToRemove)
-      } catch {
-        // Invalid live-default sentinels remain non-authoritative and are retried on the next read.
-      }
+      // Invalid live-default sentinels remain non-authoritative and are retried on the next read.
+      payloadPersisted = await writeAndReport(() =>
+        Browser.storage.local.remove(storageKeysToRemove),
+      )
     }
+    persisted = payloadPersisted && persisted
   }
-  return defaults(migrated, defaultConfig)
+  return { config: defaults(migrated, defaultConfig), persisted }
 }
 
 /**
@@ -2284,6 +2395,9 @@ export async function getUserConfig() {
  */
 export async function setUserConfig(value) {
   await Browser.storage.local.set(value)
+  // The storage event also invalidates the cache, but it can arrive after this
+  // promise resolves, so invalidate here to keep the next read consistent.
+  invalidateUserConfigCache()
 }
 
 export async function setAccessToken(accessToken) {
@@ -2293,7 +2407,7 @@ export async function setAccessToken(accessToken) {
 const TOKEN_DURATION = 30 * 24 * 3600 * 1000
 
 export async function clearOldAccessToken() {
-  const duration = Date.now() - (await getUserConfig()).tokenSavedOn
+  const duration = Date.now() - (await getUserConfig({ fresh: true })).tokenSavedOn
   if (duration > TOKEN_DURATION) {
     await setAccessToken('')
   }

@@ -546,7 +546,7 @@ async function executeApi(
           console.debug('[background] Skipping a superseded direct ChatGPT Web session request.')
           return
         }
-        await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
+        await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken, config)
       }
     } else if (isUsingClaudeWebModel(session)) {
       console.debug('[background] Using Claude Web Model')
@@ -656,7 +656,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         break
       case 'OPEN_CHAT_WINDOW': {
         console.log('[background] Processing OPEN_CHAT_WINDOW message')
-        const config = await getUserConfig()
+        const config = await getUserConfig({ fresh: true })
         const url = Browser.runtime.getURL('IndependentPanel.html')
         const tabs = await Browser.tabs.query({ url: url, windowType: 'popup' })
         if (!config.alwaysCreateNewConversationWindow && tabs.length > 0) {
@@ -675,7 +675,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
       }
       case 'REFRESH_MENU':
         console.log('[background] Processing REFRESH_MENU message')
-        refreshMenu()
+        await refreshMenu()
         break
       case 'PIN_TAB': {
         console.log('[background] Processing PIN_TAB message:', message.data)
@@ -1050,7 +1050,8 @@ try {
 
 try {
   refreshMenu()
-  console.log('[background] Menu refreshed successfully.')
+    .then(() => console.log('[background] Menu refreshed successfully.'))
+    .catch((error) => console.error('[background] Error refreshing menu:', error))
 } catch (error) {
   console.error('[background] Error refreshing menu:', error)
 }

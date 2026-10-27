@@ -10,6 +10,7 @@ import {
   ChatText,
 } from 'react-bootstrap-icons'
 import { getPreferredLanguage } from '../../config/language.mjs'
+import { getUserConfig } from '../../config/index.mjs'
 
 const createGenPrompt =
   ({
@@ -19,11 +20,13 @@ const createGenPrompt =
     enableBidirectional = false,
     includeLanguagePrefix = false,
   }) =>
-  async (selection) => {
+  async (selection, userConfig = null) => {
     let preferredLanguage = targetLanguage
 
     if (!preferredLanguage) {
-      preferredLanguage = await getPreferredLanguage()
+      preferredLanguage = await getPreferredLanguage(
+        userConfig ?? (await getUserConfig({ fresh: true })),
+      )
     }
 
     let fullMessage = isTranslation

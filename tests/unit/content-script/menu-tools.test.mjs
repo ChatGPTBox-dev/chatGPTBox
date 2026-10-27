@@ -3,6 +3,7 @@ import { setImmediate } from 'node:timers'
 import { describe, test } from 'node:test'
 import Browser from 'webextension-polyfill'
 import { config } from '../../../src/content-script/menu-tools/index.mjs'
+import { getUserConfig } from '../../../src/config/index.mjs'
 
 function replaceBrowserMethod(t, target, name, replacement) {
   const original = target[name]
@@ -19,6 +20,29 @@ function replaceBrowserMethod(t, target, name, replacement) {
     })
   })
 }
+
+describe('openConversationWindow', () => {
+  test('observes the creation preference before its storage event arrives', async (t) => {
+    t.mock.method(console, 'debug', () => {})
+    const shim = globalThis.__TEST_BROWSER_SHIM__
+    shim.replaceStorage({ alwaysCreateNewConversationWindow: false })
+    for (let attempt = 0; attempt < 3; attempt++) await getUserConfig()
+    shim.deferStorageEvents()
+    t.after(() => shim.flushStorageEvents())
+    shim.setStorage({ alwaysCreateNewConversationWindow: true })
+
+    replaceBrowserMethod(t, Browser.tabs, 'query', async () => [{ id: 17, windowId: 9 }])
+    const create = t.mock.fn(async () => ({ id: 10 }))
+    const update = t.mock.fn(async () => {})
+    replaceBrowserMethod(t, Browser.windows, 'create', create)
+    replaceBrowserMethod(t, Browser.windows, 'update', update)
+
+    await config.openConversationWindow.action(true)
+
+    assert.equal(create.mock.callCount(), 1)
+    assert.equal(update.mock.callCount(), 0)
+  })
+})
 
 describe('closeAllChats', () => {
   test('waits for the close message before resolving', async (t) => {

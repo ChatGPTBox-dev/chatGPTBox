@@ -18,6 +18,15 @@ beforeEach(() => {
   globalThis.__TEST_BROWSER_SHIM__.clearStorage()
 })
 
+test('storage.local.get returns a promise when callback is omitted', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.setStorage({ requested: 'stored-value' })
+
+  const result = globalThis.chrome.storage.local.get('requested')
+
+  assert.equal(typeof result.then, 'function')
+  assert.deepEqual(await result.then((value) => value), { requested: 'stored-value' })
+})
+
 test('storage.local.get with object keys returns only requested keys and uses defaults', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     requested: 'stored-value',
@@ -148,4 +157,93 @@ test('runtime.sendMessage returns a resolved promise when callback is omitted', 
   const result = await globalThis.chrome.runtime.sendMessage({ type: 'PING' })
 
   assert.equal(result, undefined)
+})
+
+const recordStorageChanges = () => {
+  const areaChanges = []
+  const globalChanges = []
+  const onAreaChanged = (changes) => areaChanges.push(changes)
+  const onGlobalChanged = (changes, areaName) => globalChanges.push([changes, areaName])
+  globalThis.chrome.storage.local.onChanged.addListener(onAreaChanged)
+  globalThis.chrome.storage.onChanged.addListener(onGlobalChanged)
+  return {
+    areaChanges,
+    globalChanges,
+    stop() {
+      globalThis.chrome.storage.local.onChanged.removeListener(onAreaChanged)
+      globalThis.chrome.storage.onChanged.removeListener(onGlobalChanged)
+    },
+  }
+}
+
+test('storage events report changed keys on both storage events', () => {
+  const shim = globalThis.__TEST_BROWSER_SHIM__
+  shim.setStorage({ alpha: 1 })
+  const recorded = recordStorageChanges()
+
+  shim.setStorage({ alpha: 2, beta: { nested: true } })
+
+  recorded.stop()
+  assert.deepEqual(recorded.areaChanges, [
+    {
+      alpha: { oldValue: 1, newValue: 2 },
+      beta: { oldValue: undefined, newValue: { nested: true } },
+    },
+  ])
+  assert.deepEqual(recorded.globalChanges, [[recorded.areaChanges[0], 'local']])
+})
+
+test('storage events skip keys whose value did not change', () => {
+  const shim = globalThis.__TEST_BROWSER_SHIM__
+  shim.setStorage({ alpha: 1, beta: [1, 2] })
+  const recorded = recordStorageChanges()
+
+  // Chromium compares by value, so a new object with identical content is not a
+  // change and no event is reported for it.
+  shim.setStorage({ alpha: 1, beta: [1, 2] })
+  globalThis.chrome.storage.local.remove('missing-key')
+
+  recorded.stop()
+  assert.deepEqual(recorded.areaChanges, [])
+})
+
+test('storage events report keys added and removed with undefined values', () => {
+  const shim = globalThis.__TEST_BROWSER_SHIM__
+  shim.setStorage({ present: undefined })
+  const recorded = recordStorageChanges()
+
+  globalThis.chrome.storage.local.remove('present')
+
+  recorded.stop()
+  assert.deepEqual(recorded.areaChanges, [
+    { present: { oldValue: undefined, newValue: undefined } },
+  ])
+})
+
+test('fireUnchangedKeys reports only the written keys, like Firefox', () => {
+  const shim = globalThis.__TEST_BROWSER_SHIM__
+  shim.setStorage({ untouched: 'stored', rewritten: 'before' })
+  const recorded = recordStorageChanges()
+
+  shim.setStorage({ rewritten: 'before', added: 'new' }, { fireUnchangedKeys: true })
+
+  recorded.stop()
+  assert.deepEqual(Object.keys(recorded.areaChanges[0]).sort(), ['added', 'rewritten'])
+})
+
+test('disabling storage-event deferral preserves pending notifications', (t) => {
+  const shim = globalThis.__TEST_BROWSER_SHIM__
+  const recorded = recordStorageChanges()
+  t.after(() => {
+    shim.flushStorageEvents()
+    recorded.stop()
+  })
+  shim.deferStorageEvents()
+  shim.setStorage({ deferred: 'stored' })
+  shim.deferStorageEvents(false)
+
+  assert.equal(shim.pendingStorageEvents(), 1)
+  assert.equal(recorded.areaChanges.length, 0)
+  assert.equal(shim.flushStorageEvents(), 1)
+  assert.equal(recorded.areaChanges[0].deferred.newValue, 'stored')
 })

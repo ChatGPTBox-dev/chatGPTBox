@@ -74,7 +74,8 @@ const sources = {
     }
   `,
   'test:conversation-config': `
-    export const getUserConfig = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.getUserConfig()
+    export const getUserConfig = (options) =>
+      globalThis.__CONVERSATION_LIFECYCLE_TEST__.getUserConfig(options)
     export const isUsingBingWebModel = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.foreground
     export const Models = { customModel: { desc: 'Custom Model' } }
   `,
