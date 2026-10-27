@@ -3,6 +3,7 @@ import { parseFloatWithClamp, parseIntWithClamp } from '../../utils/index.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { isUsingAzureOpenAiApiModel } from '../../config/index.mjs'
 import { canApplyTemperatureOverride } from '../../services/apis/temperature-params.mjs'
+import { parseExtraBody } from '../../services/apis/extra-body-params.mjs'
 import PropTypes from 'prop-types'
 import { Tab, TabList, TabPanel, Tabs } from 'react-tabs'
 import Browser from 'webextension-polyfill'
@@ -22,6 +23,8 @@ function ApiParams({ config, updateConfig }) {
     ? config.customModelName
     : getModelValue(config)
   const temperatureOverrideAvailable = canApplyTemperatureOverride(selectedModel)
+  const extraBodyValue = typeof config.extraBody === 'string' ? config.extraBody : ''
+  const extraBodyInvalid = extraBodyValue.trim() !== '' && !parseExtraBody(extraBodyValue)
 
   return (
     <>
@@ -89,6 +92,21 @@ function ApiParams({ config, updateConfig }) {
           />
         </label>
       )}
+      <label>
+        {t('Extra Request Body (JSON)')}
+        <textarea
+          value={extraBodyValue}
+          placeholder={'{\n  "reasoning_effort": "high"\n}'}
+          onChange={(e) => {
+            updateConfig({ extraBody: e.target.value })
+          }}
+        />
+      </label>
+      <small>
+        {extraBodyInvalid
+          ? t('Invalid JSON object, this value is ignored.')
+          : t('Merged into the API request body. Must be a JSON object, other values are ignored.')}
+      </small>
     </>
   )
 }
