@@ -32,15 +32,15 @@ test('Claude init prefers the organization with chat capability', async () => {
   assert.ok(requests.every((url) => !url.includes('api-org')))
 })
 
-test('Claude init falls back to the first organization without chat capability', async () => {
+test('Claude init falls back to the first organization when none has chat capability', async () => {
   const { client } = createClient({
-    '/api/organizations': [{ uuid: 'only-org' }],
-    '/api/organizations/only-org/chat_conversations': [],
+    '/api/organizations': [{ uuid: 'first-org' }, { uuid: 'second-org', capabilities: ['api'] }],
+    '/api/organizations/first-org/chat_conversations': [],
   })
 
   await client.init()
 
-  assert.equal(client.organizationId, 'only-org')
+  assert.equal(client.organizationId, 'first-org')
 })
 
 test('Claude init reports the claude.ai error when conversations are denied', async () => {
