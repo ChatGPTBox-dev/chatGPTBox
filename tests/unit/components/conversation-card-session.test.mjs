@@ -217,6 +217,12 @@ test('isReplaceableAnswer rejects the loading placeholder of a request stopped b
   assert.equal(isReplaceableAnswer({ type: 'answer', done: true, content }), false)
 })
 
+test('isReplaceableAnswer accepts answers that mention the loading class', () => {
+  const content = 'Use `<p class="gpt-loading">` for the placeholder.\n<hr/>'
+
+  assert.equal(isReplaceableAnswer({ type: 'answer', done: true, content }), true)
+})
+
 test('isReplaceableAnswer only accepts completed answers with content', () => {
   assert.equal(isReplaceableAnswer({ type: 'answer', done: true, content: 'Hello\n<hr/>' }), true)
   assert.equal(isReplaceableAnswer({ type: 'answer', done: false, content: 'Hel' }), false)

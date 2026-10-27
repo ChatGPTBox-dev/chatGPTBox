@@ -78,13 +78,16 @@ export function getInterruptedCompletionState(message, partialAnswer, retryRecor
   }
 }
 
+const LOADING_PLACEHOLDER = /^<p class="gpt-loading">[^<]*<\/p>$/
+
 // a request stopped before its first token leaves the loading placeholder marked as
 // done, which must never be written over the user's selection
 export function isReplaceableAnswer(item) {
+  const content = item.content.replace(/\n<hr\/>$/, '').trim()
   return (
     item.type === 'answer' &&
     Boolean(item.done) &&
-    !item.content.includes('gpt-loading') &&
-    item.content.replace(/\n<hr\/>$/, '').trim() !== ''
+    content !== '' &&
+    !LOADING_PLACEHOLDER.test(content)
   )
 }
