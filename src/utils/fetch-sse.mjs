@@ -140,8 +140,8 @@ export async function fetchSSE(resource, options) {
       try {
         const commonResponse = JSON.parse(str)
         fakeSseData = 'data: ' + JSON.stringify(commonResponse) + '\n\ndata: [DONE]\n\n'
-      } catch (error) {
-        console.debug('not common response', error)
+      } catch {
+        fakeSseData = undefined
       }
       if (fakeSseData) {
         try {

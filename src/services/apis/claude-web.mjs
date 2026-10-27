@@ -1,4 +1,4 @@
-import { pushRecord, setAbortController } from './shared.mjs'
+import { createAdapterDiagnostics, pushRecord, setAbortController } from './shared.mjs'
 import Claude from '../clients/claude'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 
@@ -8,7 +8,16 @@ import { getModelValue } from '../../utils/model-name-convert.mjs'
  * @param {Session} session
  * @param {string} sessionKey
  */
-export async function generateAnswersWithClaudeWebApi(port, question, session, sessionKey) {
+export async function generateAnswersWithClaudeWebApi(
+  port,
+  question,
+  session,
+  sessionKey,
+  configOverride,
+  adapterOptions,
+) {
+  void configOverride
+  const diagnostics = createAdapterDiagnostics(adapterOptions)
   const { controller, cleanController } = setAbortController(port)
   let bot
   try {
@@ -32,7 +41,7 @@ export async function generateAnswersWithClaudeWebApi(port, question, session, s
 
   const doneFunc = () => {
     pushRecord(session, question, answer)
-    console.debug('conversation history', { content: session.conversationRecords })
+    diagnostics.debug('conversation history', { content: session.conversationRecords })
     port.postMessage({ answer: answer, done: true, session: session })
   }
 

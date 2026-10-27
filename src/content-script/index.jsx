@@ -31,6 +31,10 @@ import { getChatGptAccessToken, registerPortListener } from '../services/wrapper
 import { generateAnswersWithChatgptWebApi } from '../services/apis/chatgpt-web.mjs'
 import WebJumpBackNotification from '../components/WebJumpBackNotification'
 import { getPortErrorMessage, shouldDelegatePortError } from './port-error.mjs'
+import {
+  VIDEO_SUMMARY_CHATGPT_PROXY_PORT_PREFIX,
+  registerVideoSummaryChatgptProxyListener,
+} from './video-summary-chatgpt-proxy.mjs'
 
 /**
  * @param {string} siteName
@@ -883,6 +887,25 @@ async function prepareForJumpBackNotification() {
 
 let manageChatGptTabStatePromise = null
 let chatGPTBoxPortListenerRegistered = false
+let videoSummaryChatgptProxyListenerRegistered = false
+
+function ensureVideoSummaryChatgptProxyListenerRegistered() {
+  if (
+    videoSummaryChatgptProxyListenerRegistered ||
+    location.hostname !== 'chatgpt.com' ||
+    location.pathname === '/auth/login'
+  ) {
+    return
+  }
+
+  registerVideoSummaryChatgptProxyListener({
+    runtime: Browser.runtime,
+    getAccessToken: getChatGptAccessToken,
+    generateAnswers: generateAnswersWithChatgptWebApi,
+    logger: console,
+  })
+  videoSummaryChatgptProxyListenerRegistered = true
+}
 
 function ensureChatGptPortListenerRegistered() {
   if (chatGPTBoxPortListenerRegistered) {
@@ -899,49 +922,52 @@ function ensureChatGptPortListenerRegistered() {
 
   try {
     console.log('[content] Attempting to register port listener for chatgpt.com.')
-    registerPortListener(async (session, port, _config, isLatestSessionRequest) => {
-      console.debug(
-        `[content] Port listener callback triggered. Session model: ${session?.modelName}, Port: ${port.name}`,
-      )
-      try {
-        if (isUsingChatgptWebModel(session)) {
-          console.log(
-            '[content] Session is for ChatGPT Web Model, processing request for question:',
-            session.question,
-          )
-          const accessToken = await getChatGptAccessToken()
-          if (!isLatestSessionRequest()) {
-            console.debug('[content] Skipping a superseded ChatGPT Web session request.')
-            return
-          }
-          if (!accessToken) {
-            console.warn('[content] No ChatGPT access token available for web API call.')
-            port.postMessage({ error: 'Missing ChatGPT access token.' })
-            return
-          }
-          await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
-          console.log('[content] generateAnswersWithChatgptWebApi call completed.')
-        } else {
-          console.debug(
-            '[content] Session is not for ChatGPT Web Model, skipping processing in this listener.',
-          )
-        }
-      } catch (e) {
-        if (!isLatestSessionRequest()) {
-          console.debug('[content] Ignoring an error from a superseded session request.')
-          return
-        }
-        if (shouldDelegatePortError(e)) throw e
-        console.error('[content] Error in port listener callback:', e, 'Session:', session)
+    registerPortListener(
+      async (session, port, _config, isLatestSessionRequest) => {
+        console.debug(
+          `[content] Port listener callback triggered. Session model: ${session?.modelName}, Port: ${port.name}`,
+        )
         try {
-          port.postMessage({
-            error: getPortErrorMessage(e),
-          })
-        } catch (postError) {
-          console.error('[content] Error sending error message back via port:', postError)
+          if (isUsingChatgptWebModel(session)) {
+            console.log(
+              '[content] Session is for ChatGPT Web Model, processing request for question:',
+              session.question,
+            )
+            const accessToken = await getChatGptAccessToken()
+            if (!isLatestSessionRequest()) {
+              console.debug('[content] Skipping a superseded ChatGPT Web session request.')
+              return
+            }
+            if (!accessToken) {
+              console.warn('[content] No ChatGPT access token available for web API call.')
+              port.postMessage({ error: 'Missing ChatGPT access token.' })
+              return
+            }
+            await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
+            console.log('[content] generateAnswersWithChatgptWebApi call completed.')
+          } else {
+            console.debug(
+              '[content] Session is not for ChatGPT Web Model, skipping processing in this listener.',
+            )
+          }
+        } catch (e) {
+          if (!isLatestSessionRequest()) {
+            console.debug('[content] Ignoring an error from a superseded session request.')
+            return
+          }
+          if (shouldDelegatePortError(e)) throw e
+          console.error('[content] Error in port listener callback:', e, 'Session:', session)
+          try {
+            port.postMessage({
+              error: getPortErrorMessage(e),
+            })
+          } catch (postError) {
+            console.error('[content] Error sending error message back via port:', postError)
+          }
         }
-      }
-    })
+      },
+      (port) => !port?.name?.startsWith(VIDEO_SUMMARY_CHATGPT_PROXY_PORT_PREFIX),
+    )
     console.log('[content] Generic port listener registered successfully for chatgpt.com pages.')
     chatGPTBoxPortListenerRegistered = true
   } catch (error) {
@@ -952,6 +978,7 @@ function ensureChatGptPortListenerRegistered() {
 async function run() {
   console.log('[content] Script run started.')
   try {
+    ensureVideoSummaryChatgptProxyListenerRegistered()
     ensureChatGptPortListenerRegistered()
 
     await getPreferredLanguageKey()
