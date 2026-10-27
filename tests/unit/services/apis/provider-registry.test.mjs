@@ -100,6 +100,28 @@ test('resolveProviderIdForSession does not treat raw Gemini model IDs as legacy 
   assert.equal(resolveProviderIdForSession({ modelName: 'gemini-2.5-flash' }), null)
 })
 
+test('AI/ML built-in provider only declares the chat completions endpoint', () => {
+  const config = {
+    providerSecrets: {
+      aiml: 'aiml-key',
+    },
+  }
+
+  assert.equal(getProviderById(config, 'aiml').completionsPath, undefined)
+
+  const resolved = resolveOpenAICompatibleRequest(config, {
+    apiMode: {
+      groupName: 'aimlModelKeys',
+      itemName: 'aiml_openai_gpt_5_5',
+      providerId: '',
+    },
+  })
+
+  assert.equal(resolved.providerId, 'aiml')
+  assert.equal(resolved.endpointType, 'chat')
+  assert.equal(resolved.requestUrl, 'https://api.aimlapi.com/v1/chat/completions')
+})
+
 test('resolveOpenAICompatibleRequest resolves custom provider from normalized session provider id', () => {
   const config = {
     customOpenAIProviders: [

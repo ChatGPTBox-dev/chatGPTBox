@@ -65,7 +65,6 @@ const BUILTIN_PROVIDER_TEMPLATE = [
     name: 'AI/ML',
     baseUrl: 'https://api.aimlapi.com/v1',
     chatCompletionsPath: '/chat/completions',
-    completionsPath: '/completions',
     builtin: true,
     enabled: true,
   },
