@@ -846,6 +846,7 @@ export const defaultApiModeIds = [
   'mistralMediumLatest',
   'openRouter_auto',
   'openRouter_free',
+  'aiml_openai_gpt_6_1_sol',
   'nvidiaNim_nemotron_3_super',
 ]
 
