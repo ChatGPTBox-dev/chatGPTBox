@@ -87,6 +87,8 @@
   "Confirm": "確認",
   "Clear Conversation": "清除對話",
   "Retry": "重試",
+  "Replace Selection": "取代選取文字",
+  "Replace Failed": "取代失敗",
   "Exceeded maximum context length": "超出最大上下文長度，請清除對話並重試",
   "Claude reached the response token limit. Increase Max Response Token Length and try again.": "Claude 已達回應 token 上限。請提高 [回應的最大 token 長度]，然後再試一次。",
   "Claude reached the model context window limit. Clear the conversation and try again.": "Claude 已達模型的上下文視窗上限。請清除對話後再試一次。",
