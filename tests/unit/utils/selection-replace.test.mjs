@@ -30,14 +30,18 @@ const createTextField = ({ tagName = 'TEXTAREA', type, value = '', start = 0, en
   return element
 }
 
-const createContentEditableElement = () => ({
+const createContentEditableElement = (root = { activeElement: null }) => ({
   nodeType: 1,
   isContentEditable: true,
   isConnected: true,
   parentElement: null,
   dispatchedEvents: [],
+  getRootNode() {
+    return root
+  },
   focus() {
     this.focused = true
+    root.activeElement = this
   },
   dispatchEvent(event) {
     this.dispatchedEvents.push(event)
@@ -391,6 +395,27 @@ test('replaceCapturedSelection keeps line breaks in textareas and writes spaces 
   assert.equal(input.dispatchedEvents.length, 1)
 })
 
+test('replaceCapturedSelection inserts line breaks into textareas as LF', () => {
+  const element = createTextField({ value: 'say helo world', start: 4, end: 8 })
+  let insertedText = null
+  const doc = createDocument({
+    activeElement: element,
+    execCommand: (command, showUI, text) => {
+      insertedText = text
+      element.value = 'say ' + text.replace(/\r\n?/g, '\n') + ' world' // textareas read back LF
+      return true
+    },
+  })
+  const captured = captureEditableSelection(doc)
+
+  const replaced = replaceCapturedSelection(captured, 'hello\r\nthere\rfriend', doc)
+
+  assert.equal(replaced, true)
+  assert.equal(insertedText, 'hello\nthere\nfriend')
+  assert.equal(element.value, 'say hello\nthere\nfriend world')
+  assert.equal(element.dispatchedEvents.length, 0)
+})
+
 test('replaceCapturedSelection refuses a text field that became a password field', () => {
   const element = createTextField({
     tagName: 'INPUT',
@@ -584,6 +609,40 @@ test('replaceCapturedSelection rechecks contenteditable content after focusing',
 
   assert.equal(replaceCapturedSelection(captured, 'new text', doc), false)
   assert.equal(range.deletedContents, false)
+})
+
+test('replaceCapturedSelection refuses a contenteditable host that lost the focus', () => {
+  const element = createContentEditableElement()
+  const range = createRange(element, 'old text')
+  let execCommandCalled = false
+  const doc = createDocument({
+    selection: createSelection(range),
+    execCommand: () => {
+      execCommandCalled = true
+      return true
+    },
+  })
+  const captured = captureEditableSelection(doc)
+  element.focus = () => {
+    element.getRootNode().activeElement = { id: 'other field' } // a focus handler moved the focus
+  }
+
+  assert.equal(replaceCapturedSelection(captured, 'new text', doc), false)
+  assert.equal(execCommandCalled, false)
+  assert.equal(range.deletedContents, false)
+  assert.equal(element.dispatchedEvents.length, 0)
+})
+
+test('replaceCapturedSelection checks the focus of a contenteditable host in its shadow root', () => {
+  const shadowHost = { id: 'shadow host' }
+  const element = createContentEditableElement({ activeElement: null })
+  const range = createRange(element, 'old text')
+  const doc = createDocument({ activeElement: shadowHost, selection: createSelection(range) })
+  const captured = captureEditableSelection(doc)
+
+  assert.equal(replaceCapturedSelection(captured, 'new text', doc), true)
+  assert.equal(doc.activeElement, shadowHost)
+  assert.equal(range.insertedNodes[0].textContent, 'new text')
 })
 
 test('replaceCapturedSelection refuses contenteditable text that was made non-editable', () => {

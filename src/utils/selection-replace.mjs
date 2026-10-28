@@ -92,9 +92,14 @@ const setNativeValue = (element, value) => {
   else element.value = value
 }
 
-// single-line inputs drop line breaks from their value, so they become spaces the
-// way browsers insert them into such fields (trailing line breaks are dropped)
-const toSingleLine = (text) => text.replace(/(\r\n|\r|\n)+$/, '').replace(/\r\n|\r|\n/g, ' ')
+// textareas read line breaks back as LF, and single-line inputs drop them from their
+// value, so they become spaces the way browsers insert them into such fields
+// (trailing line breaks are dropped)
+const toFieldText = (text, element) => {
+  const normalizedText = text.replace(/\r\n?/g, '\n')
+  if (element.tagName.toUpperCase() !== 'INPUT') return normalizedText
+  return normalizedText.replace(/\n+$/, '').replace(/\n/g, ' ')
+}
 
 const replaceInTextField = (captured, text, doc) => {
   const { element, start, end, fieldValue: value } = captured
@@ -102,7 +107,7 @@ const replaceInTextField = (captured, text, doc) => {
   const isUnchanged = () =>
     element.isConnected !== false && isTextField(element) && (element.value ?? '') === value
   if (!isUnchanged()) return false
-  const insertedText = element.tagName.toUpperCase() === 'INPUT' ? toSingleLine(text) : text
+  const insertedText = toFieldText(text, element)
   const replacedValue = value.slice(0, start) + insertedText + value.slice(end)
 
   if (typeof element.focus === 'function') element.focus()
@@ -157,8 +162,10 @@ const replaceInContentEditable = (captured, text, doc) => {
   if (!isUnchanged()) return false
 
   if (typeof element.focus === 'function') element.focus()
-  // focus handlers of the page may have changed the content in the meantime
-  if (!isUnchanged()) return false
+  // focus handlers of the page may have changed the content or moved the focus away;
+  // an editing host in a shadow root is the active element of that root only
+  const root = typeof element.getRootNode === 'function' ? element.getRootNode() : doc
+  if (!isUnchanged() || root.activeElement !== element) return false
   const selection = typeof doc.getSelection === 'function' ? doc.getSelection() : null
   if (selection) {
     selection.removeAllRanges()
