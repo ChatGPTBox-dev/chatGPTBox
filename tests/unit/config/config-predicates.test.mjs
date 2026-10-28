@@ -67,7 +67,11 @@ const representativeOpenRouterApiModelNames = [
   'openRouter_anthropic_claude_sonnet4_6',
   'openRouter_openai_gpt_5_5',
 ]
-const representativeAimlApiModelNames = ['aiml_claude_sonnet_4_6_20260218', 'aiml_openai_gpt_5_5']
+const representativeAimlApiModelNames = [
+  'aiml_claude_sonnet_4_6',
+  'aiml_openai_gpt_5_5',
+  'aiml_openai_gpt_6_1_sol',
+]
 
 const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
 
@@ -104,6 +108,12 @@ test('Claude defaults use Haiku 5.5 and keep Haiku 4.5 selectable', () => {
   assert.ok(claudeApiModelKeys.includes('claudeHaiku45Api'))
 })
 
+test('AI/ML defaults expose one current AI/ML preset', () => {
+  const aimlDefaults = defaultApiModeIds.filter((modelName) => aimlApiModelKeys.includes(modelName))
+  assert.deepEqual(aimlDefaults, ['aiml_openai_gpt_6_1_sol'])
+  assert.equal(isUsingAimlApiModel({ modelName: aimlDefaults[0] }), true)
+})
+
 test('getNavigatorLanguage returns zh-Hant for zh-TW style locales', () => {
   setNavigatorLanguage('zh-TW')
   assert.equal(getNavigatorLanguage(), 'zh-Hant')
@@ -128,6 +138,7 @@ test('canonicalized legacy model keys still match their provider predicates', ()
     ['moonshot_k2', isUsingMoonshotApiModel],
     ['openRouter_deepseek_deepseek_chat_v3_0324_free', isUsingOpenRouterApiModel],
     ['aiml_openai_o3_2025_04_16', isUsingAimlApiModel],
+    ['aiml_claude_sonnet_4_6_20260218', isUsingAimlApiModel],
   ]
 
   for (const [legacyModelKey, predicate] of cases) {
@@ -310,6 +321,12 @@ test('aimlApiModelKeys does not expose duplicate picker entries', () => {
   })
 
   assert.equal(new Set(signatures).size, signatures.length)
+})
+
+test('aimlApiModelKeys use the AI/ML provider label', () => {
+  for (const modelName of aimlApiModelKeys) {
+    assert.match(Models[modelName].desc, /^AI\/ML \(.+\)$/, modelName)
+  }
 })
 
 test('isUsingChatGLMApiModel detects ChatGLM models', () => {
