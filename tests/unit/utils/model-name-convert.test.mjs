@@ -793,6 +793,7 @@ test('modelNameToDesc returns desc for stable GPT API presets', () => {
   assert.equal(modelNameToDesc('chatgptApi6Sol'), 'OpenAI (GPT-6 Sol)')
   assert.equal(modelNameToDesc('chatgptApi6Luna'), 'OpenAI (GPT-6 Luna)')
   assert.equal(modelNameToDesc('chatgptApi6_1Sol'), 'OpenAI (GPT-6.1 Sol)')
+  assert.equal(modelNameToDesc('chatgptApi6_1Terra'), 'OpenAI (GPT-6.1 Terra)')
 })
 
 test('modelNameToDesc returns desc for the Claude Haiku 5.5 API preset', () => {
