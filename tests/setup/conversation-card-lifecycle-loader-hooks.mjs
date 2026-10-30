@@ -40,7 +40,12 @@ const sources = {
       return null
     }
   `,
-  'test:conversation-item': 'export default function ConversationItem() { return null }',
+  'test:conversation-item': `
+    export default function ConversationItem(props) {
+      globalThis.__CONVERSATION_LIFECYCLE_TEST__.conversationItemProps = props
+      return null
+    }
+  `,
   'test:conversation-utils': `
     export const apiModeToModelName = () => 'test-model'
     export const createElementAtPosition = () => document.createElement('div')
@@ -76,6 +81,8 @@ const sources = {
   'test:conversation-config': `
     export const getUserConfig = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.getUserConfig()
     export const isUsingBingWebModel = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.foreground
+    export const isUsingGeminiWebModel = (session) =>
+      session?.apiMode?.groupName === 'bardWebModelKeys' || session?.modelName === 'bardWebFree'
     export const Models = { customModel: { desc: 'Custom Model' } }
   `,
   'test:conversation-i18n': 'export const useTranslation = () => ({ t: (value) => value })',
