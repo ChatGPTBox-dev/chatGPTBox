@@ -40,6 +40,19 @@ function ApiParams({ config, updateConfig }) {
         />
       </label>
       <label>
+        {t('Chat Completions token parameter')}
+        <select
+          value={config.chatCompletionsTokenParameter || 'auto'}
+          onChange={(e) => {
+            updateConfig({ chatCompletionsTokenParameter: e.target.value })
+          }}
+        >
+          <option value="auto">{t('Auto (model-dependent)')}</option>
+          <option value="max_tokens">max_tokens</option>
+          <option value="max_completion_tokens">max_completion_tokens</option>
+        </select>
+      </label>
+      <label>
         {t('Max Conversation Length') + `: ${config.maxConversationContextLength}`}
         <input
           type="range"
