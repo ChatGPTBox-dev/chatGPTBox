@@ -1,0 +1,23 @@
+CURRENT_CHANGE.md
+  s_1972b0531789ee::t_5c2f2547a0a2be 1,5,7-27
+src/manifest.json
+  s_1972b0531789ee::t_603634b6fcfa56 4
+src/manifest.v2.json
+  s_1972b0531789ee::t_ef3d3498b8ff8d 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "298b7d097071c29409e7be081c49cebe8ab712e2",
+  "prompts": {},
+  "sessions": {
+    "s_1972b0531789ee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "s_1972b0531789ee",
+        "model": "unknown"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
