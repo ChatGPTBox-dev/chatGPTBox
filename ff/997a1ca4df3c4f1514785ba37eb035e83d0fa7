@@ -1,0 +1,19 @@
+src/_locales/en/main.json
+  s_7e5c93ae9807c0::t_6e69652dcc98d5 234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ff997a1ca4df3c4f1514785ba37eb035e83d0fa7",
+  "prompts": {},
+  "sessions": {
+    "s_7e5c93ae9807c0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a145f9-a185-7d51-b6ea-d044b019dbd4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
