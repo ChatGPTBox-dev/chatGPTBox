@@ -1,0 +1,14 @@
+package-lock.json
+  h_91c03fe45fa613 2593-2595,13835-13837,13841,14999-15001
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "31593db311939cce85e38f820adea5c1d99ba343",
+  "prompts": {},
+  "humans": {
+    "h_91c03fe45fa613": {
+      "author": "Peter Dave Hello <hsu@peterdavehello.org>"
+    }
+  }
+}
