@@ -39,19 +39,22 @@ function ApiParams({ config, updateConfig }) {
           }}
         />
       </label>
-      <label>
-        {t('Chat Completions token parameter')}
-        <select
-          value={config.chatCompletionsTokenParameter || 'auto'}
-          onChange={(e) => {
-            updateConfig({ chatCompletionsTokenParameter: e.target.value })
-          }}
-        >
-          <option value="auto">{t('Auto (model-dependent)')}</option>
-          <option value="max_tokens">max_tokens</option>
-          <option value="max_completion_tokens">max_completion_tokens</option>
-        </select>
-      </label>
+      {!isUsingAzureOpenAiApiModel(config) && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ whiteSpace: 'nowrap' }}>{t('Token parameter')}</span>
+          <select
+            style={{ flex: 1, minWidth: 0, marginBottom: 0 }}
+            value={config.chatCompletionsTokenParameter || 'auto'}
+            onChange={(e) => {
+              updateConfig({ chatCompletionsTokenParameter: e.target.value })
+            }}
+          >
+            <option value="auto">{t('Auto (model-dependent)')}</option>
+            <option value="max_tokens">max_tokens</option>
+            <option value="max_completion_tokens">max_completion_tokens</option>
+          </select>
+        </label>
+      )}
       <label>
         {t('Max Conversation Length') + `: ${config.maxConversationContextLength}`}
         <input
