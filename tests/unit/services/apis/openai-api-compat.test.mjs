@@ -1133,7 +1133,7 @@ test('generateAnswersWithOpenAICompatibleApi honors manual token parameter for c
   t.mock.method(globalThis, 'fetch', async (_input, init) => {
     capturedInit = init
     return createMockSseResponse([
-      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\\n\\n',
+      'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n',
     ])
   })
 
