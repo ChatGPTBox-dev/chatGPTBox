@@ -100,6 +100,7 @@ export async function generateAnswersWithOpenAICompatible({
       provider,
       model,
       config.maxResponseTokenLength,
+      config.chatCompletionsTokenParameter,
     )
     const conflictingTokenParamKey =
       'max_completion_tokens' in tokenParams ? 'max_tokens' : 'max_completion_tokens'

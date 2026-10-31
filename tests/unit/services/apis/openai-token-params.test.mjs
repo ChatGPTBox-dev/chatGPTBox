@@ -2,6 +2,36 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { getChatCompletionsTokenParams } from '../../../../src/services/apis/openai-token-params.mjs'
 
+test('allows explicit max_completion_tokens for custom providers and unknown models', () => {
+  for (const [provider, model] of [
+    ['custom', 'gpt-5.2'],
+    ['openai', 'o3'],
+    ['proxy', 'private-model'],
+  ]) {
+    assert.deepEqual(getChatCompletionsTokenParams(provider, model, 700, 'max_completion_tokens'), {
+      max_completion_tokens: 700,
+    })
+  }
+})
+
+test('allows forcing max_tokens even when automatic detection uses max_completion_tokens', () => {
+  assert.deepEqual(getChatCompletionsTokenParams('openai', 'gpt-5.2', 700, 'max_tokens'), {
+    max_tokens: 700,
+  })
+})
+
+test('keeps existing detection for auto and invalid overrides', () => {
+  assert.deepEqual(getChatCompletionsTokenParams('openai', 'gpt-5.2', 700, 'auto'), {
+    max_completion_tokens: 700,
+  })
+  assert.deepEqual(getChatCompletionsTokenParams('proxy', 'gpt-5.2', 700, 'auto'), {
+    max_tokens: 700,
+  })
+  assert.deepEqual(getChatCompletionsTokenParams('proxy', 'gpt-5.2', 700, 'unexpected'), {
+    max_tokens: 700,
+  })
+})
+
 test('uses max_completion_tokens for gpt-5.x chat models', () => {
   assert.deepEqual(getChatCompletionsTokenParams('openai', 'gpt-5.2-chat-latest', 1024), {
     max_completion_tokens: 1024,

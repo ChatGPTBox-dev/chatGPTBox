@@ -857,6 +857,7 @@ export const defaultConfig = {
   // advanced
 
   maxResponseTokenLength: 2000,
+  chatCompletionsTokenParameter: 'auto',
   maxConversationContextLength: 9,
   temperatureOverrideEnabled: false,
   temperature: 1,

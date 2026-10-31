@@ -3,6 +3,8 @@
   "Selection Tools": "选择浮动工具",
   "Sites": "站点适配",
   "Advanced": "高级",
+  "Chat Completions token parameter": "Chat Completions 令牌参数",
+  "Auto (model-dependent)": "自动（根据模型识别）",
   "Donate": "打赏",
   "Triggers": "触发方式",
   "Theme": "主题",
