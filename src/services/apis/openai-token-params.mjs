@@ -14,7 +14,17 @@ function shouldUseMaxCompletionTokens(provider, model) {
   }
 }
 
-export function getChatCompletionsTokenParams(provider, model, maxResponseTokenLength) {
+export function getChatCompletionsTokenParams(
+  provider,
+  model,
+  maxResponseTokenLength,
+  tokenLimitParameter = 'auto',
+) {
+  if (tokenLimitParameter === 'max_completion_tokens')
+    return { max_completion_tokens: maxResponseTokenLength }
+
+  if (tokenLimitParameter === 'max_tokens') return { max_tokens: maxResponseTokenLength }
+
   if (shouldUseMaxCompletionTokens(provider, model))
     return { max_completion_tokens: maxResponseTokenLength }
 
