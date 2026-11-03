@@ -1,4 +1,5 @@
 import { AlwaysCustomGroups } from '../../config/index.mjs'
+import { normalizeExplicitApiProtocol } from '../../services/apis/provider-registry.mjs'
 import {
   apiModeToModelName,
   getUniquelySelectedApiModeIndex,
@@ -399,9 +400,52 @@ export function parseChatCompletionsEndpointUrl(value) {
   return { valid: true, chatCompletionsUrl, completionsUrl }
 }
 
-export function validateProviderEndpointDraft(value) {
+export function validateProviderEndpointDraft(value, protocolDraft) {
   const parsedEndpoint = parseChatCompletionsEndpointUrl(value)
-  return { valid: parsedEndpoint.valid, parsedEndpoint }
+  const responsesEndpoint = validateResponsesEndpointDraft(protocolDraft?.responsesUrl)
+  const allowEmptyChatUrl =
+    normalizeExplicitApiProtocol(protocolDraft?.apiProtocol) === 'responses' &&
+    responsesEndpoint.valid &&
+    Boolean(responsesEndpoint.responsesUrl)
+  return {
+    valid: parsedEndpoint.valid || (!normalizeText(value) && allowEmptyChatUrl),
+    parsedEndpoint,
+  }
+}
+
+export function validateResponsesEndpointDraft(value) {
+  const responsesUrl = normalizeText(value)
+  if (!responsesUrl) return { valid: true, responsesUrl: '' }
+  try {
+    const url = new URL(responsesUrl)
+    const valid =
+      ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.hash
+    return { valid, responsesUrl: valid ? responsesUrl : '' }
+  } catch {
+    return { valid: false, responsesUrl: '' }
+  }
+}
+
+export function validateProviderResponsesEndpointDraft(draft, existingProvider) {
+  const endpoint = validateResponsesEndpointDraft(draft.responsesUrl)
+  // An unchanged dormant legacy value must not block unrelated Chat provider edits.
+  if (
+    !endpoint.valid &&
+    normalizeExplicitApiProtocol(draft.apiProtocol) === 'chat' &&
+    normalizeText(existingProvider?.responsesUrl) === normalizeText(draft.responsesUrl)
+  ) {
+    return { valid: true, responsesUrl: normalizeText(draft.responsesUrl) }
+  }
+  return endpoint
+}
+
+export function buildProviderDraft(provider = {}) {
+  return {
+    name: provider.name || '',
+    apiUrl: resolveProviderChatEndpointUrl(provider),
+    apiProtocol: normalizeExplicitApiProtocol(provider.apiProtocol) || 'default',
+    responsesUrl: normalizeText(provider.responsesUrl),
+  }
 }
 
 export function resolveProviderChatEndpointUrl(provider) {
@@ -418,6 +462,7 @@ export function buildEditedProvider(
   providerName,
   parsedEndpoint,
   nextApiUrl,
+  protocolDraft,
 ) {
   const normalizedNextApiUrl = normalizeProviderEndpointUrl(nextApiUrl)
   const existingApiUrl = resolveProviderChatEndpointUrl(existingProvider)
@@ -429,11 +474,22 @@ export function buildEditedProvider(
     name: providerName,
   }
 
-  if (!urlChanged) return updatedProvider
-
-  updatedProvider.baseUrl = ''
-  updatedProvider.chatCompletionsUrl = parsedEndpoint.chatCompletionsUrl
-  updatedProvider.completionsUrl = parsedEndpoint.completionsUrl
+  if (urlChanged) {
+    updatedProvider.baseUrl = ''
+    updatedProvider.chatCompletionsUrl = parsedEndpoint.chatCompletionsUrl
+    updatedProvider.completionsUrl = parsedEndpoint.completionsUrl
+  }
+  if (protocolDraft) {
+    const apiProtocol = normalizeExplicitApiProtocol(protocolDraft.apiProtocol)
+    if (apiProtocol) {
+      updatedProvider.apiProtocol = apiProtocol
+    } else {
+      delete updatedProvider.apiProtocol
+    }
+    const responsesUrl = normalizeText(protocolDraft.responsesUrl)
+    if (responsesUrl) updatedProvider.responsesUrl = responsesUrl
+    else delete updatedProvider.responsesUrl
+  }
   return updatedProvider
 }
 

@@ -19,6 +19,7 @@ import {
   applyPendingProviderChanges,
   areProviderIdsEquivalent,
   buildEditedProvider,
+  buildProviderDraft,
   createProviderId,
   getApiModeDisplayLabel,
   getConfiguredCustomApiModesForSessionRecovery,
@@ -34,7 +35,6 @@ import {
   resolveEditingProviderSelection,
   resolveEditingProviderIdForGroupChange,
   resolveSelectableProviderId,
-  resolveProviderChatEndpointUrl,
   sanitizeApiModeForSave,
   shouldHandleSavedConversationStorageChange,
   shouldIncludeSelectedApiModeInReferenceCheck,
@@ -42,6 +42,7 @@ import {
   shouldPersistPendingProviderChanges,
   shouldRenderApiModeRow,
   validateProviderEndpointDraft,
+  validateProviderResponsesEndpointDraft,
 } from './api-modes-provider-utils.mjs'
 
 ApiModes.propTypes = {
@@ -62,14 +63,12 @@ const defaultApiMode = {
   active: true,
 }
 
-const defaultProviderDraft = {
-  name: '',
-  apiUrl: '',
-}
+const defaultProviderDraft = buildProviderDraft()
 
 const defaultProviderDraftValidation = {
   name: false,
   apiUrl: false,
+  responsesUrl: false,
 }
 
 export function ApiModes({ config, updateConfig }) {
@@ -95,6 +94,7 @@ export function ApiModes({ config, updateConfig }) {
   const [providerSelectionValidation, setProviderSelectionValidation] = useState(false)
   const providerNameInputRef = useRef(null)
   const providerBaseUrlInputRef = useRef(null)
+  const providerResponsesUrlInputRef = useRef(null)
   const providerSelectorRef = useRef(null)
 
   useLayoutEffect(() => {
@@ -261,10 +261,7 @@ export function ApiModes({ config, updateConfig }) {
     event.preventDefault()
     if (!selectedCustomProvider) return
     setProviderEditingId(selectedCustomProvider.id)
-    setProviderDraft({
-      name: selectedCustomProvider.name || '',
-      apiUrl: resolveProviderChatEndpointUrl(selectedCustomProvider),
-    })
+    setProviderDraft(buildProviderDraft(selectedCustomProvider))
     setProviderDraftValidation(defaultProviderDraftValidation)
     setIsProviderEditorOpen(true)
   }
@@ -276,18 +273,25 @@ export function ApiModes({ config, updateConfig }) {
       pendingNewProvider && pendingNewProvider.id === providerEditingId
         ? pendingNewProvider
         : selectedCustomProvider || {}
-    const endpointDraft = validateProviderEndpointDraft(providerDraft.apiUrl)
+    const endpointDraft = validateProviderEndpointDraft(providerDraft.apiUrl, providerDraft)
+    const responsesEndpointDraft = validateProviderResponsesEndpointDraft(
+      providerDraft,
+      providerEditingId ? existingProvider : undefined,
+    )
     const parsedEndpoint = endpointDraft.parsedEndpoint
     const nextProviderDraftValidation = {
       name: !providerName,
       apiUrl: !endpointDraft.valid,
+      responsesUrl: !responsesEndpointDraft.valid,
     }
-    if (nextProviderDraftValidation.name || nextProviderDraftValidation.apiUrl) {
+    if (Object.values(nextProviderDraftValidation).some(Boolean)) {
       setProviderDraftValidation(nextProviderDraftValidation)
       if (nextProviderDraftValidation.name) {
         providerNameInputRef.current?.focus()
-      } else {
+      } else if (nextProviderDraftValidation.apiUrl) {
         providerBaseUrlInputRef.current?.focus()
+      } else {
+        providerResponsesUrlInputRef.current?.focus()
       }
       return
     }
@@ -299,6 +303,7 @@ export function ApiModes({ config, updateConfig }) {
           providerName,
           parsedEndpoint,
           providerDraft.apiUrl,
+          providerDraft,
         )
       : null
 
@@ -319,17 +324,20 @@ export function ApiModes({ config, updateConfig }) {
       ...Object.values(OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID),
       ...pendingDeletedProviderIds,
     ])
-    const createdProvider = {
-      id: providerId,
-      name: providerName,
-      baseUrl: '',
-      chatCompletionsPath: '/v1/chat/completions',
-      completionsPath: '/v1/completions',
-      chatCompletionsUrl: parsedEndpoint.chatCompletionsUrl,
-      completionsUrl: parsedEndpoint.completionsUrl,
-      enabled: true,
-      allowLegacyResponseField: true,
-    }
+    const createdProvider = buildEditedProvider(
+      {
+        baseUrl: '',
+        chatCompletionsPath: '/v1/chat/completions',
+        completionsPath: '/v1/completions',
+        enabled: true,
+        allowLegacyResponseField: true,
+      },
+      providerId,
+      providerName,
+      parsedEndpoint,
+      providerDraft.apiUrl,
+      providerDraft,
+    )
     setPendingNewProvider(createdProvider)
     setProviderSelector(providerId)
     setProviderSelectionValidation(false)
@@ -550,26 +558,70 @@ export function ApiModes({ config, updateConfig }) {
             aria-invalid={providerDraftValidation.name}
             style={providerDraftValidation.name ? { borderColor: 'red' } : undefined}
           />
-          <input
-            type="text"
-            ref={providerBaseUrlInputRef}
-            value={providerDraft.apiUrl}
-            placeholder="https://api.example.com/v1/chat/completions"
-            title={t('API Url')}
-            onChange={(e) => {
-              setProviderDraft({ ...providerDraft, apiUrl: e.target.value })
-              if (providerDraftValidation.apiUrl) {
-                setProviderDraftValidation({
-                  ...providerDraftValidation,
-                  apiUrl: false,
-                })
-              }
-            }}
-            aria-invalid={providerDraftValidation.apiUrl}
-            style={providerDraftValidation.apiUrl ? { borderColor: 'red' } : undefined}
-          />
+          <label>
+            {t('Chat Completions URL')}
+            <input
+              type="text"
+              ref={providerBaseUrlInputRef}
+              value={providerDraft.apiUrl}
+              placeholder="https://api.example.com/v1/chat/completions"
+              title={t('Chat Completions URL')}
+              onChange={(e) => {
+                setProviderDraft({ ...providerDraft, apiUrl: e.target.value })
+                if (providerDraftValidation.apiUrl) {
+                  setProviderDraftValidation({
+                    ...providerDraftValidation,
+                    apiUrl: false,
+                  })
+                }
+              }}
+              aria-invalid={providerDraftValidation.apiUrl}
+              style={providerDraftValidation.apiUrl ? { borderColor: 'red' } : undefined}
+            />
+          </label>
+          <small>{t('Optional when Responses has an explicit URL.')}</small>
           {providerDraftValidation.apiUrl && (
             <div style={{ color: 'red' }}>{t('Please enter a full Chat Completions URL')}</div>
+          )}
+          <label>
+            {t('Responses URL')}
+            <input
+              type="text"
+              ref={providerResponsesUrlInputRef}
+              value={providerDraft.responsesUrl}
+              placeholder="https://api.example.com/v1/responses"
+              title={t('Responses URL')}
+              onChange={(e) => {
+                setProviderDraft({ ...providerDraft, responsesUrl: e.target.value })
+                if (providerDraftValidation.responsesUrl) {
+                  setProviderDraftValidation({ ...providerDraftValidation, responsesUrl: false })
+                }
+              }}
+              aria-invalid={providerDraftValidation.responsesUrl}
+              style={providerDraftValidation.responsesUrl ? { borderColor: 'red' } : undefined}
+            />
+          </label>
+          <small>{t('Leave empty to derive from the Chat Completions URL.')}</small>
+          {providerDraftValidation.responsesUrl && (
+            <div style={{ color: 'red' }}>{t('Please enter a valid HTTP(S) Responses URL')}</div>
+          )}
+          <label style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            {t('API Protocol')}
+            <select
+              value={providerDraft.apiProtocol}
+              onChange={(e) => {
+                setProviderDraft({ ...providerDraft, apiProtocol: e.target.value })
+              }}
+            >
+              <option value="default">{t('Default protocol')}</option>
+              <option value="chat">{t('Chat Completions')}</option>
+              <option value="responses">{t('Responses')}</option>
+            </select>
+          </label>
+          {providerDraft.apiProtocol === 'default' && (
+            <small>
+              {t('Use the global OpenAI setting where applicable; otherwise use Chat Completions.')}
+            </small>
           )}
           <div
             style={{

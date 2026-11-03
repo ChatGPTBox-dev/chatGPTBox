@@ -8,6 +8,66 @@ export { OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID }
 const DEFAULT_CHAT_PATH = '/v1/chat/completions'
 const DEFAULT_COMPLETION_PATH = '/v1/completions'
 
+export const API_PROTOCOL_CHAT = 'chat'
+export const API_PROTOCOL_RESPONSES = 'responses'
+
+export function normalizeExplicitApiProtocol(value) {
+  const protocol = toStringOrEmpty(value).trim().toLowerCase()
+  return protocol === API_PROTOCOL_CHAT || protocol === API_PROTOCOL_RESPONSES
+    ? protocol
+    : undefined
+}
+
+export function normalizeApiProtocol(value) {
+  return normalizeExplicitApiProtocol(value) || API_PROTOCOL_CHAT
+}
+
+export function isResponsesProtocol(value) {
+  if (value && typeof value === 'object') {
+    return normalizeApiProtocol(value.apiProtocol) === API_PROTOCOL_RESPONSES
+  }
+  return normalizeApiProtocol(value) === API_PROTOCOL_RESPONSES
+}
+
+export function resolveApiProtocolForSession(session, provider) {
+  return (
+    normalizeExplicitApiProtocol(session?.apiMode?.apiProtocol) ||
+    normalizeExplicitApiProtocol(provider?.apiProtocol) ||
+    API_PROTOCOL_CHAT
+  )
+}
+
+export function deriveResponsesUrlFromChatUrl(chatUrl) {
+  const normalizedChatUrl = toStringOrEmpty(chatUrl).trim()
+  if (!normalizedChatUrl) return ''
+  try {
+    const url = new URL(normalizedChatUrl)
+    const pathname = url.pathname.replace(/\/+$/, '')
+    url.pathname = /\/responses$/i.test(pathname)
+      ? pathname
+      : /\/chat\/completions$/i.test(pathname)
+      ? pathname.replace(/\/chat\/completions$/i, '/responses')
+      : `${pathname}/responses`
+    return url.href
+  } catch {
+    return ''
+  }
+}
+
+export function deriveChatCompletionsUrlFromResponsesUrl(responsesUrl) {
+  const normalizedResponsesUrl = toStringOrEmpty(responsesUrl).trim()
+  if (!normalizedResponsesUrl) return ''
+  try {
+    const url = new URL(normalizedResponsesUrl)
+    const pathname = url.pathname.replace(/\/+$/, '')
+    if (!/\/responses$/i.test(pathname)) return normalizedResponsesUrl
+    url.pathname = pathname.replace(/\/responses$/i, '/chat/completions')
+    return url.href
+  } catch {
+    return ''
+  }
+}
+
 const BUILTIN_PROVIDER_TEMPLATE = [
   {
     id: 'openai',
@@ -352,6 +412,8 @@ function normalizeCustomProvider(provider, index) {
   const completionsPath = ensureLeadingSlash(provider.completionsPath, DEFAULT_COMPLETION_PATH)
   const chatCompletionsUrl = toStringOrEmpty(provider.chatCompletionsUrl).trim()
   const completionsUrl = toStringOrEmpty(provider.completionsUrl).trim()
+  const responsesUrl = toStringOrEmpty(provider.responsesUrl).trim()
+  const apiProtocol = normalizeExplicitApiProtocol(provider.apiProtocol)
   let baseUrl = trimSlashes(provider.baseUrl)
 
   if (!chatCompletionsUrl && !completionsUrl) {
@@ -372,6 +434,8 @@ function normalizeCustomProvider(provider, index) {
     builtin: false,
     enabled: provider.enabled !== false,
     allowLegacyResponseField: provider.allowLegacyResponseField !== false,
+    ...(apiProtocol ? { apiProtocol } : {}),
+    ...(responsesUrl ? { responsesUrl } : {}),
     ...(sourceProviderId ? { sourceProviderId } : {}),
     ...(legacyProviderIds.length > 0 ? { legacyProviderIds } : {}),
   }
@@ -684,6 +748,28 @@ export function getOpenAICompatibleRequestDiagnostic(config, session) {
   }
 }
 
+function resolveResponsesUrlFromProvider(provider, session, useLegacyCustomUrlFallback) {
+  const explicitResponsesUrl = toStringOrEmpty(provider?.responsesUrl).trim()
+  if (explicitResponsesUrl) return explicitResponsesUrl
+
+  const legacyCustomUrl =
+    session?.apiMode &&
+    typeof session.apiMode === 'object' &&
+    session.apiMode.groupName === 'customApiModelKeys' &&
+    useLegacyCustomUrlFallback
+      ? toStringOrEmpty(session.apiMode.customUrl).trim()
+      : ''
+  if (legacyCustomUrl) return deriveResponsesUrlFromChatUrl(legacyCustomUrl)
+
+  if (provider?.chatCompletionsUrl) {
+    return deriveResponsesUrlFromChatUrl(provider.chatCompletionsUrl)
+  }
+  if (provider?.baseUrl && provider?.chatCompletionsPath) {
+    return deriveResponsesUrlFromChatUrl(joinUrl(provider.baseUrl, provider.chatCompletionsPath))
+  }
+  return ''
+}
+
 function resolveUrlFromProvider(
   provider,
   endpointType,
@@ -693,6 +779,48 @@ function resolveUrlFromProvider(
 ) {
   if (!provider) return ''
 
+  // The legacy prompt-based completions endpoint has no Responses equivalent.
+  if (
+    endpointType !== 'completion' &&
+    resolveApiProtocolForSession(session, provider) === API_PROTOCOL_RESPONSES
+  ) {
+    if (provider.id === 'legacy-custom-default') {
+      if (toStringOrEmpty(session?.apiMode?.customUrl).trim() && useLegacyCustomUrlFallback) {
+        return resolveResponsesUrlFromProvider(provider, session, useLegacyCustomUrlFallback)
+      }
+      return (
+        toStringOrEmpty(provider.responsesUrl).trim() ||
+        deriveResponsesUrlFromChatUrl(
+          toStringOrEmpty(config.customModelApiUrl).trim() ||
+            'http://localhost:8000/v1/chat/completions',
+        )
+      )
+    }
+    const responsesUrl = resolveResponsesUrlFromProvider(
+      provider,
+      session,
+      useLegacyCustomUrlFallback,
+    )
+    if (responsesUrl) return responsesUrl
+    return ''
+  }
+
+  return resolveChatOrCompletionsUrlFromProvider(
+    provider,
+    endpointType,
+    config,
+    session,
+    useLegacyCustomUrlFallback,
+  )
+}
+
+function resolveChatOrCompletionsUrlFromProvider(
+  provider,
+  endpointType,
+  config,
+  session,
+  useLegacyCustomUrlFallback,
+) {
   const apiModeCustomUrl =
     endpointType === 'chat' &&
     session?.apiMode &&
@@ -913,6 +1041,7 @@ export function resolveOpenAICompatibleRequest(config, session) {
   }
   if (!provider) return null
   const endpointType = resolveEndpointTypeForSession(session)
+  const apiProtocol = resolveApiProtocolForSession(session, provider)
   const requestUrl = resolveUrlFromProvider(
     provider,
     endpointType,
@@ -926,7 +1055,18 @@ export function resolveOpenAICompatibleRequest(config, session) {
     secretProviderId: resolveSecretProviderId(config, recoveredProviderId || resolvedProviderId),
     provider,
     endpointType,
+    apiProtocol,
     requestUrl,
+    chatCompletionsUrl:
+      endpointType === 'chat'
+        ? resolveChatOrCompletionsUrlFromProvider(
+            provider,
+            endpointType,
+            config,
+            session,
+            useLegacyCustomUrlFallback,
+          )
+        : '',
     apiKey: recoveredProviderId
       ? resolveRecoveredCustomUrlApiKey(config, recoveredProviderId, resolvedProviderId, session)
       : getProviderSecret(config, resolvedProviderId, session),
