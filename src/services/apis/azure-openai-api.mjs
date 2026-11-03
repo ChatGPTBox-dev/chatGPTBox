@@ -5,6 +5,7 @@ import { fetchSSE } from '../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { getExtraBodyParams } from './extra-body-params.mjs'
 
 /**
  * @param {Runtime.Port} port
@@ -42,6 +43,7 @@ export async function generateAnswersWithAzureOpenaiApi(port, question, session)
         max_tokens: config.maxResponseTokenLength,
         // Azure deployment names are opaque aliases, not canonical model identifiers.
         ...getTemperatureParams(config),
+        ...getExtraBodyParams(config),
       }),
       onMessage(message) {
         console.debug('sse message', message)

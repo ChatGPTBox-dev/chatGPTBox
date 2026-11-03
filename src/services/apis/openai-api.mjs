@@ -16,7 +16,7 @@ function normalizeBaseUrlWithoutVersionSuffix(baseUrl, fallback) {
   return normalizeBaseUrl(baseUrl || fallback).replace(/\/v1$/i, '')
 }
 
-function resolveModelName(session, config) {
+export function resolveModelName(session, config) {
   if (session.modelName === 'customModel' && !session.apiMode) {
     return config.customModelName
   }
@@ -101,7 +101,7 @@ function shouldUseOpenAIRequestShaping(request) {
   return hasNativeOpenAIRequestUrl(request?.requestUrl)
 }
 
-function resolveProviderRequestShapingId(request) {
+export function resolveProviderRequestShapingId(request) {
   if (shouldUseOpenAIRequestShaping(request)) return 'openai'
   return request?.providerId
 }
@@ -144,7 +144,7 @@ function resolveOllamaKeepAliveBaseUrl(request) {
   return normalizeBaseUrlWithoutVersionSuffix(request?.provider?.baseUrl, 'http://127.0.0.1:11434')
 }
 
-function hasNativeOllamaChatApiPath(requestUrl) {
+export function hasNativeOllamaChatApiPath(requestUrl) {
   const normalizedRequestUrl = normalizeBaseUrl(requestUrl)
   if (!normalizedRequestUrl) return false
   try {
