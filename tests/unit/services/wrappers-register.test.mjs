@@ -39,15 +39,28 @@ globalThis.chrome.cookies = {
 
 import {
   registerPortListener,
+  claimLatestPortSessionRequest,
   getChatGptAccessToken,
   getBingAccessToken,
-  getBardCookies,
   getClaudeSessionKey,
 } from '../../../src/services/wrappers.mjs'
 import Browser from 'webextension-polyfill'
 import { normalizeApiMode } from '../../../src/utils/model-name-convert.mjs'
 import { FETCH_REQUEST_FAILED } from '../../../src/utils/fetch-sse.mjs'
 import { formatErrorMessage } from '../../../src/utils/error-text.mjs'
+
+test('claimLatestPortSessionRequest aborts a registered superseded request', () => {
+  const port = createFakePort()
+  let abortCount = 0
+  port._abortSupersededSessionRequest = () => {
+    abortCount += 1
+  }
+
+  const isLatest = claimLatestPortSessionRequest(port)
+
+  assert.equal(abortCount, 1)
+  assert.equal(isLatest(), true)
+})
 
 const setStorage = (values) => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage(values)
@@ -114,6 +127,38 @@ test('registerPortListener calls executor with session, port, and config', async
   assert.ok(result.config)
   // Session should be posted back before executor runs
   assert.equal(port.postedMessages[0].session, result.session)
+})
+
+test('replacement provider inherits uncertainty from a submitted Gemini continuation', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({ modelName: 'chatgptApi4oMini' })
+
+  let resolveExec
+  const execDone = new Promise((resolve) => {
+    resolveExec = resolve
+  })
+  const executor = t.mock.fn(async (session) => {
+    resolveExec(session)
+  })
+
+  registerPortListener(executor)
+  const port = createFakePort()
+  triggerConnect(port)
+  port._abortSupersededSessionRequest = () => {
+    port._geminiConversationUnsafe = true
+  }
+
+  const replacement = {
+    modelName: 'customModel',
+    conversationRecords: [{ question: 'Q1', answer: 'A1' }],
+    geminiWeb_conversation: { c: 'c-old', r: 'r-old', rc: 'rc-old' },
+  }
+  port.emitMessage({ session: replacement })
+  const actual = await execDone
+
+  assert.equal(actual.geminiWeb_conversationUnsafe, true)
+  assert.equal(port.postedMessages[0].session.geminiWeb_conversationUnsafe, true)
+  assert.deepEqual(actual.conversationRecords, replacement.conversationRecords)
 })
 
 test('registerPortListener scopes error translations to each request', async (t) => {
@@ -625,24 +670,6 @@ test('getBingAccessToken returns undefined when cookie missing', async () => {
 
   const token = await getBingAccessToken()
   assert.equal(token, undefined)
-})
-
-// ---------------------------------------------------------------------------
-// getBardCookies
-// ---------------------------------------------------------------------------
-
-test('getBardCookies returns formatted cookie string', async () => {
-  cookieJar['https://google.com/'] = [{ name: '__Secure-1PSID', value: 'bard-sid' }]
-
-  const cookies = await getBardCookies()
-  assert.equal(cookies, '__Secure-1PSID=bard-sid')
-})
-
-test('getBardCookies returns __Secure-1PSID=undefined when cookie missing', async () => {
-  cookieJar['https://google.com/'] = []
-
-  const cookies = await getBardCookies()
-  assert.equal(cookies, '__Secure-1PSID=undefined')
 })
 
 // ---------------------------------------------------------------------------

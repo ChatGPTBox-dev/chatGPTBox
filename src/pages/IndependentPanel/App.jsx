@@ -26,6 +26,23 @@ function App() {
   const [currentSession, setCurrentSession] = useState(null)
   const [renderContent, setRenderContent] = useState(false)
   const currentPort = useRef(null)
+  const persistQueueRef = useRef(Promise.resolve())
+  const lastPersistedSnapshotRef = useRef('')
+
+  const enqueueSessionMutation = (operation) => {
+    persistQueueRef.current = persistQueueRef.current.catch(() => {}).then(operation)
+    return persistQueueRef.current
+  }
+
+  const persistSession = (session) => {
+    const snapshot = { ...session }
+    return enqueueSessionMutation(async () => {
+      const { session: existing, currentSessions } = await getSession(snapshot.sessionId)
+      const nextSessions = existing ? await updateSession(snapshot) : currentSessions
+      setSessions(nextSessions)
+      return nextSessions
+    })
+  }
 
   const setSessionIdSafe = async (sessionId) => {
     if (currentPort.current) {
@@ -37,6 +54,7 @@ function App() {
       }
       currentPort.current = null
     }
+    await persistQueueRef.current.catch(() => {})
     const { session, currentSessions } = await getSession(sessionId)
     if (session) setSessionId(sessionId)
     else if (currentSessions.length > 0) setSessionId(currentSessions[0].sessionId)
@@ -86,19 +104,20 @@ function App() {
   }
 
   const createNewChat = async () => {
-    const { session, currentSessions } = await createSession()
+    const { session, currentSessions } = await enqueueSessionMutation(() => createSession())
     setSessions(currentSessions)
     await setSessionIdSafe(session.sessionId)
   }
 
   const exportConversations = async () => {
+    await persistQueueRef.current.catch(() => {})
     const sessions = await getSessions()
     const blob = new Blob([JSON.stringify(sessions, null, 2)], { type: 'text/json;charset=utf-8' })
     FileSaver.saveAs(blob, 'conversations.json')
   }
 
   const clearConversations = async () => {
-    const sessions = await resetSessions()
+    const sessions = await enqueueSessionMutation(() => resetSessions())
     setSessions(sessions)
     await setSessionIdSafe(sessions[0].sessionId)
   }
@@ -139,10 +158,12 @@ function App() {
                       size={14}
                       text={t('Delete Conversation')}
                       onConfirm={() =>
-                        deleteSession(session.sessionId).then((sessions) => {
-                          setSessions(sessions)
-                          setSessionIdSafe(sessions[0].sessionId)
-                        })
+                        enqueueSessionMutation(() => deleteSession(session.sessionId)).then(
+                          (nextSessions) => {
+                            setSessions(nextSessions)
+                            return setSessionIdSafe(nextSessions[0].sessionId)
+                          },
+                        )
                       }
                     />
                   </span>
@@ -170,11 +191,44 @@ function App() {
                 session={currentSession}
                 notClampSize={true}
                 pageMode={true}
+                onBeforeGeminiContinuationSubmit={(session) => {
+                  lastPersistedSnapshotRef.current = JSON.stringify({
+                    ...session,
+                    updatedAt: undefined,
+                  })
+                  return persistSession(session).catch((error) => {
+                    lastPersistedSnapshotRef.current = ''
+                    throw error
+                  })
+                }}
+                onCancelGeminiContinuationSubmit={(pendingSessionId, requestId) =>
+                  enqueueSessionMutation(async () => {
+                    const { session: storedSession } = await getSession(pendingSessionId)
+                    if (storedSession?.geminiWeb_pendingRequestId !== requestId) return
+                    const clearedSession = { ...storedSession }
+                    delete clearedSession.geminiWeb_conversationPending
+                    delete clearedSession.geminiWeb_pendingRequestId
+                    const nextSessions = await updateSession(clearedSession)
+                    lastPersistedSnapshotRef.current = JSON.stringify({
+                      ...clearedSession,
+                      updatedAt: undefined,
+                    })
+                    setSessions(nextSessions)
+                  })
+                }
                 onUpdate={(port, session, cData) => {
                   currentPort.current = port
-                  if (cData.length > 0 && cData[cData.length - 1].done) {
-                    updateSession(session).then(setSessions)
-                    setCurrentSession(session)
+                  const completed = cData.length > 0 && cData[cData.length - 1].done
+                  const fingerprint = JSON.stringify({ ...session, updatedAt: undefined })
+                  const pending =
+                    session.geminiWeb_conversationUnsafe === true ||
+                    session.geminiWeb_conversationPending === true
+                  if (completed || pending || lastPersistedSnapshotRef.current) {
+                    if (fingerprint !== lastPersistedSnapshotRef.current) {
+                      lastPersistedSnapshotRef.current = fingerprint
+                      persistSession(session)
+                    }
+                    if (completed) setCurrentSession(session)
                   }
                 }}
               />
