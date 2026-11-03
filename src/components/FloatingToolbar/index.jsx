@@ -3,7 +3,13 @@ import { unmountComponentAtNode } from 'react-dom'
 import ConversationCard from '../ConversationCard'
 import PropTypes from 'prop-types'
 import { config as toolsConfig } from '../../content-script/selection-tools'
-import { getClientPosition, isMobile, setElementPositionInViewport } from '../../utils'
+import {
+  captureEditableSelection,
+  getClientPosition,
+  isMobile,
+  replaceCapturedSelection,
+  setElementPositionInViewport,
+} from '../../utils'
 import { DraggableCore } from 'react-draggable'
 import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
 import { useTranslation } from 'react-i18next'
@@ -29,6 +35,15 @@ function FloatingToolbar(props) {
   const lastDragEventRef = useRef(null)
   const activeTouchIdentifierRef = useRef(null)
   const toolRequestVersionRef = useRef(0)
+  // the editable target of the selection the tools work on (kept in sync on mobile)
+  const capturedSelectionRef = useRef(props.capturedSelection)
+  // the target of the shown answer, fixed when its tool is started
+  const replaceTargetRef = useRef(props.capturedSelection)
+  // stable, so completed answers keep their memoized ConversationItem while streaming
+  const onReplaceContent = useCallback(
+    (content) => replaceCapturedSelection(replaceTargetRef.current, content),
+    [],
+  )
   const windowSize = useClampWindowSize([750, 1500], [0, Infinity])
   const config = useConfig(() => {
     if (!mountedRef.current) return
@@ -163,8 +178,15 @@ function FloatingToolbar(props) {
   useEffect(() => {
     if (isMobile()) {
       const selectionListener = () => {
-        const currentSelection = window.getSelection()?.toString()
-        if (currentSelection) setSelection(currentSelection)
+        const capturedSelection = captureEditableSelection(document)
+        const currentSelection =
+          window.getSelection()?.toString() ||
+          // Firefox does not expose text field selections via window.getSelection()
+          (capturedSelection?.kind === 'text-field' ? capturedSelection.text : '')
+        if (currentSelection) {
+          setSelection(currentSelection)
+          capturedSelectionRef.current = capturedSelection
+        }
       }
       document.addEventListener('selectionchange', selectionListener)
       return () => {
@@ -247,6 +269,7 @@ function FloatingToolbar(props) {
                 dockable={props.dockable}
                 onDock={onDock}
                 onUpdate={onUpdate}
+                onReplaceContent={replaceTargetRef.current ? onReplaceContent : null}
                 waitForTrigger={prompt && !triggered && !selection}
               />
             </div>
@@ -270,6 +293,7 @@ function FloatingToolbar(props) {
           title: name,
           onClick: async () => {
             const requestVersion = ++toolRequestVersionRef.current
+            const replaceTarget = capturedSelectionRef.current
             if (positionTimerRef.current !== null) {
               clearTimeout(positionTimerRef.current)
               positionTimerRef.current = null
@@ -280,6 +304,7 @@ function FloatingToolbar(props) {
             try {
               const nextPrompt = await genPrompt(selection)
               if (!mountedRef.current || requestVersion !== toolRequestVersionRef.current) return
+              replaceTargetRef.current = replaceTarget
               setPrompt(nextPrompt)
               setTriggered(true)
             } catch (error) {
@@ -321,6 +346,7 @@ FloatingToolbar.propTypes = {
   closeable: PropTypes.bool,
   dockable: PropTypes.bool,
   prompt: PropTypes.string,
+  capturedSelection: PropTypes.object,
 }
 
 export default FloatingToolbar

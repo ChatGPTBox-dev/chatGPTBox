@@ -2,6 +2,7 @@ import { memo, useState } from 'react'
 import { ChevronDownIcon, XCircleIcon, SyncIcon } from '@primer/octicons-react'
 import CopyButton from '../CopyButton'
 import ReadButton from '../ReadButton'
+import ReplaceButton from '../ReplaceButton'
 import PropTypes from 'prop-types'
 import MarkdownRender from '../MarkdownRender/markdown.jsx'
 import { useTranslation } from 'react-i18next'
@@ -16,7 +17,7 @@ AnswerTitle.propTypes = {
   descName: PropTypes.string,
 }
 
-export function ConversationItem({ type, content, descName, onRetry }) {
+export function ConversationItem({ type, content, descName, onRetry, onReplace }) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -61,6 +62,12 @@ export function ConversationItem({ type, content, descName, onRetry }) {
                 <span title={t('Retry')} className="gpt-util-icon" onClick={onRetry}>
                   <SyncIcon size={14} />
                 </span>
+              )}
+              {descName && onReplace && (
+                <ReplaceButton
+                  onReplace={() => onReplace(content.replace(/\n<hr\/>$/, ''))}
+                  size={14}
+                />
               )}
               {descName && (
                 <CopyButton contentFn={() => content.replace(/\n<hr\/>$/, '')} size={14} />
@@ -130,6 +137,7 @@ ConversationItem.propTypes = {
   content: PropTypes.string.isRequired,
   descName: PropTypes.string,
   onRetry: PropTypes.func,
+  onReplace: PropTypes.func,
 }
 
 export default memo(ConversationItem)

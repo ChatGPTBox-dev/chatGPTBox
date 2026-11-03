@@ -47,6 +47,7 @@ import {
   finalizeInterruptedSession,
   getCompletedAnswerUpdate,
   getInterruptedCompletionState,
+  isReplaceableAnswer,
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
 } from './session.mjs'
@@ -796,6 +797,9 @@ function ConversationCard(props) {
             type={data.type}
             descName={data.type === 'answer' && currentAiName}
             onRetry={idx === conversationItemData.length - 1 ? retryFn : null}
+            onReplace={
+              props.onReplaceContent && isReplaceableAnswer(data) ? props.onReplaceContent : null
+            }
           />
         ))}
       </div>
@@ -858,6 +862,7 @@ ConversationCard.propTypes = {
   session: PropTypes.object.isRequired,
   question: PropTypes.string,
   onUpdate: PropTypes.func,
+  onReplaceContent: PropTypes.func,
   draggable: PropTypes.bool,
   closeable: PropTypes.bool,
   onClose: PropTypes.func,

@@ -300,3 +300,35 @@ test('touchstart cancels touch toolbar rendering while config is pending', async
   assert.equal(globalThis.__SELECTION_TOOLBAR_TEST__.renderCount, renderedBefore)
   globalThis.__SELECTION_TOOLBAR_TEST__.getUserConfig = async () => baseConfig
 })
+
+test('keydown keeps the toolbar while a text field selection hidden from getSelection remains', async () => {
+  const state = globalThis.__SELECTION_TOOLBAR_TEST__
+  const createdBefore = state.createdContainers.length
+  const renderedBefore = state.renderCount
+  const textarea = document.createElement('textarea')
+  document.body.append(textarea)
+
+  // Firefox only exposes text field selections via the captured editable selection
+  selectionText = ''
+  state.capturedSelection = { kind: 'text-field', text: 'selected text' }
+  textarea.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  await waitFor(
+    () =>
+      state.createdContainers.length === createdBefore + 1 &&
+      state.renderCount === renderedBefore + 1,
+    'text field selection toolbar was not rendered',
+  )
+  const container = state.createdContainers.at(-1)
+
+  textarea.dispatchEvent(new Event('keydown', { bubbles: true }))
+  await nextTask()
+  assert.equal(container.isConnected, true)
+
+  state.capturedSelection = null
+  textarea.dispatchEvent(new Event('keydown', { bubbles: true }))
+  await nextTask()
+  assert.equal(container.isConnected, false)
+
+  textarea.remove()
+  selectionText = 'selected text'
+})
