@@ -881,49 +881,6 @@ try {
 
   Browser.webRequest.onBeforeSendHeaders.addListener(
     (details) => {
-      try {
-        console.debug('[background] onBeforeSendHeaders triggered for URL:', details.url)
-        const headers = details.requestHeaders
-        let modified = false
-        for (let i = 0; i < headers.length; i++) {
-          const header = headers[i]
-          if (!header || !header.name) {
-            continue
-          }
-          const headerNameLower = header.name.toLowerCase()
-          if (headerNameLower === 'origin') {
-            header.value = 'https://www.bing.com'
-            modified = true
-          } else if (headerNameLower === 'referer') {
-            header.value = 'https://www.bing.com/search?q=Bing+AI&showconv=1&FORM=hpcodx'
-            modified = true
-          }
-        }
-        if (modified) {
-          console.debug(
-            '[background] Modified headers for Bing (names only):',
-            headers.map((header) => header?.name).filter(Boolean),
-          )
-        }
-        return { requestHeaders: headers }
-      } catch (error) {
-        console.error(
-          '[background] Error in onBeforeSendHeaders listener callback:',
-          error,
-          details,
-        )
-        return { requestHeaders: details.requestHeaders }
-      }
-    },
-    {
-      urls: ['wss://sydney.bing.com/*', 'https://www.bing.com/*'],
-      types: ['xmlhttprequest', 'websocket'],
-    },
-    ['requestHeaders', ...(Browser.runtime.getManifest().manifest_version < 3 ? ['blocking'] : [])],
-  )
-
-  Browser.webRequest.onBeforeSendHeaders.addListener(
-    (details) => {
       const headers = details.requestHeaders
       for (let i = 0; i < headers.length; i++) {
         const header = headers[i]
