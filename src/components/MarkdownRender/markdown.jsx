@@ -8,8 +8,29 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { Pre } from './Pre'
 import { Hyperlink } from './Hyperlink'
-import { memo, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import PropTypes from 'prop-types'
+import { observeKatexFonts } from './katex-fonts.mjs'
+
+/** Request fonts when KaTeX has produced a math span. */
+// eslint-disable-next-line no-unused-vars
+function KatexSpan({ node, className, ...props }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (className?.split(/\s+/).includes('katex')) {
+      return observeKatexFonts(ref.current)
+    }
+  }, [className])
+
+  return <span className={className} {...props} ref={ref} />
+}
+
+KatexSpan.propTypes = {
+  node: PropTypes.object,
+  className: PropTypes.string,
+  children: PropTypes.node,
+}
 
 // eslint-disable-next-line
 const ThinkComponent = ({ node, children, ...props }) => {
@@ -111,6 +132,7 @@ const ThinkComponent = ({ node, children, ...props }) => {
   )
 }
 
+/** Render Markdown with on-demand KaTeX fonts. */
 export function MarkdownRender(props) {
   return (
     <div dir="auto">
@@ -194,6 +216,7 @@ export function MarkdownRender(props) {
         components={{
           a: Hyperlink,
           pre: Pre,
+          span: KatexSpan,
           think: ThinkComponent,
         }}
         {...props}
