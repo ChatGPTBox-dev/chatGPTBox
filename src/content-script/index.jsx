@@ -23,7 +23,7 @@ import {
 } from '../utils'
 import FloatingToolbar from '../components/FloatingToolbar'
 import Browser from 'webextension-polyfill'
-import { getPreferredLanguage } from '../config/language.mjs'
+import { formatLanguageForPrompt, getPreferredLanguage } from '../config/language.mjs'
 import '../_locales/i18n-react'
 import { changeLanguage } from 'i18next'
 import { initSession } from '../services/init-session.mjs'
@@ -43,7 +43,7 @@ async function mountComponent(siteName, siteConfig) {
 
   console.debug('[content] mountComponent called with siteConfig:', siteConfig)
   try {
-    const userConfig = await getUserConfig()
+    const userConfig = await getUserConfig({ fresh: true })
 
     if (!userConfig.alwaysFloatingSidebar) {
       const retry = 10
@@ -240,7 +240,12 @@ const deleteToolbar = () => {
   }
 }
 
-const createSelectionTools = async (toolbarContainerElement, selection, creationVersion) => {
+const createSelectionTools = async (
+  toolbarContainerElement,
+  selection,
+  creationVersion,
+  userConfig = null,
+) => {
   console.debug(
     '[content] createSelectionTools called with selection:',
     selection,
@@ -249,7 +254,9 @@ const createSelectionTools = async (toolbarContainerElement, selection, creation
   )
   try {
     toolbarContainerElement.className = 'chatgptbox-toolbar-container'
-    const userConfig = await getUserConfig()
+    // Fresh, because this starts a session the moment the user selects and the
+    // model it picks has to be the one they just chose in another context.
+    userConfig ??= await getUserConfig({ fresh: true })
     if (
       creationVersion !== toolbarCreationVersion ||
       toolbarContainerElement !== toolbarContainer ||
@@ -314,7 +321,7 @@ async function prepareForSelectionTools() {
             console.debug('[content] Text selected. Length:', selection.length)
             let position
 
-            const config = await getUserConfig()
+            const config = await getUserConfig({ fresh: true })
             if (creationVersion !== toolbarCreationVersion) return
             if (!config.selectionToolsNextToInputBox) {
               position = { x: e.pageX + 20, y: e.pageY + 20 }
@@ -341,7 +348,7 @@ async function prepareForSelectionTools() {
             console.debug('[content] Toolbar position:', position)
             const container = createElementAtPosition(position.x, position.y)
             toolbarContainer = container
-            await createSelectionTools(container, selection, creationVersion)
+            await createSelectionTools(container, selection, creationVersion, config)
           } else {
             console.debug('[content] No text selected on mouseup.')
           }
@@ -492,9 +499,15 @@ async function prepareForRightClickMenu() {
       try {
         const data = message.data
         let prompt = ''
+        // Read the config fresh before anything here consults it. genPrompt() reads
+        // it too, and this is a user gesture that may follow a settings change in
+        // another context whose storage event has not arrived yet, so a cached read
+        // here would build the prompt from the previous configuration while the
+        // session below used the new one.
+        const userConfig = await getUserConfig({ fresh: true })
         if (data.itemId in toolsConfig) {
           console.debug('[content] Generating prompt from toolsConfig for item:', data.itemId)
-          prompt = await toolsConfig[data.itemId].genPrompt(data.selectionText)
+          prompt = await toolsConfig[data.itemId].genPrompt(data.selectionText, userConfig)
         } else if (data.itemId in menuConfig) {
           console.debug('[content] Generating prompt from menuConfig for item:', data.itemId)
           const menuItem = menuConfig[data.itemId]
@@ -504,7 +517,11 @@ async function prepareForRightClickMenu() {
           }
           prompt = await menuItem.genPrompt()
           if (prompt) {
-            const preferredLanguage = await getPreferredLanguage()
+            // Resolved from the config read above rather than through the helpers,
+            // which would read the cache and land back on the previous settings.
+            const preferredLanguage = formatLanguageForPrompt(
+              await getPreferredLanguageKey(userConfig),
+            )
             prompt = await cropText(`Reply in ${preferredLanguage}.\n` + prompt)
           }
         } else {
@@ -521,7 +538,6 @@ async function prepareForRightClickMenu() {
         console.debug('[content] Toolbar position for CREATE_CHAT:', position)
         const container = createElementAtPosition(position.x, position.y)
         container.className = 'chatgptbox-toolbar-container-not-queryable'
-        const userConfig = await getUserConfig()
         render(
           <FloatingToolbar
             session={initSession({
@@ -548,7 +564,7 @@ async function prepareForRightClickMenu() {
 async function prepareForStaticCard() {
   console.log('[content] Initializing static card.')
   try {
-    const userConfig = await getUserConfig()
+    const userConfig = await getUserConfig({ fresh: true })
     let siteRegexPattern
     if (userConfig.useSiteRegexOnly) {
       siteRegexPattern = userConfig.siteRegex
@@ -899,7 +915,7 @@ function ensureChatGptPortListenerRegistered() {
 
   try {
     console.log('[content] Attempting to register port listener for chatgpt.com.')
-    registerPortListener(async (session, port, _config, isLatestSessionRequest) => {
+    registerPortListener(async (session, port, config, isLatestSessionRequest) => {
       console.debug(
         `[content] Port listener callback triggered. Session model: ${session?.modelName}, Port: ${port.name}`,
       )
@@ -919,7 +935,13 @@ function ensureChatGptPortListenerRegistered() {
             port.postMessage({ error: 'Missing ChatGPT access token.' })
             return
           }
-          await generateAnswersWithChatgptWebApi(port, session.question, session, accessToken)
+          await generateAnswersWithChatgptWebApi(
+            port,
+            session.question,
+            session,
+            accessToken,
+            config,
+          )
           console.log('[content] generateAnswersWithChatgptWebApi call completed.')
         } else {
           console.debug(

@@ -45,6 +45,7 @@ import {
   getClaudeSessionKey,
 } from '../../../src/services/wrappers.mjs'
 import Browser from 'webextension-polyfill'
+import { getUserConfig } from '../../../src/config/index.mjs'
 import { normalizeApiMode } from '../../../src/utils/model-name-convert.mjs'
 import { FETCH_REQUEST_FAILED } from '../../../src/utils/fetch-sse.mjs'
 import { formatErrorMessage } from '../../../src/utils/error-text.mjs'
@@ -114,6 +115,55 @@ test('registerPortListener calls executor with session, port, and config', async
   assert.ok(result.config)
   // Session should be posted back before executor runs
   assert.equal(port.postedMessages[0].session, result.session)
+})
+
+test('registerPortListener observes settings written before their storage event', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const shim = globalThis.__TEST_BROWSER_SHIM__
+  setStorage({ modelName: 'chatgptApi6_1Sol' })
+  for (let attempt = 0; attempt < 3; attempt++) await getUserConfig()
+
+  shim.deferStorageEvents()
+  t.after(() => shim.flushStorageEvents())
+  shim.setStorage({ modelName: 'claudeSonnet55Api', preferredLanguage: 'fr' })
+
+  let resolveExec
+  const execDone = new Promise((resolve) => {
+    resolveExec = resolve
+  })
+  registerPortListener(async (session, _port, config) => {
+    resolveExec({ session, config })
+  })
+  const port = createFakePort()
+  triggerConnect(port)
+  port.emitMessage({ session: { conversationRecords: [] } })
+  const { session, config } = await execDone
+
+  assert.equal(session.modelName, 'claudeSonnet55Api')
+  assert.equal(config.preferredLanguage, 'fr')
+})
+
+test('registerPortListener reports config-read errors before execution', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  t.mock.method(console, 'error', () => {})
+  t.mock.method(globalThis.chrome.storage.local, 'get', (_keys, callback) => {
+    globalThis.chrome.runtime.lastError = { message: 'storage unavailable' }
+    try {
+      callback(undefined)
+    } finally {
+      delete globalThis.chrome.runtime.lastError
+    }
+  })
+  const executor = t.mock.fn(async () => {})
+  registerPortListener(executor)
+  const port = createFakePort()
+  triggerConnect(port)
+  const errorPosted = waitForPortError(port)
+
+  port.emitMessage({ session: { conversationRecords: [] } })
+
+  assert.match(await errorPosted, /storage unavailable/)
+  assert.equal(executor.mock.callCount(), 0)
 })
 
 test('registerPortListener scopes error translations to each request', async (t) => {
