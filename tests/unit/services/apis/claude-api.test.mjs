@@ -69,6 +69,35 @@ test('claude-api: sends correct URL and headers', async (t) => {
   assert.equal(capturedInit.headers['Content-Type'], 'application/json')
 })
 
+test('claude-api: video-summary uses top-level system and tool-free user messages', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const { session, port } = setupCompletionTest()
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (_input, init) => {
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ])
+  })
+
+  await generateAnswersWithClaudeApi(port, 'flattened question must not be used', session, null, {
+    requestMessages: [
+      { role: 'system', content: 'fixed instruction' },
+      { role: 'user', content: '{"transcript":"untrusted"}' },
+    ],
+    toolPolicy: 'none',
+  })
+
+  const body = JSON.parse(capturedInit.body)
+  assert.equal(body.system, 'fixed instruction')
+  assert.deepEqual(body.messages, [{ role: 'user', content: '{"transcript":"untrusted"}' }])
+  assert.equal('tools' in body, false)
+  assert.equal('tool_choice' in body, false)
+  assert.equal('toolChoice' in body, false)
+})
+
 test('claude-api: sends model, max_tokens, temperature in body', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({
@@ -364,6 +393,31 @@ test('claude-api: rejects incomplete Claude responses', async (t) => {
   }
 })
 
+test('claude-api: marks only the explicit context-window stop reason', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+
+  for (const { stopReason, expectedCode } of [
+    {
+      stopReason: 'model_context_window_exceeded',
+      expectedCode: 'MODEL_CONTEXT_WINDOW_EXCEEDED',
+    },
+    { stopReason: 'max_tokens', expectedCode: undefined },
+  ]) {
+    const { session, port } = setupCompletionTest()
+    t.mock.method(globalThis, 'fetch', async () =>
+      createMockSseResponse([
+        `data: {"type":"message_delta","delta":{"stop_reason":"${stopReason}"}}\n\n`,
+        'data: {"type":"message_stop"}\n\n',
+      ]),
+    )
+
+    await assert.rejects(generateAnswersWithClaudeApi(port, 'Q', session), (error) => {
+      assert.equal(error.code, expectedCode)
+      return true
+    })
+  }
+})
+
 test('claude-api: preserves streamed API error details', async (t) => {
   t.mock.method(console, 'debug', () => {})
   const { session, port } = setupCompletionTest()
@@ -620,6 +674,87 @@ test('claude-api: reports an incomplete stop reason without waiting for EOF', as
   assert.deepEqual(session.conversationRecords, [])
   assert.deepEqual(port.postedMessages, [{ answer: 'Partial', done: false, session: null }])
   assert.deepEqual(port.listenerCounts(), { onMessage: 0, onDisconnect: 0 })
+})
+
+test('claude-api: uses an isolated config override instead of stored defaults', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({
+    customClaudeApiUrl: 'https://stored.example.invalid',
+    claudeApiKey: 'stored-key',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 99,
+  })
+
+  const session = {
+    modelName: 'claudeSonnet46Api',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+  const configOverride = {
+    customAnthropicApiUrl: 'https://override.anthropic.test',
+    anthropicApiKey: 'override-key',
+    maxConversationContextLength: 1,
+    maxResponseTokenLength: 777,
+  }
+  let capturedInput
+  let capturedInit
+  t.mock.method(globalThis, 'fetch', async (input, init) => {
+    capturedInput = input
+    capturedInit = init
+    return createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ])
+  })
+
+  await generateAnswersWithClaudeApi(port, 'Q', session, configOverride)
+
+  assert.equal(capturedInput, 'https://override.anthropic.test/v1/messages')
+  assert.equal(capturedInit.headers['x-api-key'], 'override-key')
+  assert.equal(JSON.parse(capturedInit.body).max_tokens, 777)
+})
+
+test('claude-api: isolated diagnostics do not emit raw SSE or console output', async (t) => {
+  const consoleMessages = []
+  t.mock.method(console, 'debug', (...args) => consoleMessages.push(args.join(' ')))
+  const config = {
+    customAnthropicApiUrl: 'https://api.anthropic.com',
+    anthropicApiKey: 'sk-ant-test',
+    maxConversationContextLength: 3,
+    maxResponseTokenLength: 128,
+  }
+  setStorage(config)
+  const diagnostics = []
+  const session = {
+    modelName: 'claudeSonnet46Api',
+    conversationRecords: [],
+    isRetry: false,
+  }
+  const port = createFakePort()
+
+  t.mock.method(globalThis, 'fetch', async () =>
+    createMockSseResponse([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"SECRET_ANSWER"}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ]),
+  )
+
+  await generateAnswersWithClaudeApi(port, 'SECRET_PROMPT', session, config, {
+    diagnostics: {
+      debug(message, details) {
+        diagnostics.push({ message, details })
+      },
+    },
+  })
+
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_ANSWER'), false)
+  assert.equal(JSON.stringify(consoleMessages).includes('SECRET_PROMPT'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_ANSWER'), false)
+  assert.equal(JSON.stringify(diagnostics).includes('SECRET_PROMPT'), false)
+  assert.equal(diagnostics.length > 0, true)
 })
 
 test('claude-api: pushRecord on message_stop', async (t) => {

@@ -1,4 +1,4 @@
-import { pushRecord } from './shared.mjs'
+import { createAdapterDiagnostics, pushRecord } from './shared.mjs'
 import Bard from '../clients/bard/index.mjs'
 
 /**
@@ -14,7 +14,9 @@ export async function generateAnswersWithBardWebApi(
   session,
   cookies,
   isLatestSessionRequest = () => true,
+  adapterOptions,
 ) {
+  const diagnostics = createAdapterDiagnostics(adapterOptions)
   // const { controller, messageListener, disconnectListener } = setAbortController(port)
   const bot = new Bard(cookies)
 
@@ -24,7 +26,7 @@ export async function generateAnswersWithBardWebApi(
     if (!isLatestSessionRequest()) return
     session.bard_conversationObj = conversationObj
     pushRecord(session, question, answer)
-    console.debug('conversation history', { content: session.conversationRecords })
+    diagnostics.debug('conversation history', { content: session.conversationRecords })
     // port.onMessage.removeListener(messageListener)
     // port.onDisconnect.removeListener(disconnectListener)
     port.postMessage({ answer: answer, done: true, session: session })

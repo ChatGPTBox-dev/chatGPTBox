@@ -92,12 +92,5 @@ export async function cropText(
   currentLength += endPartLength
   croppedText += endPart
 
-  console.log(
-    `input maxLength: ${maxLength}\n` +
-      `maxResponseTokenLength: ${userConfig.maxResponseTokenLength}\n` +
-      // `croppedTextLength: ${tiktoken ? encode(croppedText).length : croppedText.length}\n` +
-      `desiredLength: ${currentLength}\n` +
-      `content: ${croppedText}`,
-  )
   return croppedText
 }
