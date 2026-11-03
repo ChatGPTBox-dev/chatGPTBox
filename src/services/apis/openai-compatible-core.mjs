@@ -74,12 +74,14 @@ export async function generateAnswersWithOpenAICompatible({
     ? session.conversationRecords
     : []
   session.conversationRecords = conversationRecords
+  const contextRecords = conversationRecords.slice(-config.maxConversationContextLength)
+  const preserveKimiReasoning = endpointType === 'chat' && model === 'kimi-k3'
   const safeExtraBody = { ...extraBody }
   delete safeExtraBody.temperature
   if (endpointType === 'completion') {
     const prompt =
       (await getCompletionPromptBase()) +
-      getConversationPairs(conversationRecords.slice(-config.maxConversationContextLength), true) +
+      getConversationPairs(contextRecords, true) +
       `Human: ${question}\nAI: `
     requestBody = {
       prompt,
@@ -91,10 +93,14 @@ export async function generateAnswersWithOpenAICompatible({
       ...safeExtraBody,
     }
   } else {
-    const messages = getConversationPairs(
-      conversationRecords.slice(-config.maxConversationContextLength),
-      false,
-    )
+    const messages = getConversationPairs(contextRecords, false)
+    if (preserveKimiReasoning) {
+      contextRecords.forEach((record, index) => {
+        if (typeof record.reasoningContent === 'string') {
+          messages[index * 2 + 1].reasoning_content = record.reasoningContent
+        }
+      })
+    }
     messages.push({ role: 'user', content: question })
     const tokenParams = getChatCompletionsTokenParams(
       provider,
@@ -115,11 +121,20 @@ export async function generateAnswersWithOpenAICompatible({
   }
 
   let answer = ''
+  let reasoningContent
   let finished = false
+  const pushAnswerRecord = () => {
+    pushRecord(session, question, answer)
+    if (!preserveKimiReasoning) return
+    const record = session.conversationRecords.at(-1)
+    if (!record) return
+    if (typeof reasoningContent === 'string') record.reasoningContent = reasoningContent
+    else delete record.reasoningContent
+  }
   const finish = () => {
     if (finished) return
     finished = true
-    pushRecord(session, question, answer)
+    pushAnswerRecord()
     port.postMessage({ answer: null, done: true, session: session })
   }
 
@@ -142,6 +157,12 @@ export async function generateAnswersWithOpenAICompatible({
         return
       }
 
+      if (preserveKimiReasoning) {
+        const delta = data?.choices?.[0]?.delta?.reasoning_content
+        const content = data?.choices?.[0]?.message?.reasoning_content
+        if (typeof delta === 'string') reasoningContent = (reasoningContent || '') + delta
+        else if (typeof content === 'string') reasoningContent = content
+      }
       answer = buildMessageAnswer(answer, data, allowLegacyResponseField)
       port.postMessage({ answer: answer, done: false, session: null })
 
@@ -156,9 +177,7 @@ export async function generateAnswersWithOpenAICompatible({
           if (aborted) {
             const shouldPostSession = Boolean(answer) || session.isRetry
             if (shouldPostSession && isCurrentSessionRequest()) {
-              if (answer) {
-                pushRecord(session, question, answer)
-              }
+              if (answer) pushAnswerRecord()
               session.isRetry = false
               try {
                 const stoppedGenerationId = getStopGenerationId()
