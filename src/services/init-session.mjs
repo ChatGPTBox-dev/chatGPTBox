@@ -11,7 +11,13 @@ import { t } from 'i18next'
  * @property {string|null} question
  * @property {Object[]|null} conversationRecords
  * @property {string|null} sessionName
+ * @property {'generated'|'manual'|'heuristic'|null} sessionNameSource
+ * @property {'idle'|'pending'|'succeeded'|'failed'|null} sessionTitleGenerationStatus
+ * @property {string|null} sessionTitleGenerationStartedAt
+ * @property {string|null} sessionTitleGenerationId
+ * @property {number} sessionTitleGenerationAttempts
  * @property {string|null} sessionId
+ * @property {string} sessionLifecycleId
  * @property {string|null} createdAt
  * @property {string|null} updatedAt
  * @property {string|null} aiName
@@ -37,6 +43,11 @@ import { t } from 'i18next'
  * @param {string|null} question
  * @param {Object[]|null} conversationRecords
  * @param {string|null} sessionName
+ * @param {'generated'|'manual'|'heuristic'|null} sessionNameSource
+ * @param {'idle'|'pending'|'succeeded'|'failed'|null} sessionTitleGenerationStatus
+ * @param {string|null} sessionTitleGenerationStartedAt
+ * @param {string|null} sessionTitleGenerationId
+ * @param {number} sessionTitleGenerationAttempts
  * @param {string|null} modelName
  * @param {boolean|null} autoClean
  * @param {Object|null} apiMode
@@ -47,6 +58,11 @@ export function initSession({
   question = null,
   conversationRecords = [],
   sessionName = null,
+  sessionNameSource = null,
+  sessionTitleGenerationStatus = 'idle',
+  sessionTitleGenerationStartedAt = null,
+  sessionTitleGenerationId = null,
+  sessionTitleGenerationAttempts = 0,
   modelName = null,
   autoClean = false,
   apiMode = null,
@@ -58,7 +74,13 @@ export function initSession({
     conversationRecords,
 
     sessionName,
+    sessionNameSource,
+    sessionTitleGenerationStatus,
+    sessionTitleGenerationStartedAt,
+    sessionTitleGenerationId,
+    sessionTitleGenerationAttempts,
     sessionId: uuidv4(),
+    sessionLifecycleId: uuidv4(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
 
