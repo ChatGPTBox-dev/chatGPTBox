@@ -56,12 +56,16 @@ const WebJumpBackNotification = (props) => {
           <button
             style={buttonStyle}
             onClick={async () => {
-              Browser.runtime.sendMessage({
-                type: 'ACTIVATE_URL',
-                data: {
-                  tabId: (await getUserConfig()).notificationJumpBackTabId,
-                },
-              })
+              try {
+                await Browser.runtime.sendMessage({
+                  type: 'ACTIVATE_URL',
+                  data: {
+                    tabId: (await getUserConfig({ fresh: true })).notificationJumpBackTabId,
+                  },
+                })
+              } catch (error) {
+                console.warn('[WebJumpBackNotification] Failed to return to source tab:', error)
+              }
             }}
           >
             {t('Go Back')}
