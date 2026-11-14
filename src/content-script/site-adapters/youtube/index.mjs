@@ -1,5 +1,61 @@
-import { cropText } from '../../../utils'
+import Browser from 'webextension-polyfill'
+import { cropText, waitForSiteAdapterElement } from '../../../utils'
 import { config } from '../index.mjs'
+import { createVideoSummaryAdapterController } from '../../video-summary-adapter-controller.mjs'
+import { isEnhancedVideoSummaryAvailable } from '../../video-summary-capability.mjs'
+import { resolvePageMode } from '../../video-summary-page-mode.mjs'
+import { mountVideoSummaryHost } from '../../video-summary-host.mjs'
+import { getYouTubeWatchIdentity } from './media-source.mjs'
+import { createYouTubeVideoPageBridge } from './video-page-bridge.mjs'
+
+const SECONDARY_COLUMN_SELECTOR =
+  '#secondary:not([style*="display: none"]):not(.ytd-two-column-browse-results-renderer)'
+
+function getWatchIdentity() {
+  try {
+    return getYouTubeWatchIdentity(location.href)
+  } catch {
+    return { videoId: null, supported: false, pageIdentity: null }
+  }
+}
+
+function getPageIdentity() {
+  const watchIdentity = getWatchIdentity()
+  if (watchIdentity.pageIdentity) return watchIdentity.pageIdentity
+  const match = location.pathname.match(/^\/(?:live|shorts)\/([A-Za-z0-9_-]{11})(?:\/|$)/)
+  if (!match) return null
+  return { platform: 'youtube', videoId: match[1], mediaId: match[1] }
+}
+
+function isLiveWatchPage() {
+  const playerResponse = globalThis.ytInitialPlayerResponse
+  return Boolean(
+    document.querySelector('ytd-watch-flexy[is-live]') ||
+      playerResponse?.videoDetails?.isLiveContent === true ||
+      playerResponse?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails?.isLiveNow ===
+        true,
+  )
+}
+
+function unwrapPageDataResponse(response) {
+  if (response?.ok === true) return response.data
+  if (response?.ok !== false) return response
+
+  const error = new Error(
+    /^[A-Z][A-Z0-9_]+$/.test(response.errorCode || '')
+      ? response.errorCode
+      : 'YOUTUBE_PAGE_SCRIPT_EXECUTION_FAILED',
+  )
+  if (
+    /^(?:Error|EvalError|RangeError|ReferenceError|SyntaxError|TypeError|URIError|UnknownError)$/.test(
+      response.causeCode || '',
+    )
+  ) {
+    error.causeCode = response.causeCode
+  }
+  if (/^[a-z-]+$/.test(response.stage || '')) error.stage = response.stage
+  throw error
+}
 
 // This function was written by ChatGPT and modified by iamsirsammy
 function replaceHtmlEntities(htmlString) {
@@ -9,19 +65,91 @@ function replaceHtmlEntities(htmlString) {
 
 export default {
   init: async (hostname, userConfig, getInput, mountComponent) => {
-    try {
-      let oldUrl = location.href
-      const checkUrlChange = async () => {
-        if (location.href !== oldUrl) {
-          oldUrl = location.href
-          mountComponent('youtube', config.youtube)
+    const enhancedAvailable = isEnhancedVideoSummaryAvailable(userConfig)
+    let currentMode = 'none'
+    const createBridge = () =>
+      createYouTubeVideoPageBridge({
+        getLocationHref: () => location.href,
+        getPlayerResponse: async (expectedVideoId) =>
+          unwrapPageDataResponse(
+            await Browser.runtime.sendMessage({
+              type: 'YOUTUBE_PAGE_PLAYER_RESPONSE',
+              data: { expectedVideoId },
+            }),
+          ),
+        getPageHtml: () => document.documentElement?.outerHTML || '',
+        captureCaption: async ({ expectedVideoId, language, sourceKind, vssId, mode }) =>
+          unwrapPageDataResponse(
+            await Browser.runtime.sendMessage({
+              type: 'YOUTUBE_PAGE_CAPTURE_CAPTION',
+              data: { expectedVideoId, language, sourceKind, vssId, mode },
+            }),
+          ),
+        getVideoElement: () => document.querySelector('video'),
+      })
+    const controller = createVideoSummaryAdapterController({
+      getPageIdentity,
+      resolveMode: ({ pageIdentity }) => {
+        const pathname = location.pathname
+        const ordinaryWatch = pathname === '/watch' && !isLiveWatchPage()
+        const legacySupported =
+          Boolean(pageIdentity) &&
+          (pathname === '/watch' ||
+            pathname.startsWith('/live/') ||
+            pathname.startsWith('/shorts/') ||
+            isLiveWatchPage())
+        currentMode = resolvePageMode({
+          config: userConfig,
+          capabilities: { enhanced: enhancedAvailable },
+          pageIdentity,
+          pageState: { enhancedSupported: ordinaryWatch, legacySupported },
+        })
+        return currentMode
+      },
+      mountEnhanced: ({ pageIdentity, pageGeneration, targetElement, isCurrentPage }) =>
+        mountVideoSummaryHost({
+          platform: 'youtube',
+          bridge: createBridge(),
+          pageIdentity,
+          pageGeneration,
+          isPageCurrent: isCurrentPage,
+          targetElement,
+        }),
+      async mountLegacy() {
+        await mountComponent('youtube', config.youtube)
+        let connected = true
+        return {
+          dispose() {
+            connected = false
+            document
+              .querySelectorAll('.chatgptbox-container,#chatgptbox-container')
+              .forEach((element) => element.remove())
+          },
+          isConnected: () =>
+            connected &&
+            document.querySelectorAll('.chatgptbox-container,#chatgptbox-container').length > 0,
         }
-      }
-      window.setInterval(checkUrlChange, 500)
-    } catch (e) {
-      /* empty */
-    }
-    return true
+      },
+      subscribeToPageChanges(listener) {
+        let oldUrl = location.href
+        const timer = window.setInterval(() => {
+          if (location.href === oldUrl) return
+          oldUrl = location.href
+          listener()
+        }, 250)
+        return () => window.clearInterval(timer)
+      },
+      findTargetElement: () =>
+        currentMode === 'enhanced'
+          ? document.querySelector(SECONDARY_COLUMN_SELECTOR)
+          : document.documentElement,
+      waitForTargetElement: () =>
+        currentMode === 'enhanced'
+          ? waitForSiteAdapterElement(SECONDARY_COLUMN_SELECTOR)
+          : document.documentElement,
+    })
+    await controller.start()
+    return false
   },
   inputQuery: async () => {
     try {
@@ -78,8 +206,8 @@ export default {
           `Video Title: "${title}"\n` +
           `Subtitle content:\n${subtitleContent}`,
       )
-    } catch (e) {
-      console.log(e)
+    } catch {
+      return
     }
   },
 }

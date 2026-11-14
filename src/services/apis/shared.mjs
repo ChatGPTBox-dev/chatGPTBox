@@ -1,3 +1,18 @@
+export function createAdapterDiagnostics(adapterOptions) {
+  const diagnostics = adapterOptions?.diagnostics
+  const createMethod = (level) =>
+    diagnostics
+      ? (message) =>
+          diagnostics[level]?.(typeof message === 'string' ? message : 'adapter diagnostic')
+      : (...args) => console[level](...args)
+  return {
+    debug: createMethod('debug'),
+    info: createMethod('info'),
+    warn: createMethod('warn'),
+    error: createMethod('error'),
+  }
+}
+
 export const getChatSystemPromptBase = async () => {
   return `You are a helpful, creative, clever, and very friendly assistant. You are familiar with various languages in the world.`
 }

@@ -43,6 +43,7 @@ import {
   resolveProviderSecretTargetId,
   rollbackProviderSecretOverrideSessionMigration,
 } from './provider-secret-utils.mjs'
+import { buildExportCredentialWarningMessage } from './VideoSummarySettings.jsx'
 
 GeneralPart.propTypes = {
   config: PropTypes.object.isRequired,
@@ -994,6 +995,8 @@ export function GeneralPart({
           className="secondary"
           onClick={async (e) => {
             e.preventDefault()
+            const exportWarningMessage = t(buildExportCredentialWarningMessage())
+            if (!window.confirm(exportWarningMessage)) return
             const blob = new Blob(
               [JSON.stringify(await Browser.storage.local.get(null), null, 2)],
               { type: 'text/json;charset=utf-8' },

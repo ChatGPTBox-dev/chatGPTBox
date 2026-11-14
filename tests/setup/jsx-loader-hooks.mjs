@@ -1,7 +1,7 @@
 // ESM loader hooks that transform .mjs files containing JSX via esbuild
 // and provide CJS-to-ESM interop for packages that need it.
 // Register with: module.register('./tests/setup/jsx-loader-hooks.mjs', import.meta.url)
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 
@@ -9,6 +9,24 @@ const JSX_RE = /<[A-Z][A-Za-z0-9]*[\s/>]/
 
 // CJS packages that need named-export re-exporting for ESM consumers.
 const CJS_REEXPORT = new Set(['countries-list'])
+
+export async function resolve(specifier, context, nextResolve) {
+  if (
+    (specifier.startsWith('./') || specifier.startsWith('../')) &&
+    !specifier.match(/\.[a-z]+$/i)
+  ) {
+    for (const suffix of ['.mjs', '.jsx', '/index.mjs', '/index.jsx']) {
+      const jsxUrl = new URL(`${specifier}${suffix}`, context.parentURL)
+      try {
+        await access(fileURLToPath(jsxUrl))
+        return { shortCircuit: true, url: jsxUrl.href }
+      } catch {
+        continue
+      }
+    }
+  }
+  return nextResolve(specifier, context)
+}
 
 export async function load(url, context, nextLoad) {
   // Handle CJS packages that lack ESM named exports
@@ -40,11 +58,19 @@ export async function load(url, context, nextLoad) {
     }
   }
 
-  // Transform source .mjs files that contain JSX
-  if (url.startsWith('file://') && url.endsWith('.mjs') && !url.includes('node_modules')) {
+  if (url.startsWith('file://') && /\.(?:css|scss)$/.test(url)) {
+    return { shortCircuit: true, format: 'module', source: '' }
+  }
+
+  // Transform source .mjs and .jsx files that contain JSX
+  if (
+    url.startsWith('file://') &&
+    (url.endsWith('.mjs') || url.endsWith('.jsx')) &&
+    !url.includes('node_modules')
+  ) {
     const filePath = fileURLToPath(url)
     const source = await readFile(filePath, 'utf8')
-    if (JSX_RE.test(source)) {
+    if (url.endsWith('.jsx') || JSX_RE.test(source)) {
       const esbuild = await import('esbuild')
       const result = await esbuild.transform(source, {
         loader: 'jsx',

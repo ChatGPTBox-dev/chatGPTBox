@@ -284,6 +284,19 @@ test('registerPortListener sets aiName when not provided', async (t) => {
   assert.ok(Object.hasOwn(session, 'aiName'))
 })
 
+test('registerPortListener skips ports rejected by its port filter', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  const executor = t.mock.fn(async () => {})
+  registerPortListener(executor, (port) => port.name !== 'dedicated')
+  const port = createFakePort({ name: 'dedicated' })
+
+  triggerConnect(port)
+  port.emitMessage({ session: { conversationRecords: [] } })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(executor.mock.callCount(), 0)
+})
+
 test('registerPortListener ignores messages without session', async (t) => {
   t.mock.method(console, 'debug', () => {})
   setStorage({ modelName: 'chatgptApi4oMini' })

@@ -1,269 +1,244 @@
-# ChatGPTBox - Browser Extension
+# ChatGPTBox Architecture and Agent Guide
 
-ChatGPTBox is a cross-platform browser extension that deeply integrates ChatGPT and other AI models into web browsing. The extension provides chat dialogs, selection tools, site-specific adapters, and AI-powered features across the web.
+Use this file as the starting point for changes in this repository. It records the runtime
+boundaries and project-specific workflows that are easy to miss from a directory listing.
 
-Always reference these instructions first and fall back to search or bash commands only when you encounter unexpected information that does not match the info here.
+## 1. Project Overview
 
-## Working Effectively
+ChatGPTBox is a client-only, cross-browser extension that injects AI chat, page/selection tools,
+and site-specific integrations into web pages. There is no repository-owned application server.
+The extension talks directly to configured AI providers or their web applications and persists
+user settings and conversation history through extension storage.
 
-### Bootstrap and Build
+The UI uses Preact with React compatibility, JSX, and SCSS. Browser APIs are normally accessed
+through `webextension-polyfill`. Webpack 5 builds separate Chromium Manifest V3 and Firefox
+Manifest V2 packages; Safari is converted from the Firefox package.
 
-- Install dependencies: `npm ci` -- npm audit warnings may appear; for development-only dependencies they generally do not affect the shipped extension. Review and address runtime-impacting advisories separately.
-- Development build: `npm run dev` -- runs webpack in watch mode. Do not kill mid-compilation, but stop gracefully when switching branches or after dependency/config changes, then restart to avoid stale watchers and inconsistent state.
-- Production build: `npm run build` -- Avoid force-killing mid-bundle; stop, fix, then rebuild.
-  See "Time Expectations" and "Build Issues" for the hung-build policy and recovery steps.
-- Analyze bundle: `npm run analyze` -- Inspects the size of webpack output files.
-- Format code: `npm run pretty` -- uses Prettier to format all JS/JSX/CSS files. Run this before linting.
-- Lint code: `npm run lint` -- uses ESLint.
-- Safari build: `npm run build:safari` (see Platform-Specific Instructions for details)
+### Runtime boundaries
 
-### Build Performance Options
+| Context | Entry point | Responsibility |
+| --- | --- | --- |
+| Content script | `src/content-script/index.jsx` | Inject chat/selection UI, run the active site adapter, read page state, and exchange messages with the extension. |
+| Background | `src/background/index.mjs` | Own privileged browser APIs, provider dispatch, cross-context routing, cookies, context menus, commands, and guarded network requests. It is an MV3 service worker on Chromium and a persistent MV2 background script on Firefox. |
+| Popup/options | `src/popup/index.jsx` | Render settings and provider configuration; the same page is used for the toolbar popup and options UI. |
+| Independent panel | `src/pages/IndependentPanel/index.jsx` | Host the standalone conversation page, popup window, and Chromium side panel. |
+| Video-summary offscreen document | `src/pages/VideoSummaryOffscreen/index.mjs` | Run the long-lived Bilibili transcription/summary task in the full Chromium build without placing provider credentials in page code. |
 
-- BUILD_PARALLEL: Toggle parallel build of production variants
-  - Default: on (parallel). Set to `0` to run sequentially (lower CPU/IO spikes on low-core machines)
-- BUILD_THREAD / BUILD_THREAD_WORKERS: Control Babel parallelism via thread-loader
-  - Default: threads enabled in dev/prod; workers = CPU cores
-  - Set `BUILD_THREAD=0` to disable; set `BUILD_THREAD_WORKERS=<n>` to override worker count
-- BUILD_CACHE_COMPRESSION: Webpack filesystem cache compression
-  - Default: `0` (no compression) for faster warm builds on CPU-bound SSD machines
-  - Options: `0|false|none`, `gzip` (or `brotli` if explicitly desired)
-  - Affects only `.cache/webpack` size/speed; does not change final artifacts
-  - Note: Babel loader cache uses its own compression setting (currently disabled for speed) and is independent of BUILD_CACHE_COMPRESSION
-- BUILD_WATCH_ONCE (dev): When set, `npm run dev` runs a single build and exits (useful for timing)
-- BUILD_POOL_TIMEOUT: Override thread-loader production pool timeout (ms)
-  - Default: `2000`. Increase if workers recycle too aggressively on slow machines/CI
-- BUILD_RESOLVE_SYMLINKS: When set to `1`/`true`, re-enable Webpack symlink resolution for `npm link`/pnpm workspace development. Default is `false` to improve performance and ensure consistent module identity (avoids duplicate module instances)
-- Source maps (dev): Dev builds emit external `.map` files next to JS bundles for CSP-safe debugging; production builds disable source maps
+### Main application flow
 
-Performance defaults: esbuild handles JS/CSS minification. In development, CSS is injected via style-loader; in production, CSS is extracted via MiniCssExtractPlugin. Thread-loader is enabled by default in both dev and prod.
+- `FloatingToolbar` and conversation components create a serializable session and communicate over
+  extension ports. `src/services/wrappers.mjs` normalizes session/model state, handles cancellation
+  and stale requests, and reports translated errors.
+- Background selects the configured implementation under `src/services/apis/`. OpenAI-compatible
+  providers are normalized through `provider-registry.mjs`; web-account modes may proxy work to a
+  provider page where its content script has the required authenticated context.
+- `src/content-script/site-adapters/index.mjs` is the site registry. Generic search integrations
+  provide DOM selectors; richer adapters expose an `init` action. Selection tools and context-menu
+  tools are separate registries under `src/content-script/selection-tools/` and `menu-tools/`.
+- Shared conversation state is defined by `src/services/init-session.mjs` and stored by
+  `src/services/local-session.mjs`. Common UI belongs in `src/components/`; browser-independent
+  helpers belong in `src/utils/`.
 
-### Build Output Structure
+### Bilibili video-summary pipeline
 
-Production build creates multiple variants in `build/` directory:
+This branch contains a second, explicitly gated pipeline in addition to the legacy subtitle prompt:
 
-- `chromium/` - Chromium-based browsers (Chrome, Edge) with full features
-- `firefox/` - Firefox with manifest v2
-- `chromium-without-katex-and-tiktoken/` - Minimal build without math rendering and token encoding
-- `firefox-without-katex-and-tiktoken/` - Minimal Firefox build without math rendering and token encoding
-- Distribution artifacts:
-  - Chromium: `build/chromium.zip`
-  - Firefox: `build/firefox.zip`
-  - Safari: `ChatGPTBox.app` and `safari.dmg` (see Safari Build section for details)
+1. `site-adapters/bilibili/video-page-bridge.mjs` reads the current Bilibili SSR/API state, native
+   subtitles, and HTTPS DASH audio candidates, and owns local timestamp seeking.
+2. `video-summary-host.mjs` renders the shared `VideoSummaryView` and sends structured-clone-safe
+   task commands through a named port. No DOM object, callback, signal, or secret crosses that boundary.
+3. `background/video-summary-router.mjs` derives ownership from the port sender as
+   `(tabId, documentId, videoId)`, routes task events, and provides a reattachment grace period.
+4. The Chromium offscreen runtime owns `video-summary/task-runner.mjs`, checkpoints, cancellation,
+   and the media pipeline. Native subtitles enter the summarizer directly. ASR first asks Volcengine
+   AI MediaKit to fetch the remote candidate; documented fetch failures may fall back to a
+   task-scoped OPFS download and signed upload, followed by cleanup.
+5. Background-only `MediaKitGateway` and `ModelGateway` read credentials and make provider calls.
+   The runner chunks transcripts, invokes structured tools for chunk summaries and final synthesis,
+   and builds a deterministic result with transcript coverage and failed ranges.
 
-## Architecture Overview
+The enhanced pipeline is enabled only when the build flag, user setting, MV3/offscreen capability,
+and Chromium 116+ runtime checks pass. `VideoSummaryOffscreen.*` is copied only into the full
+Chromium output. Firefox, Safari, minimal builds, unsupported pages, and disabled settings retain
+the existing subtitle-summary path. The design record is
+`docs/superpowers/specs/2026-09-27-video-transcription-summary-design.md`; prefer running code when
+the document and implementation differ.
 
-The project uses Preact (for React-like components), SCSS (for styling), and Webpack 5 (for bundling).
+### Architectural change map
 
-### Key Components
+- Add or change a site integration in `src/content-script/site-adapters/` and register it in that
+  directory's `index.mjs`. Keep page DOM and player knowledge inside the adapter boundary.
+- Add or change an API/provider under `src/services/apis/`; keep provider selection and endpoint/key
+  resolution aligned with `src/config/`, `provider-registry.mjs`, and model-name migrations.
+- Add reusable UI under `src/components/`; entry-point-specific composition stays in content,
+  popup, or page directories.
+- Treat `src/video-summary/` as browser-context-neutral task/domain code. Privileged secrets and
+  remote calls stay behind the background gateways; page extraction stays in the Bilibili adapter.
+- Ask before deleting/renaming files, changing manifests/build configuration, or making a change
+  that affects multiple adapters unless the current request explicitly authorizes it.
 
-- **Content Script** (`src/content-script/index.jsx`) - Injected into all web pages, provides main chat functionality
-- **Background Script** (`src/background/index.mjs`) - Handles browser APIs and cross-page communication
-- **Popup** (`src/popup/`) - Extension popup interface accessible via browser toolbar
-- **Independent Panel** (`src/pages/IndependentPanel/`) - Standalone chat page and side panel
-- **Site Adapters** (`src/content-script/site-adapters/`) - Custom integrations for specific websites (Reddit, GitHub, YouTube, etc.)
-- **Selection Tools** (`src/content-script/selection-tools/`) - Text selection features (translate, summarize, explain, etc.)
+## 2. Build and Commands
 
-### Manifests
+Node 22 or newer is required (`.nvmrc` contains `22`; `package.json` declares `>=22`). Install the
+locked dependency graph with `npm ci`.
 
-- `src/manifest.json` - Manifest v3 for Chromium browsers (Chrome, Edge, Opera, etc.)
-- `src/manifest.v2.json` - Manifest v2 for Firefox (current status; future MV3 migration may change this)
-  - Background runs as service worker (MV3) vs background page (MV2)
-  - Different permission models between manifest versions
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Webpack development build in watch mode with external source maps and injected CSS. Stop it cleanly before branch/dependency/config switches. |
+| `BUILD_WATCH_ONCE=1 npm run dev` | Produce one development build and exit; useful for CI or diagnostics. |
+| `npm run build` | Production build and zip all Chromium/Firefox full and minimal variants. Allow up to 5–10 minutes; do not kill during bundling. |
+| `npm run analyze` | Production-mode bundle analysis. |
+| `npm run pretty` / `npm run pretty:check` | Format or check JS, MJS, JSX, JSON, CSS, and SCSS. Markdown is not included. |
+| `npm run lint` / `npm run lint:fix` | ESLint source, tests, scripts, and workflow scripts. |
+| `npm test` | Run the Node test suite with the browser shim. |
+| `npm run test:coverage` | Run tests under c8 and write text, lcov, and JSON-summary coverage. |
+| `npm run verify` | Fetch live search-engine pages and validate adapter parsing. Network, anti-bot, or markup failures are not build failures unless search adapters are the task. |
+| `npm run build:safari` | On macOS with Xcode, build all variants, convert the Firefox extension, archive/export the app, and create `build/safari.dmg`. |
+| `npm run release:firefox-sources` | Create the AMO source archive and review instructions. |
+| `npm run release:submit:dry-run` | Validate built store artifacts and release credentials without uploading. |\n| `npm run release:submit` | Upload prepared artifacts to extension stores; run only as an explicitly authorized release operation with all required credentials. |
 
-## Testing and Validation
+Production outputs are:
 
-### Manual Browser Extension Testing (CRITICAL)
+- `build/chromium/` and `build/firefox/`
+- `build/chromium-without-katex-and-tiktoken/` and
+  `build/firefox-without-katex-and-tiktoken/`
+- one zip beside each directory; Safari additionally produces an app bundle and `build/safari.dmg`
 
-This browser extension includes automated unit tests, but manual browser extension testing is still essential:
+For a Chromium artifact sanity check, expect `manifest.json`, `background.js`,
+`content-script.{js,css}`, `popup.{html,js,css}`, `IndependentPanel.{html,js}`, `shared.js`,
+`logo.png`, and `rules.json`. The full Chromium package also contains
+`VideoSummaryOffscreen.{html,js}`.
 
-1. **Load Extension in Browser:**
-   - Chrome: Go to `chrome://extensions/`, enable Developer Mode, click "Load unpacked", then select the folder `build/chromium/` (the folder must contain `manifest.json`).
-   - Firefox: Go to `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on", then select the `manifest.json` file inside `build/firefox/` (do not select the folder directly). Note: Temporary (unsigned) add-ons are removed on browser restart; reload them via the same "This Firefox" page after every restart, and some environments with enterprise policies may block loading from file.
-   - **Important**: Extension files cannot be tested by serving them via HTTP server - they must be loaded as a proper browser extension.
+GitHub Actions run `pretty:check` and lint separately, and run `test:coverage` plus the production
+build for runtime changes. Tagged releases build Chromium, Firefox, Safari, and the Firefox source
+archive before store submission. Real store publication depends on repository secrets and belongs
+in the tagged-release workflow; do not invoke it casually from a development shell.
 
-2. **Core Functionality Tests:**
-   - Press `Ctrl+B` (Windows/Linux) or `⌘+B` (macOS) to open the chat dialog on any webpage
-   - Select text on a page, verify selection tools appear
-   - Right-click and verify "Ask ChatGPT" context menu appears
-   - Click extension icon to open popup
-   - Press `Ctrl+Shift+H` (Windows/Linux) or `⌘+Shift+H` (macOS) to open the independent conversation page
+### Build tuning
 
-3. **Site Integration Tests:**
-   - Visit YouTube.com, verify video summary features work
-   - Visit Reddit.com, verify ChatGPT integration appears in sidebar
-   - Visit GitHub.com, verify code analysis features work
-   - Visit Google.com search results, verify ChatGPT responses appear
+`build.mjs` supports these environment variables:
 
-4. **Configuration Tests:**
-   - Open extension popup, navigate through tabs (General, Feature Pages, Modules > Selection Tools, Modules > Sites, Advanced)
-   - Test API mode switching (Web API vs OpenAI API) under Modules > API Modes
-   - If using Web APIs, ensure you are signed in to the provider in the same browser profile; if using API Keys, configure valid keys in settings
-   - Verify language settings work
+- `BUILD_PARALLEL=0` serializes the two production bundles; parallel is the default.
+- `BUILD_THREAD=0` disables Babel `thread-loader`; `BUILD_THREAD_WORKERS=<n>` caps worker count.
+- `BUILD_POOL_TIMEOUT=<ms>` changes the production thread-pool timeout (default `2000`).
+- `BUILD_CACHE_COMPRESSION=0|false|none|gzip|brotli` controls Webpack cache compression; default is
+  no compression.
+- `BUILD_RESOLVE_SYMLINKS=1` re-enables symlink resolution for linked/workspace dependencies.
 
-Debugging tips:
+If dependencies or caches are suspect, reinstall with `npm ci` and remove only the generated
+`build/`, `dist/`, or dependency cache paths needed for the diagnosis. Never discard unrelated
+working-tree changes.
 
-- Inspect background Service Worker, page DevTools for content scripts, and use "Inspect popup" for the popup UI
-- After rebuilds, reload the extension and refresh the page to re‑inject content scripts
+## 3. Code Style
 
-### Build Validation
+- Prettier is authoritative: 100-column width, two-space indentation, single quotes, no semicolons,
+  trailing commas, and bracket spacing.
+- Source is ES modules. Use `.mjs` for non-JSX modules and `.jsx` for components/JSX entry points.
+- Reusable component directories use PascalCase; feature and adapter directories use kebab-case;
+  package-style entry modules are normally `index.mjs` or `index.jsx`.
+- Use Preact APIs/compatibility rather than introducing a separate React runtime. Use
+  `webextension-polyfill` for cross-browser APIs and explicitly guard Chromium-only APIs.
+- Preserve structured-clone-safe message contracts. Validate messages at context boundaries and
+  derive privileged identity (tab/document) from browser-provided sender metadata.
+- Keep network/provider logic auditable in `src/services/apis/` or a narrow background gateway.
+  Avoid new heavy dependencies because every production variant pays the bundle cost.
+- Run `npm run pretty` before `npm run lint`. The pre-commit hook formats, stages formatted tracked
+  files, and lints, but do not rely on the hook as the only validation.
 
-Ensure these files exist in `build/chromium/` after successful build:
+### Localization
 
-- `manifest.json` (contains proper extension metadata)
-- `background.js` (service worker bundle)
-- `content-script.js` (main functionality)
-- `content-script.css` (styling)
-- `popup.html` and `popup.js` (popup interface)
-- `IndependentPanel.html` and `IndependentPanel.js` (standalone chat page)
-- `shared.js` (shared vendor/runtime; size varies by environment and dependencies)
-- `logo.png` (extension icon)
-- `rules.json` (declarative net request rules)
+- `src/_locales/en/main.json` is the source of truth. Do not rename existing keys; add new English
+  strings first and preserve placeholders, punctuation, and product names.
+- Register a new locale in `src/_locales/resources.mjs`. Do not duplicate unchanged model/provider
+  labels into every locale when English fallback is appropriate.
+- Traditional Chinese belongs in `src/_locales/zh-hant/main.json` and should avoid Simplified
+  Chinese terminology.
 
-Bundle sizes are approximate and not validation criteria.
+## 4. Testing and Debugging
 
-### Verify Script Limitations
+Tests use Node's built-in `node:test`/`node:assert` runner. Unit tests mirror source areas under
+`tests/unit/`; cross-module scenarios belong under `tests/integration/`. `tests/setup/browser-shim.mjs`
+provides extension storage/runtime/tab mocks, and targeted component tests register the loader hooks
+in `tests/setup/` to transform JSX or replace browser/UI dependencies.
 
-- `npm run verify` tests search engine configurations by attempting to fetch search results from external search engines (Bing, Yahoo, Baidu, Naver) to validate that the site adapters can parse and handle real responses.
-- **Successful validation**: For each search engine, the script expects to receive a valid HTTP response (status 200) and to successfully extract and parse search results using the corresponding site adapter. If the adapter can parse the expected data structure from the response, the test is considered a pass.
-- **Expected failure modes**: In sandboxed or CI environments, the script may fail due to network restrictions (e.g., DNS errors, timeouts, connection refused), HTTP errors (e.g., 403, 429, 503), or changes in the search engine's response format. These failures are expected and do **not** indicate build problems.
-- If you see network or HTTP errors during `npm run verify`, you can safely ignore them unless you are specifically testing or updating site adapter logic.
+Run a focused test with the same browser shim, for example:
 
-Usage notes:
-
-- Default checks target: `https://www.bing.com/search?q=hello`, `https://search.yahoo.co.jp/search?p=hello`, `https://www.baidu.com/s?wd=hello`, `https://search.naver.com/search.naver?query=hello`
-- Optional engines (may be blocked by region or anti-bot measures): Google, DuckDuckGo, Brave, Searx.
-- Troubleshooting: If a site fails, try adjusting `Accept-Language`/`User-Agent` headers in the script, update the site's selector arrays with ordered fallbacks, or temporarily reduce the test to a single URL while iterating.
-
-## Development Workflow
-
-### Code Style, Quality, and File Organization
-
-- ALWAYS run `npm run lint` before committing - CI will fail otherwise
-- ALWAYS run `npm run pretty` to format code consistently
-- ESLint configuration in `.eslintrc.json` enforces React/JSX standards
-- Prettier configuration in `.prettierrc` handles formatting (100 char width, no semicolons, single quotes, trailing commas)
-
-✅ Good: `import Browser from 'webextension-polyfill'` (single quotes, no semicolon)
-❌ Bad: `import Browser from "webextension-polyfill";` (double quotes, semicolon)
-
-- Naming conventions: component directories use PascalCase; feature folders use kebab-case; entry files are typically `index.jsx` or `index.mjs`
-- Avoid heavy dependencies; if necessary, justify and keep bundle size under control
-
-**Pre-commit hooks automatically:**
-
-1. Run prettier formatting
-2. Stage formatted files
-3. Run lint checks
-
-**Key file locations:**
-
-- Configuration: `src/config/index.mjs`
-- API integrations: `src/services/apis/`
-- Localization: `src/_locales/`
-- UI components: `src/components/`
-- Utilities: `src/utils/`
-
-### Commits & PRs
-
-- Keep changes minimal and focused. Avoid unrelated refactors in the same PR.
-- Commit subject: imperative, capitalize first word; separate subject/body with a blank line; wrap at ~72 characters; explain what and why.
-- PRs: link related issues, summarize scope/behavior changes; include screenshots for UI changes.
-- Note i18n updates in PR description when `src/_locales/` changes.
-- If any validation step is skipped, document the reason and the skipped check(s) in the PR description (see `Critical Validation Steps` below).
-
-### Directory Structure
-
-```text
-src/
-├── background/             # Background script/service worker
-├── components/             # Reusable UI components
-├── config/                 # Configuration management
-├── content-script/         # Main content script and features
-│   ├── site-adapters/      # Website-specific integrations
-│   ├── selection-tools/    # Text selection features
-│   └── menu-tools/         # Context menu features
-├── pages/IndependentPanel/ # Standalone chat page
-├── popup/                  # Extension popup
-├── services/               # API clients and wrappers
-└── utils/                  # Helper functions
+```bash
+node --import ./tests/setup/browser-shim.mjs --test \
+  tests/unit/content-script/bilibili-media-source.test.mjs
 ```
 
-## Platform-Specific Instructions
+Add tests at the narrowest stable boundary: pure parsing/domain behavior first, fake ports/gateways
+for cross-context protocols, and the fake end-to-end video-summary test for pipeline changes. Do
+not make live provider credentials or network availability a requirement of `npm test`.
 
-### Safari Build (macOS Only)
+### Required validation by change type
 
-- Run `npm run build:safari` (requires macOS with Xcode installed)
-- Creates `ChatGPTBox.app` bundle and `safari.dmg` installer
-- Uses `safari/build.sh` script with platform-specific build settings
+- Runtime/code/config changes: run `npm run pretty`, `npm run lint`, `npm test`, and
+  `npm run build`; inspect expected artifacts and perform relevant manual extension smoke tests.
+- `src/_locales/**`-only changes: run `npm run build` and manually check affected UI strings.
+- Markdown/screenshots-only changes: build and browser smoke tests may be skipped. Record
+  `Validation skipped: docs/screenshots-only change; no runtime files touched.` in the PR notes.
+- Changes under `safari/**`: also run `npm run build:safari` on macOS; document when unavailable.
 
-### Cross-Browser Compatibility
+Manual testing must load the extension, not serve the files over HTTP:
 
-- Uses `webextension-polyfill` for API compatibility
+- Chromium: load unpacked `build/chromium/` from `chrome://extensions/`.
+- Firefox: load `build/firefox/manifest.json` as a temporary add-on from
+  `about:debugging#/runtime/this-firefox`.
+- Exercise the changed surface plus the popup, `Ctrl+B`/`Cmd+B` chat, selection tools, context menu,
+  and independent panel as relevant. Reload the extension and refresh the page after rebuilding so
+  content scripts are reinjected.
+- Debug content/UI code in page DevTools, the MV3 background in its service-worker inspector, the
+  popup with Inspect Popup, and the Bilibili worker in the offscreen-document context.
 
-## Security & Privacy
+## 5. Security and Data Protection
 
-- Do not commit secrets, API keys, or user data
-- Keep manifest permissions minimal and justify any additions
-- Centralize network/API logic under `src/services/apis/` and keep endpoints auditable
+The manifests intentionally have broad host access, cookies, storage, tabs, and request-related
+permissions. Do not broaden permissions or expose new web-accessible resources without a concrete
+need and review both MV3 and MV2 manifests.
 
-## Localization
+- Treat API keys, provider secrets, access/refresh tokens, cookies, prompts, selections, page text,
+  signed media URLs, transcripts, and conversation records as sensitive. Never commit fixtures or
+  logs containing real values.
+- User configuration, credentials, and sessions currently live in `Browser.storage.local`.
+  `providerSecrets` is the canonical provider-key map with legacy fields maintained for backward
+  compatibility. Access-token cleanup currently expires stored ChatGPT access tokens after 30 days.
+- Keep MediaKit credentials in the background gateway. Content and offscreen messages carry model
+  identity/source snapshots, not provider keys. ASR upload/submission must remain explicitly
+  user-confirmed because it can send media to and incur cost at a third-party provider.
+- Preserve sender checks for privileged runtime messages, popup-only credential operations,
+  HTTP(S)-only URL validation, task owner matching, and operation allowlists. Do not turn the narrow
+  video gateways into a generic privileged fetch interface.
+- Route diagnostic objects through `redactSensitiveFields` or the media URL/error sanitizers.
+  Never log raw sessions/configuration, auth headers, prompt/query/selection fields, or signed URL
+  query strings.
+- The Bilibili path must not bypass DRM, paid/private content, authentication, or regional controls.
+  OPFS media is task-scoped and must be cleaned on terminal paths; final summaries persist only when
+  the user explicitly archives them or downloads Markdown.
+- The README promises that prompts/page content are transmitted only after an AI-powered feature is
+  triggered. Preserve that activation boundary when adding automatic behavior.
 
-- Source of truth: `src/_locales/en/main.json`; do not change existing keys (only add new ones)
-- Add new source strings to `en/main.json` first and translate user-facing text in other locales as appropriate
-- Do not duplicate unchanged model or provider labels across non-English locales; rely on the English fallback unless the displayed text requires localization
-- Register new locales in `src/_locales/resources.mjs`
-- Preserve placeholders and product names; keep punctuation/quotes intact
-- For Traditional Chinese (Taiwan), use `src/_locales/zh-hant/main.json` and avoid zh‑CN terms
+## 6. Configuration
 
-## AI Model Support
+`src/config/index.mjs` owns model catalogs, defaults, feature switches, storage reads/writes, and
+schema migrations. `getUserConfig()` overlays stored values on `defaultConfig`, normalizes language
+and API-mode/provider data, migrates legacy keys, and writes migration results back to local
+storage. Make new stored settings backward-compatible and add migration tests when meaning changes.
 
-The extension supports multiple AI providers:
+Important related boundaries:
 
-- **Web (cookie-based)**: ChatGPT (Web), Claude (Web), Kimi.Moonshot (Web), Bing (Web), Bard (Web)
-- **APIs (key-based)**: OpenAI (API), Azure OpenAI (API), Anthropic (Claude API), OpenRouter (API), AI/ML (API), DeepSeek (API), Ollama (local), ChatGLM (API), Waylaidwanderer (API), Kimi.Moonshot (API)
-- **Custom/self-hosted**: Alternative endpoints and self-hosted backends
+- `src/config/openai-provider-mappings.mjs` maps model groups to provider identities.
+- `src/config/model-key-migrations.mjs` canonicalizes renamed model/session values.
+- `src/config/language*.mjs` resolves browser and preferred languages.
+- `src/manifest.json` is Chromium MV3; `src/manifest.v2.json` is Firefox MV2. Keep versions,
+  commands, content-script entries, and compatible permissions aligned where applicable.
+- `build.mjs` defines entry points, feature flags, variants, copied artifacts, source maps, cache,
+  and packaging. The minimal variant replaces KaTeX/tokenizer behavior and excludes the video
+  offscreen entry.
+- Bilibili transcription defaults are disabled, speaker identification is enabled, and maximum
+  summary output defaults to 20,000 tokens (normalized to 1,000–40,000).
 
-## Troubleshooting
-
-### Build Issues
-
-- Build failures: Check Node.js version (requires Node 22+), clear caches and rebuild.
-  - macOS/Linux: `rm -rf node_modules && npm ci && rm -rf node_modules/.cache build/ dist/`
-  - Windows (PowerShell): `Remove-Item -Recurse -Force node_modules, build, dist; if (Test-Path node_modules\.cache) { Remove-Item -Recurse -Force node_modules\.cache }; npm ci`
-- "Module not found" errors: Usually indicate missing `npm ci`
-
-### Runtime Issues
-
-- Extension not loading: Check console for manifest errors
-- API not working: Verify browser has required permissions and cookies
-- Selection tools not appearing: Check if content script loaded correctly
-
-### Common Development Tasks
-
-- Adding new site adapter: Create new file in `src/content-script/site-adapters/`, register it in `src/content-script/site-adapters/index.mjs`, keep selectors minimal with feature detection, and verify on Chromium/Firefox
-- Adding new selection tool: Modify `src/content-script/selection-tools/`, keep UI and logic separate, and reuse helpers in `src/utils/`
-- Updating API integration: Modify files in `src/services/apis/`
-- Adding new UI component: Create in `src/components/`
-
-**Note:** Ask before deleting/renaming files, modifying build config/manifests, or making changes that affect multiple site adapters. If the user explicitly requests one of these changes, proceed and document scope and risk in the current workflow handoff output, and in the PR summary when applicable.
-
-## Time Expectations
-
-- Do not interrupt builds or long-running commands unless they appear hung or unresponsive.
-- `npm ci`: ~30 seconds
-- `npm run build`: ~35 seconds (measured). Set timeout to 5-10 minutes for system variations.
-- `npm run dev`: ~15 seconds initial build, then watches for changes; use Ctrl+C to stop when switching branches or after config/dependency changes.
-- `npm run lint`: ~5 seconds
-- Manual extension testing: 5-10 minutes for thorough validation
-- Safari build: 2-5 minutes (macOS only)
-
-## Critical Validation Steps
-
-1. General changes (any change not covered by Step 2 or Step 3): run `npm test` and `npm run build`, verify expected build artifacts, and run manual browser smoke tests. If changes include `safari/**`, also run `npm run build:safari` on macOS. If macOS is unavailable for those changes, document the skip reason in PR validation notes.
-2. Behavior-adjacent localization changes (`src/_locales/**` only): run `npm run build` and manual browser smoke tests. Use this step only when all changed files are under `src/_locales/**`.
-3. Docs-only changes (`*.md`, `screenshots/**`): build/manual browser tests may be skipped, but the PR description must include `Validation skipped: docs/screenshots-only change; no runtime files touched.`
-4. If changes span multiple categories, apply the strictest applicable step (runtime > localization > docs/screenshots); when in doubt, treat the change as runtime-impacting and execute the full validation flow.
-
----
-
-Most of this document was generated by AI and reviewed under human supervision. If you find any clear errors while using it, please submit corrections with supporting evidence where possible.
+There is no required repository `.env` for normal development. Provider credentials are entered in
+the extension UI and stored by the extension. Release scripts consume CI environment secrets; use
+the dry-run command to diagnose release configuration without publishing.

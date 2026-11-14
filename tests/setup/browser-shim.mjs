@@ -27,6 +27,7 @@ const createEvent = () => {
 }
 
 const runtimeOnMessage = createEvent()
+const runtimeOnConnect = createEvent()
 const commandsOnCommand = createEvent()
 
 const createStorageState = (values = {}) => Object.assign(Object.create(null), values)
@@ -119,6 +120,18 @@ const tabs = {
     }
     return Promise.resolve()
   },
+  connect() {
+    const onMessage = createEvent()
+    const onDisconnect = createEvent()
+    return {
+      onMessage,
+      onDisconnect,
+      postMessage() {},
+      disconnect() {
+        onDisconnect._trigger()
+      },
+    }
+  },
 }
 
 const windows = {
@@ -142,7 +155,22 @@ const windows = {
 
 const runtime = {
   id: 'test-extension-id',
+  onConnect: runtimeOnConnect,
   onMessage: runtimeOnMessage,
+  connect() {
+    const onMessage = createEvent()
+    const onDisconnect = createEvent()
+    const port = {
+      onMessage,
+      onDisconnect,
+      postMessage() {},
+      disconnect() {
+        onDisconnect._trigger(port)
+      },
+    }
+    queueMicrotask(() => runtimeOnConnect._trigger(port))
+    return port
+  },
   sendMessage(_message, optionsOrCallback, callback) {
     const cb =
       typeof optionsOrCallback === 'function'
@@ -207,6 +235,7 @@ globalThis.__TEST_BROWSER_SHIM__ = {
   },
   resetEvents() {
     runtimeOnMessage._clear()
+    runtimeOnConnect._clear()
     commandsOnCommand._clear()
   },
 }
