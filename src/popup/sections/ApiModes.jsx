@@ -6,6 +6,12 @@ import { PencilIcon, TrashIcon } from '@primer/octicons-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AlwaysCustomGroups, ModelGroups } from '../../config/index.mjs'
 import {
+  GEMINI_WEB_MODELS,
+  getGeminiWebModelLabel,
+  hasDuplicateGeminiWebPreset,
+  resolveGeminiWebPreset,
+} from '../../utils/gemini-web-preset.mjs'
+import {
   buildApiModeListConfigUpdate,
   getSelectionPatchWhenApiModeDisabled,
 } from '../api-mode-config-utils.mjs'
@@ -50,6 +56,8 @@ ApiModes.propTypes = {
 }
 
 const LEGACY_CUSTOM_PROVIDER_ID = 'legacy-custom-default'
+const GEMINI_WEB_GROUP = 'bardWebModelKeys'
+const GEMINI_WEB_ITEM = 'bardWebFree'
 
 const defaultApiMode = {
   groupName: 'chatgptWebModelKeys',
@@ -70,6 +78,34 @@ const defaultProviderDraft = {
 const defaultProviderDraftValidation = {
   name: false,
   apiUrl: false,
+}
+
+function withGeminiWebPreset(
+  apiMode,
+  model,
+  extendedThinking,
+  extendedThinkingLabel = 'Extended thinking',
+) {
+  const normalizedModel = GEMINI_WEB_MODELS.includes(model) ? model : 'flash'
+  const useExtendedThinking =
+    !['auto', 'thinking'].includes(normalizedModel) && extendedThinking === true
+  const modelLabel = getGeminiWebModelLabel(normalizedModel)
+  return {
+    ...apiMode,
+    groupName: GEMINI_WEB_GROUP,
+    itemName: GEMINI_WEB_ITEM,
+    isCustom: true,
+    customName: useExtendedThinking ? `${modelLabel} + ${extendedThinkingLabel}` : modelLabel,
+    geminiWebModel: normalizedModel,
+    geminiWebExtendedThinking: useExtendedThinking,
+  }
+}
+
+function clearGeminiWebPreset(apiMode) {
+  const nextApiMode = { ...apiMode }
+  delete nextApiMode.geminiWebModel
+  delete nextApiMode.geminiWebExtendedThinking
+  return nextApiMode
 }
 
 export function ApiModes({ config, updateConfig }) {
@@ -93,6 +129,7 @@ export function ApiModes({ config, updateConfig }) {
     defaultProviderDraftValidation,
   )
   const [providerSelectionValidation, setProviderSelectionValidation] = useState(false)
+  const [geminiPresetValidation, setGeminiPresetValidation] = useState('')
   const providerNameInputRef = useRef(null)
   const providerBaseUrlInputRef = useRef(null)
   const providerSelectorRef = useRef(null)
@@ -141,6 +178,8 @@ export function ApiModes({ config, updateConfig }) {
   }, [])
 
   const shouldEditProvider = editingApiMode.groupName === 'customApiModelKeys'
+  const isEditingGeminiWeb = editingApiMode.groupName === GEMINI_WEB_GROUP
+  const geminiWebPreset = resolveGeminiWebPreset(editingApiMode, config)
   const effectiveProviders = useMemo(
     () =>
       applyPendingProviderChanges(
@@ -390,6 +429,29 @@ export function ApiModes({ config, updateConfig }) {
     const previousProviderId =
       editingIndex === -1 ? '' : apiModes[editingIndex]?.providerId || LEGACY_CUSTOM_PROVIDER_ID
 
+    if (nextApiMode.groupName === GEMINI_WEB_GROUP) {
+      const preset = resolveGeminiWebPreset(nextApiMode, config)
+      if (preset.source === 'invalid') {
+        setGeminiPresetValidation('invalid')
+        return
+      }
+      nextApiMode = withGeminiWebPreset(
+        nextApiMode,
+        preset.model,
+        preset.extendedThinking,
+        t('Extended thinking'),
+      )
+      // Existing duplicate rows must be resolved too; saving them would keep selection ambiguous.
+      if (hasDuplicateGeminiWebPreset(apiModes, nextApiMode, editingIndex, config)) {
+        setGeminiPresetValidation('duplicate')
+        return
+      }
+      setGeminiPresetValidation('')
+    } else {
+      nextApiMode = clearGeminiWebPreset(nextApiMode)
+      setGeminiPresetValidation('')
+    }
+
     if (shouldEditProvider) {
       const selectedProviderId =
         providerSelector === LEGACY_CUSTOM_PROVIDER_ID
@@ -427,6 +489,7 @@ export function ApiModes({ config, updateConfig }) {
           onClick={(e) => {
             e.preventDefault()
             setEditing(false)
+            setGeminiPresetValidation('')
             clearPendingProviderChanges()
             closeProviderEditor()
           }}
@@ -441,17 +504,31 @@ export function ApiModes({ config, updateConfig }) {
           value={editingApiMode.groupName}
           onChange={(e) => {
             const groupName = e.target.value
+            setGeminiPresetValidation('')
             let itemName = ModelGroups[groupName].value[0]
-            const isCustom =
+            let isCustom =
               editingApiMode.itemName === 'custom' && !AlwaysCustomGroups.includes(groupName)
-            if (isCustom) itemName = 'custom'
+            let nextApiMode = { ...editingApiMode, groupName }
+            if (groupName === GEMINI_WEB_GROUP) {
+              nextApiMode = withGeminiWebPreset(nextApiMode, 'flash', false, t('Extended thinking'))
+              itemName = GEMINI_WEB_ITEM
+              isCustom = true
+            } else {
+              if (isCustom) itemName = 'custom'
+              nextApiMode = clearGeminiWebPreset({
+                ...nextApiMode,
+                itemName,
+                isCustom,
+                customName: isCustom ? nextApiMode.customName : '',
+              })
+            }
             const providerId = resolveEditingProviderIdForGroupChange(
               groupName,
               editingApiMode.providerId,
               LEGACY_CUSTOM_PROVIDER_ID,
             )
             setProviderSelectionValidation(false)
-            setEditingApiMode({ ...editingApiMode, groupName, itemName, isCustom, providerId })
+            setEditingApiMode({ ...nextApiMode, providerId })
             if (groupName === 'customApiModelKeys') {
               setProviderSelector(providerId)
             } else {
@@ -462,39 +539,103 @@ export function ApiModes({ config, updateConfig }) {
         >
           {Object.entries(ModelGroups).map(([groupName, { desc }]) => (
             <option key={groupName} value={groupName}>
-              {t(desc)}
+              {groupName === GEMINI_WEB_GROUP ? `Google ${t(desc)}` : t(desc)}
             </option>
           ))}
         </select>
       </div>
-      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'nowrap' }}>
-        {t('Mode')}
-        <select
-          value={editingApiMode.itemName}
-          onChange={(e) => {
-            const itemName = e.target.value
-            const isCustom = itemName === 'custom'
-            setEditingApiMode({ ...editingApiMode, itemName, isCustom })
-          }}
-        >
-          {ModelGroups[editingApiMode.groupName].value.map((itemName) => (
-            <option key={itemName} value={itemName}>
-              {modelNameToDesc(itemName, t)}
-            </option>
-          ))}
-          {!AlwaysCustomGroups.includes(editingApiMode.groupName) && (
-            <option value="custom">{t('Custom')}</option>
+      {!isEditingGeminiWeb && (
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'nowrap' }}>
+          {t('Mode')}
+          <select
+            value={editingApiMode.itemName}
+            onChange={(e) => {
+              const itemName = e.target.value
+              const isCustom = itemName === 'custom'
+              setEditingApiMode({ ...editingApiMode, itemName, isCustom })
+            }}
+          >
+            {ModelGroups[editingApiMode.groupName].value.map((itemName) => (
+              <option key={itemName} value={itemName}>
+                {modelNameToDesc(itemName, t)}
+              </option>
+            ))}
+            {!AlwaysCustomGroups.includes(editingApiMode.groupName) && (
+              <option value="custom">{t('Custom')}</option>
+            )}
+          </select>
+          {(editingApiMode.isCustom || AlwaysCustomGroups.includes(editingApiMode.groupName)) && (
+            <input
+              type="text"
+              value={editingApiMode.customName}
+              placeholder={t('Model Name')}
+              onChange={(e) => setEditingApiMode({ ...editingApiMode, customName: e.target.value })}
+            />
           )}
-        </select>
-        {(editingApiMode.isCustom || AlwaysCustomGroups.includes(editingApiMode.groupName)) && (
-          <input
-            type="text"
-            value={editingApiMode.customName}
-            placeholder={t('Model Name')}
-            onChange={(e) => setEditingApiMode({ ...editingApiMode, customName: e.target.value })}
-          />
-        )}
-      </div>
+        </div>
+      )}
+      {isEditingGeminiWeb && (
+        <>
+          <label
+            style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'nowrap' }}
+          >
+            {t('Mode')}
+            <select
+              value={geminiWebPreset.model}
+              aria-invalid={Boolean(geminiPresetValidation)}
+              style={geminiPresetValidation ? { borderColor: 'red' } : undefined}
+              onChange={(e) => {
+                const model = e.target.value
+                setGeminiPresetValidation('')
+                setEditingApiMode(
+                  withGeminiWebPreset(
+                    editingApiMode,
+                    model,
+                    ['auto', 'thinking'].includes(model) ? false : geminiWebPreset.extendedThinking,
+                    t('Extended thinking'),
+                  ),
+                )
+              }}
+            >
+              <option value="auto">{t('Auto')}</option>
+              <option value="flash-lite">Flash-Lite</option>
+              <option value="flash">Flash</option>
+              <option value="thinking">Thinking</option>
+              <option value="pro">Pro</option>
+            </select>
+          </label>
+          {geminiWebPreset.source !== 'invalid' &&
+            !['auto', 'thinking'].includes(geminiWebPreset.model) && (
+              <label style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={geminiWebPreset.extendedThinking}
+                  onChange={(e) => {
+                    setGeminiPresetValidation('')
+                    setEditingApiMode(
+                      withGeminiWebPreset(
+                        editingApiMode,
+                        geminiWebPreset.model,
+                        e.target.checked,
+                        t('Extended thinking'),
+                      ),
+                    )
+                  }}
+                />
+                {t('Extended thinking')}
+              </label>
+            )}
+          {geminiPresetValidation && (
+            <div style={{ color: 'red' }}>
+              {t(
+                geminiPresetValidation === 'duplicate'
+                  ? 'A Gemini Web API mode with this model and thinking setting already exists.'
+                  : 'Gemini Web: Invalid Gemini Web model selection.',
+              )}
+            </div>
+          )}
+        </>
+      )}
       {shouldEditProvider && (
         <div style={{ display: 'flex', gap: '4px', alignItems: 'center', whiteSpace: 'nowrap' }}>
           {t('Provider')}
@@ -643,11 +784,28 @@ export function ApiModes({ config, updateConfig }) {
                           LEGACY_CUSTOM_PROVIDER_ID,
                         )
                       : ''
-                    setEditingApiMode({
+                    const editingMode = {
                       ...defaultApiMode,
                       ...apiMode,
                       providerId,
-                    })
+                    }
+                    const resolvedGeminiPreset =
+                      apiMode.groupName === GEMINI_WEB_GROUP
+                        ? resolveGeminiWebPreset(apiMode, config)
+                        : null
+                    const nextEditingMode =
+                      resolvedGeminiPreset && resolvedGeminiPreset.source !== 'invalid'
+                        ? withGeminiWebPreset(
+                            editingMode,
+                            resolvedGeminiPreset.model,
+                            resolvedGeminiPreset.extendedThinking,
+                            t('Extended thinking'),
+                          )
+                        : editingMode
+                    setGeminiPresetValidation(
+                      resolvedGeminiPreset?.source === 'invalid' ? 'invalid' : '',
+                    )
+                    setEditingApiMode(nextEditingMode)
                     setProviderSelector(isCustomApiMode ? providerId : LEGACY_CUSTOM_PROVIDER_ID)
                     setProviderSelectionValidation(isCustomApiMode && !providerId)
                     setProviderDraft(defaultProviderDraft)
@@ -693,6 +851,7 @@ export function ApiModes({ config, updateConfig }) {
           onClick={(e) => {
             e.preventDefault()
             setEditing(true)
+            setGeminiPresetValidation('')
             setEditingApiMode(defaultApiMode)
             setProviderSelector(LEGACY_CUSTOM_PROVIDER_ID)
             setProviderSelectionValidation(false)
