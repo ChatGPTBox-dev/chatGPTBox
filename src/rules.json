@@ -1,27 +1,5 @@
 [
   {
-    "id": 1,
-    "action": {
-      "type": "modifyHeaders",
-      "requestHeaders": [
-        {
-          "operation": "set",
-          "header": "origin",
-          "value": "https://www.bing.com"
-        },
-        {
-          "operation": "set",
-          "header": "referer",
-          "value": "https://www.bing.com/search?q=Bing+AI&showconv=1&FORM=hpcodx"
-        }
-      ]
-    },
-    "condition": {
-      "requestDomains": ["sydney.bing.com", "www.bing.com"],
-      "resourceTypes": ["xmlhttprequest", "websocket"]
-    }
-  },
-  {
     "id": 2,
     "action": {
       "type": "modifyHeaders",
