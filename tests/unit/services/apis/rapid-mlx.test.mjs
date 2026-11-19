@@ -3,7 +3,11 @@ import test from 'node:test'
 import { isUsingRapidMlxApiModel } from '../../../../src/config/index.mjs'
 import { resolveOpenAICompatibleRequest } from '../../../../src/services/apis/provider-registry.mjs'
 import { generateAnswersWithOpenAICompatibleApi } from '../../../../src/services/apis/openai-api.mjs'
-import { apiModeToModelName, modelNameToDesc } from '../../../../src/utils/model-name-convert.mjs'
+import {
+  apiModeToModelName,
+  getApiModesFromConfig,
+  modelNameToDesc,
+} from '../../../../src/utils/model-name-convert.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
 
@@ -74,3 +78,15 @@ test('Rapid-MLX routes API modes and model-name-only sessions', () => {
   assert.equal(isUsingRapidMlxApiModel({ modelName: 'ollamaModel-llama4' }), false)
   assert.equal(resolveOpenAICompatibleRequest({}, { modelName }).providerId, 'rapid-mlx')
 })
+
+for (const customName of ['', '   ']) {
+  test(`Rapid-MLX keeps a blank model row available for editing (${JSON.stringify(
+    customName,
+  )})`, () => {
+    const blankMode = { ...apiMode, customName }
+    const modes = getApiModesFromConfig({ customApiModes: [blankMode] }, false)
+    assert.equal(modes.length, 1)
+    assert.equal(modes[0].customName, customName)
+    assert.equal(modes[0].groupName, 'rapidMlxApiModelKeys')
+  })
+}

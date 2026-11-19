@@ -42,7 +42,7 @@ export const ModelMode = {
 }
 
 // Provider IDs added after custom providers became configurable need one-time secret migration.
-const NEWLY_RESERVED_BUILTIN_PROVIDER_IDS = new Set(['xai', 'nvidia-nim', 'mistral'])
+const NEWLY_RESERVED_BUILTIN_PROVIDER_IDS = new Set(['xai', 'nvidia-nim', 'mistral', 'rapid-mlx'])
 
 export const chatgptWebModelKeys = [
   'chatgptFree35',

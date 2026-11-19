@@ -12,6 +12,7 @@ const newlyReservedBuiltinProviders = [
   { id: 'xai', legacyKey: 'xaiApiKey' },
   { id: 'nvidia-nim', legacyKey: 'nvidiaNimApiKey' },
   { id: 'mistral', legacyKey: 'mistralApiKey' },
+  { id: 'rapid-mlx' },
 ]
 
 function createCustomApiMode(overrides = {}) {
@@ -289,7 +290,7 @@ test('getUserConfig persists normalization-only sourceProviderId migrations', as
 test('getUserConfig persists provider lineage and path normalization by itself', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 2,
-    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    completedBuiltinProviderIdMigrations: newlyReservedBuiltinProviders.map(({ id }) => id),
     providerSecrets: {},
     customApiModes: [],
     activeApiModes: [],
@@ -1869,6 +1870,7 @@ test('getUserConfig migrates custom providers that collide with newly reserved I
 test('getUserConfig keeps builtin secrets out of colliding custom providers', async () => {
   for (const { id, legacyKey } of newlyReservedBuiltinProviders) {
     globalThis.__TEST_BROWSER_SHIM__.clearStorage()
+    if (!legacyKey) continue
     globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
       configSchemaVersion: 1,
       [legacyKey]: `${id}-builtin-secret`,
@@ -1894,7 +1896,7 @@ test('getUserConfig keeps builtin secrets out of colliding custom providers', as
 test('getUserConfig reruns a completed builtin ID migration for a new collision', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 2,
-    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    completedBuiltinProviderIdMigrations: newlyReservedBuiltinProviders.map(({ id }) => id),
     providerSecrets: {
       xai: 'custom-xai-secret',
     },
@@ -1917,7 +1919,7 @@ test('getUserConfig reruns a completed builtin ID migration for a new collision'
 test('getUserConfig does not move a known builtin secret for a later custom collision', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 2,
-    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    completedBuiltinProviderIdMigrations: newlyReservedBuiltinProviders.map(({ id }) => id),
     xaiApiKey: 'builtin-xai-secret',
     providerSecrets: {
       xai: 'builtin-xai-secret',
@@ -1967,7 +1969,7 @@ test('getUserConfig reconnects modes only for a unique enabled legacy provider m
     globalThis.__TEST_BROWSER_SHIM__.clearStorage()
     globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
       configSchemaVersion: 2,
-      completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+      completedBuiltinProviderIdMigrations: newlyReservedBuiltinProviders.map(({ id }) => id),
       xaiApiKey: 'builtin-xai-secret',
       providerSecrets: {
         xai: 'builtin-xai-secret',
@@ -2059,4 +2061,21 @@ test('getUserConfig normalizes providerSecrets when legacy data is not a plain o
   const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
 
   assert.deepEqual(storage.providerSecrets, {})
+})
+
+test('getUserConfig preserves the Rapid-MLX builtin secret without a custom collision', async () => {
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    providerSecrets: { 'rapid-mlx': 'builtin-secret' },
+  })
+
+  const config = await getUserConfig()
+  assert.equal(config.providerSecrets['rapid-mlx'], 'builtin-secret')
+  assert.equal(Object.hasOwn(config.providerSecrets, 'rapid-mlx-2'), false)
+  assert.ok(config.completedBuiltinProviderIdMigrations.includes('rapid-mlx'))
+
+  const snapshot = JSON.stringify(globalThis.__TEST_BROWSER_SHIM__.getStorage())
+  await getUserConfig()
+  assert.equal(JSON.stringify(globalThis.__TEST_BROWSER_SHIM__.getStorage()), snapshot)
 })
