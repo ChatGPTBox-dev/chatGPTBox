@@ -91,6 +91,7 @@ export const chatgptApiModelKeys = [
 ]
 export const customApiModelKeys = ['customModel']
 export const ollamaApiModelKeys = ['ollamaModel']
+export const rapidMlxApiModelKeys = ['rapidMlxModel']
 export const azureOpenAiApiModelKeys = ['azureOpenAi']
 export const claudeApiModelKeys = [
   'claudeFable5Api',
@@ -213,6 +214,7 @@ export const xaiApiModelKeys = ['xaiGrok4_6', 'xaiGrok4_5', 'xaiGrok4_3']
 
 export const AlwaysCustomGroups = [
   'ollamaApiModelKeys',
+  'rapidMlxApiModelKeys',
   'customApiModelKeys',
   'azureOpenAiApiModelKeys',
 ]
@@ -263,6 +265,10 @@ export const ModelGroups = {
   ollamaApiModelKeys: {
     value: ollamaApiModelKeys,
     desc: 'Ollama (API)',
+  },
+  rapidMlxApiModelKeys: {
+    value: rapidMlxApiModelKeys,
+    desc: 'Rapid-MLX (API)',
   },
   azureOpenAiApiModelKeys: {
     value: azureOpenAiApiModelKeys,
@@ -440,6 +446,7 @@ export const Models = {
 
   customModel: { value: '', desc: 'Custom Model' },
   ollamaModel: { value: '', desc: 'Ollama API' },
+  rapidMlxModel: { value: '', desc: 'Rapid-MLX API' },
   azureOpenAi: { value: '', desc: 'Azure OpenAI' },
   waylaidwandererApi: { value: '', desc: 'Waylaidwanderer API (Github)' },
 
@@ -846,6 +853,7 @@ export const defaultConfig = {
   customModelName: 'gpt-4.1',
   githubThirdPartyUrl: 'http://127.0.0.1:3000/conversation',
 
+  rapidMlxEndpoint: 'http://127.0.0.1:8000/v1',
   ollamaEndpoint: 'http://127.0.0.1:11434',
   ollamaModelName: 'llama4',
   ollamaApiKey: '',
@@ -1049,6 +1057,10 @@ export function isUsingXaiApiModel(configOrSession) {
 
 export function isUsingChatGLMApiModel(configOrSession) {
   return isInApiModeGroup(chatglmApiModelKeys, configOrSession)
+}
+
+export function isUsingRapidMlxApiModel(configOrSession) {
+  return isInApiModeGroup(rapidMlxApiModelKeys, configOrSession)
 }
 
 export function isUsingOllamaApiModel(configOrSession) {

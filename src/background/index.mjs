@@ -19,6 +19,7 @@ import {
   isUsingChatgptApiModel,
   isUsingCustomModel,
   isUsingOllamaApiModel,
+  isUsingRapidMlxApiModel,
   isUsingAzureOpenAiApiModel,
   isUsingClaudeApiModel,
   isUsingChatGLMApiModel,
@@ -404,6 +405,7 @@ function isUsingOpenAICompatibleApiSession(session) {
     isUsingDeepSeekApiModel(session) ||
     isUsingNvidiaNimApiModel(session) ||
     isUsingOllamaApiModel(session) ||
+    isUsingRapidMlxApiModel(session) ||
     isUsingOpenRouterApiModel(session) ||
     isUsingAimlApiModel(session) ||
     isUsingGoogleApiModel(session) ||

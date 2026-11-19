@@ -32,6 +32,7 @@ export const OPENAI_COMPATIBLE_GROUP_TO_PROVIDER_ID = {
   aimlApiModelKeys: 'aiml',
   chatglmApiModelKeys: 'chatglm',
   ollamaApiModelKeys: 'ollama',
+  rapidMlxApiModelKeys: 'rapid-mlx',
   googleApiModelKeys: 'google',
   xaiApiModelKeys: 'xai',
   customApiModelKeys: 'legacy-custom-default',
