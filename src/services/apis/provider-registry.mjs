@@ -35,6 +35,14 @@ const BUILTIN_PROVIDER_TEMPLATE = [
     enabled: true,
   },
   {
+    id: 'llmtr',
+    name: 'LLMTR',
+    baseUrl: 'https://llmtr.com/v1',
+    chatCompletionsPath: '/chat/completions',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'moonshot',
     name: 'Kimi.Moonshot',
     baseUrl: 'https://api.moonshot.cn/v1',
@@ -135,6 +143,7 @@ function resolveProviderIdFromLegacyModelName(modelName) {
   }
   if (preset.startsWith('deepseek_') || preset === 'deepSeekApiModelKeys') return 'deepseek'
   if (preset.startsWith('nvidiaNim_') || preset === 'nvidiaNimApiModelKeys') return 'nvidia-nim'
+  if (preset.startsWith('llmtr_') || preset === 'llmtrApiModelKeys') return 'llmtr'
   if (preset.startsWith('moonshot_') || preset === 'moonshotApiModelKeys') return 'moonshot'
   if (/^mistral(?:Medium|Small|Large)/.test(preset) || preset === 'mistralApiModelKeys')
     return 'mistral'
