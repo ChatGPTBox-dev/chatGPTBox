@@ -1,7 +1,7 @@
 // https://github.com/Explosion-Scratch/claude-unofficial-api
 /* eslint-disable */
 
-import { fetchSSE } from '../../../utils/fetch-sse'
+import { fetchSSE } from '../../../utils/fetch-sse.mjs'
 import { isEmpty } from 'lodash-es'
 
 /**
@@ -190,7 +190,11 @@ export class Claude {
     if (organizations.error) {
       throw new Error(organizations.error)
     }
-    this.organizationId = organizations[0].uuid
+    // Accounts linked to the Anthropic Console also list an API-only organization, which
+    // claude.ai denies chat access to, so prefer the organization that can chat
+    const organization =
+      organizations.find((org) => org.capabilities?.includes('chat')) || organizations[0]
+    this.organizationId = organization.uuid
     this.recent_conversations = await this.getConversations()
     this.ready = true
   }
@@ -348,6 +352,9 @@ export class Claude {
       },
     )
     const json = await response.json()
+    if (!Array.isArray(json)) {
+      throw new Error(json?.error?.message || JSON.stringify(json))
+    }
     return json.map((convo) => new Conversation(this, { conversationId: convo.uuid, ...convo }))
   }
   /**
