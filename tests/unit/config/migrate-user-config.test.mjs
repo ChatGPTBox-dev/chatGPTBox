@@ -1870,10 +1870,11 @@ test('getUserConfig migrates custom providers that collide with newly reserved I
 test('getUserConfig keeps builtin secrets out of colliding custom providers', async () => {
   for (const { id, legacyKey } of newlyReservedBuiltinProviders) {
     globalThis.__TEST_BROWSER_SHIM__.clearStorage()
-    if (!legacyKey) continue
     globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
-      configSchemaVersion: 1,
-      [legacyKey]: `${id}-builtin-secret`,
+      configSchemaVersion: legacyKey ? 1 : 2,
+      ...(legacyKey ? { [legacyKey]: `${id}-builtin-secret` } : {}),
+      // Providers without a legacy key use the completed migration to identify the builtin slot.
+      ...(!legacyKey ? { completedBuiltinProviderIdMigrations: [id] } : {}),
       providerSecrets: { [id]: `${id}-builtin-secret` },
       customOpenAIProviders: [
         {
@@ -1889,7 +1890,7 @@ test('getUserConfig keeps builtin secrets out of colliding custom providers', as
     assert.equal(config.customOpenAIProviders[0].id, `${id}-2`)
     assert.equal(config.providerSecrets[id], `${id}-builtin-secret`)
     assert.equal(Object.hasOwn(config.providerSecrets, `${id}-2`), false)
-    assert.equal(config[legacyKey], `${id}-builtin-secret`)
+    if (legacyKey) assert.equal(config[legacyKey], `${id}-builtin-secret`)
   }
 })
 

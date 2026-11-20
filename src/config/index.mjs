@@ -1449,8 +1449,8 @@ function migrateUserConfig(options) {
     const builtinLegacySecret = builtinLegacyKey ? normalizeText(migrated[builtinLegacyKey]) : ''
     const normalizedSecretBelongsToBuiltin =
       isPendingBuiltinProviderIdMigration &&
-      builtinLegacySecret &&
-      builtinLegacySecret === normalizeText(normalizedIdSecret)
+      ((builtinLegacySecret && builtinLegacySecret === normalizeText(normalizedIdSecret)) ||
+        (!builtinLegacyKey && completedBuiltinProviderIdMigrations.has(oldProviderId)))
     if (hasDistinctRawId && hasRawIdSecret && !unchangedProviderIds.has(oldProviderId)) {
       rawProviderSecretIdsToDelete.add(oldRawProviderId)
     }
