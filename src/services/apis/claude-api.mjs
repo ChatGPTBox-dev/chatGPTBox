@@ -5,8 +5,9 @@ import { isEmpty } from 'lodash-es'
 import { getConversationPairs } from '../../utils/get-conversation-pairs.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { getExtraBodyParams } from './extra-body-params.mjs'
 
-function getThinkingConfig(model) {
+export function getThinkingConfig(model) {
   if (model === 'claude-sonnet-5') return { type: 'disabled' }
   if (model === 'claude-sonnet-5-5') return { type: 'between_tools' }
 }
@@ -37,6 +38,8 @@ export async function generateAnswersWithClaudeApi(port, question, session) {
   }
   const thinking = getThinkingConfig(model)
   if (thinking) body.thinking = thinking
+  // The user-provided body wins over the built-in defaults above.
+  Object.assign(body, getExtraBodyParams(config))
 
   let answer = ''
   let stopReason = ''

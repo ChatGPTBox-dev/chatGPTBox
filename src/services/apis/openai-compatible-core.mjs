@@ -4,6 +4,7 @@ import { isEmpty } from 'lodash-es'
 import { getCompletionPromptBase, pushRecord, setAbortController } from './shared.mjs'
 import { getChatCompletionsTokenParams } from './openai-token-params.mjs'
 import { getTemperatureParams } from './temperature-params.mjs'
+import { getExtraBodyParams } from './extra-body-params.mjs'
 
 function buildHeaders(apiKey, extraHeaders = {}) {
   const headers = {
@@ -76,11 +77,15 @@ export async function generateAnswersWithOpenAICompatible({
   session.conversationRecords = conversationRecords
   const safeExtraBody = { ...extraBody }
   delete safeExtraBody.temperature
+  // Merged last so the Advanced setting wins over built-in values, except for
+  // the token-limit key: only the one the request shape expects may be sent.
+  const configuredExtraBody = getExtraBodyParams(config)
   if (endpointType === 'completion') {
     const prompt =
       (await getCompletionPromptBase()) +
       getConversationPairs(conversationRecords.slice(-config.maxConversationContextLength), true) +
       `Human: ${question}\nAI: `
+    delete configuredExtraBody.max_completion_tokens
     requestBody = {
       prompt,
       model,
@@ -89,6 +94,7 @@ export async function generateAnswersWithOpenAICompatible({
       ...getTemperatureParams(config, model),
       stop: '\nHuman',
       ...safeExtraBody,
+      ...configuredExtraBody,
     }
   } else {
     const messages = getConversationPairs(
@@ -104,6 +110,7 @@ export async function generateAnswersWithOpenAICompatible({
     const conflictingTokenParamKey =
       'max_completion_tokens' in tokenParams ? 'max_tokens' : 'max_completion_tokens'
     delete safeExtraBody[conflictingTokenParamKey]
+    delete configuredExtraBody[conflictingTokenParamKey]
     requestBody = {
       messages,
       model,
@@ -111,6 +118,7 @@ export async function generateAnswersWithOpenAICompatible({
       ...tokenParams,
       ...getTemperatureParams(config, model),
       ...safeExtraBody,
+      ...configuredExtraBody,
     }
   }
 

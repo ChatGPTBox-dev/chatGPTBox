@@ -48,10 +48,12 @@ import { refreshMenu } from './menus.mjs'
 import { registerCommands } from './commands.mjs'
 import { registerBlockingHeaderListeners } from './webrequest-listeners.mjs'
 import { generateAnswersWithBardWebApi } from '../services/apis/bard-web.mjs'
+import { testConnection } from '../services/apis/test-connection.mjs'
 import { generateAnswersWithClaudeWebApi } from '../services/apis/claude-web.mjs'
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
 import { redactSensitiveFields } from './redact.mjs'
+import { isTrustedExtensionSender } from './message-sender.mjs'
 import {
   clearProxyReconnectErrorSuppression,
   consumeProxyReconnectErrorSuppression,
@@ -616,6 +618,17 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         await deleteConversation(token, message.data.conversationId)
         break
       }
+      case 'TEST_API_CONNECTION': {
+        if (!isTrustedExtensionSender(sender)) {
+          console.warn(
+            '[background] Rejecting TEST_API_CONNECTION message from untrusted sender:',
+            sender,
+          )
+          return { ok: false, elapsedMs: 0, error: 'unauthorized-sender' }
+        }
+        console.log('[background] Processing TEST_API_CONNECTION message')
+        return testConnection(message.data.session)
+      }
       case 'NEW_URL': {
         console.log('[background] Processing NEW_URL message:', message.data)
         await Browser.tabs.create({
@@ -694,13 +707,7 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         break
       }
       case 'FETCH': {
-        const senderId = sender?.id
-        const senderUrl = sender?.url || sender?.documentUrl || sender?.origin
-        const extensionOrigin = new URL(Browser.runtime.getURL('/')).origin
-        const isTrustedExtensionSenderWithoutId =
-          !senderId && typeof senderUrl === 'string' && senderUrl.startsWith(`${extensionOrigin}/`)
-
-        if (senderId !== Browser.runtime.id && !isTrustedExtensionSenderWithoutId) {
+        if (!isTrustedExtensionSender(sender)) {
           console.warn('[background] Rejecting FETCH message from untrusted sender:', sender)
           return [null, { message: 'Unauthorized sender' }]
         }
