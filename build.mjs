@@ -540,10 +540,33 @@ async function ensureDevCssPlaceholders(cssFiles) {
   )
 }
 
+/** Remove unused font resources from a variant without math rendering. */
+async function removeKatexResources(outputDir) {
+  const manifestPath = path.join(outputDir, 'manifest.json')
+  const manifest = await fs.readJson(manifestPath)
+  const keepResource = (resource) => resource !== 'katex-fonts/*.woff2'
+  if (manifest.manifest_version === 3) {
+    manifest.web_accessible_resources = manifest.web_accessible_resources
+      .map((entry) => ({ ...entry, resources: entry.resources.filter(keepResource) }))
+      .filter((entry) => entry.resources.length > 0)
+  } else {
+    manifest.web_accessible_resources = manifest.web_accessible_resources.filter(keepResource)
+  }
+  await fs.writeJson(manifestPath, manifest, { spaces: 2 })
+}
+
+/** Copy and package the shared assets for Chromium and Firefox variants. */
 async function finishOutput(outputDirSuffix, sourceBuildDir = outdir) {
+  const includesKatex = !outputDirSuffix.includes('without-katex')
   const commonFiles = [
     { src: 'src/logo.png', dst: 'logo.png' },
     { src: 'src/rules.json', dst: 'rules.json' },
+    ...(includesKatex
+      ? [
+          { src: 'src/components/MarkdownRender/katex-fonts.css', dst: 'katex-fonts.css' },
+          { src: 'node_modules/katex/dist/fonts', dst: 'katex-fonts' },
+        ]
+      : []),
 
     { src: `${sourceBuildDir}/shared.js`, dst: 'shared.js' },
     { src: `${sourceBuildDir}/content-script.css`, dst: 'content-script.css' }, // shared
@@ -585,6 +608,7 @@ async function finishOutput(outputDirSuffix, sourceBuildDir = outdir) {
       ),
     ),
   )
+  if (!includesKatex) await removeKatexResources(chromiumOutputDir)
   if (isProduction) await zipFolder(chromiumOutputDir)
 
   // firefox
@@ -602,6 +626,7 @@ async function finishOutput(outputDirSuffix, sourceBuildDir = outdir) {
       ),
     ),
   )
+  if (!includesKatex) await removeKatexResources(firefoxOutputDir)
   if (isProduction) await zipFolder(firefoxOutputDir)
 }
 
