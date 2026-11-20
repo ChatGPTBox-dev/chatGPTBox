@@ -6,6 +6,7 @@ import {
   finalizeInterruptedSession,
   getCompletedAnswerUpdate,
   getInterruptedCompletionState,
+  isReplaceableAnswer,
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
 } from '../../../src/components/ConversationCard/session.mjs'
@@ -206,4 +207,26 @@ test('getInterruptedCompletionState finalizes on proxy disconnect with a session
       restoredRetryAnswer: 'Old answer',
     },
   )
+})
+
+test('isReplaceableAnswer rejects the loading placeholder of a request stopped before its first token', () => {
+  const placeholder = '<p class="gpt-loading">Waiting for response...</p>'
+  const update = getCompletedAnswerUpdate(null)
+  const content = update.appended ? placeholder + update.value : update.value
+
+  assert.equal(isReplaceableAnswer({ type: 'answer', done: true, content }), false)
+})
+
+test('isReplaceableAnswer accepts answers that mention the loading class', () => {
+  const content = 'Use `<p class="gpt-loading">` for the placeholder.\n<hr/>'
+
+  assert.equal(isReplaceableAnswer({ type: 'answer', done: true, content }), true)
+})
+
+test('isReplaceableAnswer only accepts completed answers with content', () => {
+  assert.equal(isReplaceableAnswer({ type: 'answer', done: true, content: 'Hello\n<hr/>' }), true)
+  assert.equal(isReplaceableAnswer({ type: 'answer', done: false, content: 'Hel' }), false)
+  assert.equal(isReplaceableAnswer({ type: 'answer', done: true, content: '\n<hr/>' }), false)
+  assert.equal(isReplaceableAnswer({ type: 'question', done: true, content: 'Q' }), false)
+  assert.equal(isReplaceableAnswer({ type: 'error', done: true, content: 'Failed' }), false)
 })
