@@ -2,6 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { getChatCompletionsTokenParams } from '../../../../src/services/apis/openai-token-params.mjs'
 
+test('manual token parameter overrides auto detection', () => {
+  assert.deepEqual(getChatCompletionsTokenParams('custom', 'o3', 700, 'max_completion_tokens'), {
+    max_completion_tokens: 700,
+  })
+  assert.deepEqual(getChatCompletionsTokenParams('openai', 'gpt-5.2', 700, 'max_tokens'), {
+    max_tokens: 700,
+  })
+})
+
 test('uses max_completion_tokens for gpt-5.x chat models', () => {
   assert.deepEqual(getChatCompletionsTokenParams('openai', 'gpt-5.2-chat-latest', 1024), {
     max_completion_tokens: 1024,

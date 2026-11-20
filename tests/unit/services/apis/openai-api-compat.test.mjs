@@ -914,6 +914,7 @@ test('generateAnswersWithOpenAICompatibleApi uses caller config snapshot for req
     maxResponseTokenLength: 111,
     temperatureOverrideEnabled: true,
     temperature: 0.1,
+    chatCompletionsTokenParameter: 'max_completion_tokens',
   })
 
   const config = {
@@ -969,7 +970,8 @@ test('generateAnswersWithOpenAICompatibleApi uses caller config snapshot for req
 
   const body = JSON.parse(capturedInit.body)
   assert.equal(body.model, 'snapshot-model')
-  assert.equal(body.max_tokens, 777)
+  assert.equal(body.max_completion_tokens, 777)
+  assert.equal(Object.hasOwn(body, 'max_tokens'), false)
   assert.equal(body.temperature, 0.7)
   assert.deepEqual(
     body.messages.map((message) => message.content),
@@ -1090,6 +1092,12 @@ test('generateAnswersWithOpenAICompatibleApi keeps generic compat token params f
   const body = JSON.parse(capturedInit.body)
   assert.equal(body.max_tokens, 444)
   assert.equal(Object.hasOwn(body, 'max_completion_tokens'), false)
+
+  config.chatCompletionsTokenParameter = 'max_completion_tokens'
+  await generateAnswersWithOpenAICompatibleApi(port, 'CurrentQ', session, config)
+  const overriddenBody = JSON.parse(capturedInit.body)
+  assert.equal(overriddenBody.max_completion_tokens, 444)
+  assert.equal(Object.hasOwn(overriddenBody, 'max_tokens'), false)
 })
 
 test('generateAnswersWithOpenAICompatibleApi rejects native Ollama chat endpoints', async (t) => {
