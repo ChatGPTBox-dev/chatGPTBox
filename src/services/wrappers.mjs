@@ -215,22 +215,24 @@ export function registerPortListener(executor) {
         msg.proxyGenerationId,
         msg.requestGenerationId,
       )
-      const config = await getUserConfig()
-      if (!isLatestSessionRequest()) return
-      const language =
-        config.preferredLanguage === 'auto' ? config.userLanguage : config.preferredLanguage
-      const translate = getFixedT(language)
-      if (!session.modelName) session.modelName = config.modelName
-      if (!session.apiMode && session.modelName !== 'customModel') session.apiMode = config.apiMode
-      if (session.apiMode) session.apiMode = normalizeApiMode(session.apiMode)
-      if (!session.aiName)
-        session.aiName = modelNameToDesc(
-          session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName,
-          translate,
-          config.customModelName,
-        )
-      requestPort.postMessage({ session })
+      let translate = t
       try {
+        const config = await getUserConfig({ fresh: true })
+        if (!isLatestSessionRequest()) return
+        const language =
+          config.preferredLanguage === 'auto' ? config.userLanguage : config.preferredLanguage
+        translate = getFixedT(language)
+        if (!session.modelName) session.modelName = config.modelName
+        if (!session.apiMode && session.modelName !== 'customModel')
+          session.apiMode = config.apiMode
+        if (session.apiMode) session.apiMode = normalizeApiMode(session.apiMode)
+        if (!session.aiName)
+          session.aiName = modelNameToDesc(
+            session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName,
+            translate,
+            config.customModelName,
+          )
+        requestPort.postMessage({ session })
         await executor(
           session,
           requestPort,

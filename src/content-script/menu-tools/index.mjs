@@ -37,7 +37,7 @@ export const config = {
     action: async (fromBackground) => {
       console.debug('action is from background', fromBackground)
       if (fromBackground) {
-        const config = await getUserConfig()
+        const config = await getUserConfig({ fresh: true })
         const url = Browser.runtime.getURL('IndependentPanel.html')
         const tabs = await Browser.tabs.query({ url: url, windowType: 'popup' })
         if (!config.alwaysCreateNewConversationWindow && tabs.length > 0)

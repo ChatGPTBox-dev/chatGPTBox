@@ -3,7 +3,7 @@ import { languageList } from './language-data.mjs'
 
 export { languageList }
 
-function formatLanguageForPrompt(languageKey) {
+export function formatLanguageForPrompt(languageKey) {
   const { name, native } = languageList[languageKey]
   return native && native !== name
     ? `${name} (${native}; ${languageKey})`
@@ -20,8 +20,8 @@ export async function getUserLanguageNative() {
   return languageList[config.userLanguage].native
 }
 
-export async function getPreferredLanguage() {
-  return formatLanguageForPrompt(await getPreferredLanguageKey())
+export async function getPreferredLanguage(config = null) {
+  return formatLanguageForPrompt(await getPreferredLanguageKey(config))
 }
 
 export async function getPreferredLanguageNative() {

@@ -11,8 +11,8 @@ import { sha3_512 } from 'js-sha3'
 import randomInt from 'random-int'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 
-async function request(token, method, path, data) {
-  const apiUrl = (await getUserConfig()).customChatGptWebApiUrl
+async function request(token, method, path, data, config = null) {
+  const apiUrl = (config ?? (await getUserConfig({ fresh: true }))).customChatGptWebApiUrl
   const response = await fetch(`${apiUrl}/backend-api${path}`, {
     method,
     headers: {
@@ -30,12 +30,18 @@ export async function sendMessageFeedback(token, data) {
   await request(token, 'POST', '/conversation/message_feedback', data)
 }
 
-export async function setConversationProperty(token, conversationId, propertyObject) {
-  await request(token, 'PATCH', `/conversation/${conversationId}`, propertyObject)
+export async function setConversationProperty(
+  token,
+  conversationId,
+  propertyObject,
+  config = null,
+) {
+  await request(token, 'PATCH', `/conversation/${conversationId}`, propertyObject, config)
 }
 
-export async function deleteConversation(token, conversationId) {
-  if (conversationId) await setConversationProperty(token, conversationId, { is_visible: false })
+export async function deleteConversation(token, conversationId, config = null) {
+  if (conversationId)
+    await setConversationProperty(token, conversationId, { is_visible: false }, config)
 }
 
 export async function sendModerations(token, question, conversationId, messageId) {
@@ -47,14 +53,17 @@ export async function sendModerations(token, question, conversationId, messageId
   })
 }
 
-export async function getModels(token) {
-  const response = JSON.parse((await request(token, 'GET', '/models')).responseText)
+export async function getModels(token, config = null) {
+  const response = JSON.parse(
+    (await request(token, 'GET', '/models', undefined, config)).responseText,
+  )
   if (response.models) return response.models.map((m) => m.slug)
 }
 
-export async function getRequirements(accessToken) {
+export async function getRequirements(accessToken, config = null) {
   const response = JSON.parse(
-    (await request(accessToken, 'POST', '/sentinel/chat-requirements')).responseText,
+    (await request(accessToken, 'POST', '/sentinel/chat-requirements', undefined, config))
+      .responseText,
   )
   if (response) {
     return response
@@ -149,24 +158,35 @@ function generateProofToken(seed, diff, userAgent) {
   return 'gAAAAABwQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D' + fallbackBase
 }
 
-export async function isNeedWebsocket(accessToken) {
-  return (await request(accessToken, 'GET', '/accounts/check/v4-2023-04-27')).responseText.includes(
-    'shared_websocket',
-  )
+export async function isNeedWebsocket(accessToken, config = null) {
+  return (
+    await request(accessToken, 'GET', '/accounts/check/v4-2023-04-27', undefined, config)
+  ).responseText.includes('shared_websocket')
 }
 
-export async function sendWebsocketConversation(accessToken, options) {
-  const apiUrl = (await getUserConfig()).customChatGptWebApiUrl
+export async function sendWebsocketConversation(accessToken, options, config = null) {
+  const apiUrl = (config ?? (await getUserConfig({ fresh: true }))).customChatGptWebApiUrl
   const response = await fetch(`${apiUrl}/backend-api/conversation`, options).then((r) => r.json())
   console.debug(`request: ws /conversation`, response)
   return { conversationId: response.conversation_id, wsRequestId: response.websocket_request_id }
 }
 
-export async function stopWebsocketConversation(accessToken, conversationId, wsRequestId) {
-  await request(accessToken, 'POST', '/stop_conversation', {
-    conversation_id: conversationId,
-    websocket_request_id: wsRequestId,
-  })
+export async function stopWebsocketConversation(
+  accessToken,
+  conversationId,
+  wsRequestId,
+  config = null,
+) {
+  await request(
+    accessToken,
+    'POST',
+    '/stop_conversation',
+    {
+      conversation_id: conversationId,
+      websocket_request_id: wsRequestId,
+    },
+    config,
+  )
 }
 
 /**
@@ -179,11 +199,11 @@ let websocket
 let expires_at
 let wsCallbacks = []
 
-export async function registerWebsocket(accessToken) {
+export async function registerWebsocket(accessToken, config = null) {
   if (websocket && new Date() < expires_at - 300000) return
 
   const response = JSON.parse(
-    (await request(accessToken, 'POST', '/register-websocket')).responseText,
+    (await request(accessToken, 'POST', '/register-websocket', undefined, config)).responseText,
   )
   let resolve
   if (response.wss_url) {
@@ -210,8 +230,15 @@ export async function registerWebsocket(accessToken) {
  * @param {string} question
  * @param {Session} session
  * @param {string} accessToken
+ * @param {UserConfig} [config]
  */
-export async function generateAnswersWithChatgptWebApi(port, question, session, accessToken) {
+export async function generateAnswersWithChatgptWebApi(
+  port,
+  question,
+  session,
+  accessToken,
+  config = null,
+) {
   let wsCallback
   let cleanController = () => {}
   const removeWebsocketCallback = () => {
@@ -221,7 +248,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
   }
   const stopWebsocketRequest = (conversationId, wsRequestId) => {
     if (!wsRequestId) return
-    stopWebsocketConversation(accessToken, conversationId, wsRequestId).catch((error) => {
+    stopWebsocketConversation(accessToken, conversationId, wsRequestId, config).catch((error) => {
       console.warn('[chatgpt-web] Failed to stop WebSocket conversation:', error)
     })
   }
@@ -235,21 +262,21 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     () => {
       removeWebsocketCallback()
       cleanController()
-      if (session.autoClean) deleteConversation(accessToken, session.conversationId)
+      if (session.autoClean) deleteConversation(accessToken, session.conversationId, config)
     },
   )
   const { controller } = abortControllerState
   cleanController = abortControllerState.cleanController
 
-  const config = await getUserConfig()
+  config ??= await getUserConfig({ fresh: true })
   let arkoseError
   const [models, requirements, arkoseToken, useWebsocket] = await Promise.all([
-    getModels(accessToken).catch(() => undefined),
-    getRequirements(accessToken).catch(() => undefined),
+    getModels(accessToken, config).catch(() => undefined),
+    getRequirements(accessToken, config).catch(() => undefined),
     getArkoseToken(config).catch((e) => {
       arkoseError = e
     }),
-    isNeedWebsocket(accessToken).catch(() => undefined),
+    isNeedWebsocket(accessToken, config).catch(() => undefined),
   ])
   console.debug('models', models)
   const selectedModel = getModelValue(session)
@@ -342,7 +369,7 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
       cleanController()
       return
     }
-    await registerWebsocket(accessToken)
+    await registerWebsocket(accessToken, config)
     if (controller.signal.aborted) {
       cleanController()
       return
@@ -378,7 +405,11 @@ export async function generateAnswersWithChatgptWebApi(port, question, session, 
     }
     wsCallbacks.push(wsCallback)
     try {
-      const { conversationId, wsRequestId } = await sendWebsocketConversation(accessToken, options)
+      const { conversationId, wsRequestId } = await sendWebsocketConversation(
+        accessToken,
+        options,
+        config,
+      )
       if (controller.signal.aborted) {
         removeWebsocketCallback()
         cleanController()

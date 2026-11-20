@@ -384,7 +384,7 @@ function ConversationCard(props) {
         }
         foregroundPortsRef.current.add(fakePort)
         try {
-          const bingToken = (await getUserConfig()).bingAccessToken
+          const bingToken = (await getUserConfig({ fresh: true })).bingAccessToken
           if (
             disposedRef.current ||
             disconnected ||
@@ -445,9 +445,13 @@ function ConversationCard(props) {
     }
     const closeChatsEscListener = async (e) => {
       if (e.key !== 'Escape') return
-      const { allowEscToCloseAll } = await getUserConfig()
-      if (disposedRef.current || !allowEscToCloseAll) return
-      closeChatsMessageListener({ type: 'CLOSE_CHATS' })
+      try {
+        const { allowEscToCloseAll } = await getUserConfig({ fresh: true })
+        if (disposedRef.current || !allowEscToCloseAll) return
+        closeChatsMessageListener({ type: 'CLOSE_CHATS' })
+      } catch (error) {
+        console.warn('[ConversationCard] Failed to handle Escape:', error)
+      }
     }
 
     if (props.closeable) {

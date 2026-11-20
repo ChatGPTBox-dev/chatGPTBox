@@ -98,6 +98,14 @@ test('auto resolves through the refreshed browser language', async () => {
   assert.equal(await getPreferredLanguageKey(), 'zh-Hant')
 })
 
+test('resolves preferred language from a supplied config snapshot', async () => {
+  assert.equal(
+    await getPreferredLanguageKey({ preferredLanguage: 'auto', userLanguage: 'zh-Hant' }),
+    'zh-Hant',
+  )
+  assert.equal(await getPreferredLanguageKey({ preferredLanguage: 'fr', userLanguage: 'en' }), 'fr')
+})
+
 test('formats preferred language with native name and canonical tag for prompts', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({ preferredLanguage: 'zh-Hant' })
 

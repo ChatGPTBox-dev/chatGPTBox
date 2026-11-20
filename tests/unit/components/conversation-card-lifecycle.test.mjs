@@ -6,6 +6,18 @@ import { pathToFileURL } from 'node:url'
 import { JSDOM } from 'jsdom'
 import { h, render } from 'preact'
 import { act } from 'preact/test-utils'
+import { getUserConfig } from '../../../src/config/index.mjs'
+
+const { setUserConfig: setWriterConfig } = await import(
+  '../../../src/config/index.mjs?conversation-card-writer'
+)
+const shim = globalThis.__TEST_BROWSER_SHIM__
+
+const warmConfigCache = async (config) => {
+  shim.flushStorageEvents()
+  shim.replaceStorage(config)
+  for (let attempt = 0; attempt < 3; attempt++) await getUserConfig()
+}
 
 register(
   './tests/setup/conversation-card-lifecycle-loader-hooks.mjs',
@@ -323,6 +335,96 @@ test('remote runtime Port disconnect reconnects and unmount cleans the replaceme
   assert.equal(replacementPort.disconnectCount, 1)
   assert.equal(replacementPort.disconnected, true)
   assert.equal(state.ports.length, 2)
+})
+
+test('foreground sends observe a token update before its storage event', async (t) => {
+  await warmConfigCache({ bingAccessToken: 'old-token' })
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  state.foreground = true
+  state.getUserConfig = getUserConfig
+  let suppliedToken
+  state.generateAnswers = async (_port, _question, _session, token) => {
+    suppliedToken = token
+  }
+  const container = document.createElement('div')
+  document.body.append(container)
+  mountCard(container)
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+
+  shim.deferStorageEvents()
+  t.after(() => shim.flushStorageEvents())
+  await setWriterConfig({ bingAccessToken: 'new-token' })
+  assert.ok(shim.pendingStorageEvents() > 0)
+  await state.inputBoxProps.onSubmit('question')
+
+  assert.equal(suppliedToken, 'new-token')
+})
+
+test('Escape observes preference changes before their storage events', async (t) => {
+  await warmConfigCache({ allowEscToCloseAll: true })
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  state.getUserConfig = getUserConfig
+  const onClose = t.mock.fn()
+  const container = document.createElement('div')
+  document.body.append(container)
+  mountCard(container, { closeable: true, onClose })
+
+  shim.deferStorageEvents()
+  t.after(() => shim.flushStorageEvents())
+  await setWriterConfig({ allowEscToCloseAll: false })
+  assert.ok(shim.pendingStorageEvents() > 0)
+  await act(async () => {
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTask()
+  })
+
+  assert.equal(onClose.mock.callCount(), 0)
+
+  await setWriterConfig({ allowEscToCloseAll: true })
+  await act(async () => {
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTask()
+  })
+  assert.equal(onClose.mock.callCount(), 1)
+})
+
+test('Escape read failures keep the conversation open and allow retry', async (t) => {
+  await warmConfigCache({ allowEscToCloseAll: true })
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  state.getUserConfig = getUserConfig
+  const onClose = t.mock.fn()
+  const warning = t.mock.method(console, 'warn', () => {})
+  const container = document.createElement('div')
+  document.body.append(container)
+  mountCard(container, { closeable: true, onClose })
+  const get = t.mock.method(globalThis.chrome.storage.local, 'get', (_keys, callback) => {
+    globalThis.chrome.runtime.lastError = { message: 'storage unavailable' }
+    try {
+      callback(undefined)
+    } finally {
+      delete globalThis.chrome.runtime.lastError
+    }
+  })
+
+  await act(async () => {
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTask()
+  })
+
+  assert.equal(warning.mock.callCount(), 1)
+  assert.match(warning.mock.calls[0].arguments[1].message, /storage unavailable/)
+  assert.equal(onClose.mock.callCount(), 0)
+  assert.equal(state.ports[0].disconnected, false)
+
+  get.mock.restore()
+  await act(async () => {
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTask()
+  })
+  assert.equal(onClose.mock.callCount(), 1)
 })
 
 test('close button disposes foreground transport before onClose', async () => {

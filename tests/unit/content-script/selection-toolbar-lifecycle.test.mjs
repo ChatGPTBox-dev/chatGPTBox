@@ -228,37 +228,43 @@ test('cancelling while the first mouse config read is pending prevents container
   globalThis.__SELECTION_TOOLBAR_TEST__.getUserConfig = async () => baseConfig
 })
 
-test('removing a mouse container while its render config is pending prevents render', async () => {
-  const pendingRenderConfig = deferred()
-  const createdBefore = globalThis.__SELECTION_TOOLBAR_TEST__.createdContainers.length
-  const renderedBefore = globalThis.__SELECTION_TOOLBAR_TEST__.renderCount
-  let configRead = 0
-
-  globalThis.__SELECTION_TOOLBAR_TEST__.getUserConfig = () => {
-    configRead += 1
-    if (configRead === 1) return Promise.resolve(baseConfig)
-    if (configRead === 2) return pendingRenderConfig.promise
-    return Promise.resolve(baseConfig)
+test('mouse positioning and rendering share one fresh settings snapshot', async (t) => {
+  const state = globalThis.__SELECTION_TOOLBAR_TEST__
+  const renderedBefore = state.renderCount
+  const originalGet = state.getUserConfig
+  const originalSelection = window.getSelection
+  const input = document.createElement('input')
+  document.body.append(input)
+  Object.defineProperty(input, 'offsetWidth', { value: 123 })
+  input.focus()
+  window.getSelection = () => ({
+    rangeCount: 1,
+    toString: () => 'selected text',
+    getRangeAt: () => ({ endContainer: { parentElement: document.body } }),
+  })
+  const reads = []
+  state.getUserConfig = async (options) => {
+    reads.push(options)
+    return options?.fresh ? { ...baseConfig, selectionToolsNextToInputBox: true } : baseConfig
   }
+  t.after(() => {
+    state.getUserConfig = originalGet
+    window.getSelection = originalSelection
+    input.remove()
+  })
 
-  document.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  document.body.dispatchEvent(
+    new MouseEvent('mouseup', { bubbles: true, clientX: 20, clientY: 34 }),
+  )
   await waitFor(
-    () => globalThis.__SELECTION_TOOLBAR_TEST__.createdContainers.length === createdBefore + 1,
-    'selection toolbar container was not created',
+    () => state.renderCount === renderedBefore + 1,
+    'selection toolbar was not rendered',
   )
 
-  const container = globalThis.__SELECTION_TOOLBAR_TEST__.createdContainers.at(-1)
-  assert.equal(container.isConnected, true)
-
-  document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-  assert.equal(container.isConnected, false)
-
-  pendingRenderConfig.resolve(baseConfig)
-  await nextTask()
-  await nextTask()
-
-  assert.equal(globalThis.__SELECTION_TOOLBAR_TEST__.renderCount, renderedBefore)
-  globalThis.__SELECTION_TOOLBAR_TEST__.getUserConfig = async () => baseConfig
+  const container = state.createdContainers.at(-1)
+  assert.equal(container.style.left, '173px')
+  assert.equal(container.style.top, '64px')
+  assert.deepEqual(reads, [{ fresh: true }])
 })
 
 test('touchstart unmounts a toolbar before removing its container', () => {
