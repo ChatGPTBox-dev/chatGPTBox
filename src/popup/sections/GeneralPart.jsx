@@ -68,6 +68,8 @@ function getProviderApiKeySetupUrl(providerId) {
       return 'https://platform.moonshot.cn/console/api-keys'
     case 'mistral':
       return 'https://console.mistral.ai/api-keys'
+    case 'llmtr':
+      return 'https://llmtr.com/dashboard/keys'
     default:
       return ''
   }

@@ -270,7 +270,7 @@ test('importDataIntoStorage replaces stale API mode state before legacy migratio
 test('importDataIntoStorage does not assign an existing builtin secret to an imported provider', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 2,
-    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral', 'llmtr'],
     providerSecrets: { xai: 'builtin-xai-key' },
     customOpenAIProviders: [],
   })
@@ -300,7 +300,7 @@ test('importDataIntoStorage preserves a builtin secret when its legacy mirror is
   ]) {
     globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
       configSchemaVersion: 2,
-      completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+      completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral', 'llmtr'],
       xaiApiKey: storedXaiApiKey,
       providerSecrets: { xai: 'builtin-xai-key' },
       customOpenAIProviders: [],
@@ -327,7 +327,7 @@ test('importDataIntoStorage preserves a builtin secret when its legacy mirror is
 test('importDataIntoStorage still migrates a secret from an existing custom collision', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 2,
-    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral', 'llmtr'],
     providerSecrets: { xai: 'custom-xai-key' },
     customOpenAIProviders: [
       {

@@ -12,6 +12,7 @@ const newlyReservedBuiltinProviders = [
   { id: 'xai', legacyKey: 'xaiApiKey' },
   { id: 'nvidia-nim', legacyKey: 'nvidiaNimApiKey' },
   { id: 'mistral', legacyKey: 'mistralApiKey' },
+  { id: 'llmtr', legacyKey: 'llmtrApiKey' },
 ]
 
 function createCustomApiMode(overrides = {}) {
@@ -289,7 +290,7 @@ test('getUserConfig persists normalization-only sourceProviderId migrations', as
 test('getUserConfig persists provider lineage and path normalization by itself', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 2,
-    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral', 'llmtr'],
     providerSecrets: {},
     customApiModes: [],
     activeApiModes: [],
@@ -1894,7 +1895,7 @@ test('getUserConfig keeps builtin secrets out of colliding custom providers', as
 test('getUserConfig reruns a completed builtin ID migration for a new collision', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 2,
-    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral', 'llmtr'],
     providerSecrets: {
       xai: 'custom-xai-secret',
     },
@@ -1917,7 +1918,7 @@ test('getUserConfig reruns a completed builtin ID migration for a new collision'
 test('getUserConfig does not move a known builtin secret for a later custom collision', async () => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
     configSchemaVersion: 2,
-    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+    completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral', 'llmtr'],
     xaiApiKey: 'builtin-xai-secret',
     providerSecrets: {
       xai: 'builtin-xai-secret',
@@ -1967,7 +1968,7 @@ test('getUserConfig reconnects modes only for a unique enabled legacy provider m
     globalThis.__TEST_BROWSER_SHIM__.clearStorage()
     globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
       configSchemaVersion: 2,
-      completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral'],
+      completedBuiltinProviderIdMigrations: ['xai', 'nvidia-nim', 'mistral', 'llmtr'],
       xaiApiKey: 'builtin-xai-secret',
       providerSecrets: {
         xai: 'builtin-xai-secret',

@@ -42,7 +42,7 @@ export const ModelMode = {
 }
 
 // Provider IDs added after custom providers became configurable need one-time secret migration.
-const NEWLY_RESERVED_BUILTIN_PROVIDER_IDS = new Set(['xai', 'nvidia-nim', 'mistral'])
+const NEWLY_RESERVED_BUILTIN_PROVIDER_IDS = new Set(['xai', 'nvidia-nim', 'mistral', 'llmtr'])
 
 export const chatgptWebModelKeys = [
   'chatgptFree35',
@@ -146,6 +146,14 @@ export const nvidiaNimApiModelKeys = [
   'nvidiaNim_glm_5_2',
   'nvidiaNim_inkling',
   'nvidiaNim_minimax_m3',
+]
+export const llmtrApiModelKeys = [
+  'llmtr_qwen3_8_27b',
+  'llmtr_qwen3_6_35b',
+  'llmtr_gemma_4',
+  'llmtr_trendyol_asure_12b',
+  'llmtr_claude_sonnet_5',
+  'llmtr_deepseek_v4_pro',
 ]
 export const openRouterApiModelKeys = [
   'openRouter_auto',
@@ -279,6 +287,10 @@ export const ModelGroups = {
   nvidiaNimApiModelKeys: {
     value: nvidiaNimApiModelKeys,
     desc: 'NVIDIA NIM (API)',
+  },
+  llmtrApiModelKeys: {
+    value: llmtrApiModelKeys,
+    desc: 'LLMTR (API)',
   },
   deepSeekApiModelKeys: {
     value: deepSeekApiModelKeys,
@@ -492,6 +504,31 @@ export const Models = {
   nvidiaNim_minimax_m3: {
     value: 'minimaxai/minimax-m3',
     desc: 'NVIDIA NIM (MiniMax M3)',
+  },
+
+  llmtr_qwen3_8_27b: {
+    value: 'llmtr/qwen3-8-27b',
+    desc: 'LLMTR (Qwen 3.8 27B, hosted in Turkey)',
+  },
+  llmtr_qwen3_6_35b: {
+    value: 'llmtr/qwen3-6-35b',
+    desc: 'LLMTR (Qwen 3.6 35B-A3B, hosted in Turkey)',
+  },
+  llmtr_gemma_4: {
+    value: 'llmtr/gemma-4',
+    desc: 'LLMTR (Gemma 4, hosted in Turkey)',
+  },
+  llmtr_trendyol_asure_12b: {
+    value: 'llmtr/trendyol-asure-12b',
+    desc: 'LLMTR (Trendyol Asure 12B, hosted in Turkey)',
+  },
+  llmtr_claude_sonnet_5: {
+    value: 'anthropic/claude-sonnet-5',
+    desc: 'LLMTR (Claude Sonnet 5)',
+  },
+  llmtr_deepseek_v4_pro: {
+    value: 'deepseek/deepseek-v4-pro',
+    desc: 'LLMTR (DeepSeek V4 Pro)',
   },
 
   deepseek_chat: {
@@ -836,6 +873,7 @@ export const defaultConfig = {
   mistralApiKey: '',
   deepSeekApiKey: '',
   nvidiaNimApiKey: '',
+  llmtrApiKey: '',
 
   customApiKey: '',
 
@@ -1029,6 +1067,10 @@ export function isUsingDeepSeekApiModel(configOrSession) {
 
 export function isUsingNvidiaNimApiModel(configOrSession) {
   return isInApiModeGroup(nvidiaNimApiModelKeys, configOrSession)
+}
+
+export function isUsingLlmtrApiModel(configOrSession) {
+  return isInApiModeGroup(llmtrApiModelKeys, configOrSession)
 }
 
 export function isUsingOpenRouterApiModel(configOrSession) {

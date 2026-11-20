@@ -11,6 +11,7 @@ import {
   mistralApiModelKeys,
   openRouterApiModelKeys,
   nvidiaNimApiModelKeys,
+  llmtrApiModelKeys,
   aimlApiModelKeys,
   xaiApiModelKeys,
   isUsingAimlApiModel,
@@ -23,6 +24,7 @@ import {
   isUsingCustomModel,
   isUsingDeepSeekApiModel,
   isUsingNvidiaNimApiModel,
+  isUsingLlmtrApiModel,
   isUsingGeminiWebModel,
   isUsingGithubThirdPartyApiModel,
   isUsingMoonshotApiModel,
@@ -270,6 +272,13 @@ test('isUsingNvidiaNimApiModel accepts exported NVIDIA NIM API model keys', () =
     assert.equal(isUsingNvidiaNimApiModel({ modelName }), true)
   }
   assert.equal(isUsingNvidiaNimApiModel({ modelName: 'chatgptApi4oMini' }), false)
+})
+
+test('isUsingLlmtrApiModel accepts exported LLMTR API model keys', () => {
+  for (const modelName of llmtrApiModelKeys) {
+    assert.equal(isUsingLlmtrApiModel({ modelName }), true)
+  }
+  assert.equal(isUsingLlmtrApiModel({ modelName: 'nvidiaNim_nemotron_3_super' }), false)
 })
 
 test('isUsingOpenRouterApiModel matches representative OpenRouter API keys', () => {

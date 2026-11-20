@@ -96,6 +96,11 @@ test('resolveProviderIdForSession resolves legacy NVIDIA NIM preset keys', () =>
   )
 })
 
+test('resolveProviderIdForSession resolves LLMTR preset keys', () => {
+  assert.equal(resolveProviderIdForSession({ modelName: 'llmtr_qwen3_8_27b' }), 'llmtr')
+  assert.equal(resolveProviderIdForSession({ modelName: 'llmtrApiModelKeys-custom' }), 'llmtr')
+})
+
 test('resolveProviderIdForSession does not treat raw Gemini model IDs as legacy presets', () => {
   assert.equal(resolveProviderIdForSession({ modelName: 'gemini-2.5-flash' }), null)
 })

@@ -53,6 +53,13 @@ const adapters = [
     expectedApiKey: 'nv-key',
   },
   {
+    name: 'llmtr-api',
+    apiMode: { groupName: 'llmtrApiModelKeys', itemName: 'llmtr_qwen3_8_27b' },
+    providerId: 'llmtr',
+    expectedBaseUrl: 'https://llmtr.com/v1',
+    expectedApiKey: 'llmtr-key',
+  },
+  {
     name: 'moonshot-api',
     apiMode: { groupName: 'moonshotApiModelKeys', itemName: 'moonshot_kimi_latest' },
     providerId: 'moonshot',
