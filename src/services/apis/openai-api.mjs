@@ -303,7 +303,13 @@ export async function generateAnswersWithOpenAiApiCompat(
  * @param {Session} session
  * @param {UserConfig} config
  */
-export async function generateAnswersWithOpenAICompatibleApi(port, question, session, config) {
+export async function generateAnswersWithOpenAICompatibleApi(
+  port,
+  question,
+  session,
+  config,
+  adapterOptions,
+) {
   const runtimeConfig = await resolveOpenAICompatibleRuntimeConfig(config)
   const request = resolveOpenAICompatibleRequest(runtimeConfig, session)
   if (!request) {
@@ -331,6 +337,7 @@ export async function generateAnswersWithOpenAICompatibleApi(port, question, ses
     provider: providerRequestShapingId,
     extraHeaders: getOpenRouterAttributionHeaders(request.requestUrl),
     allowLegacyResponseField: request.provider.allowLegacyResponseField,
+    adapterOptions,
   })
 
   if (shouldSendOllamaKeepAlive(request)) {

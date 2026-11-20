@@ -1,0 +1,11 @@
+<!doctype html>
+<html>
+  <head>
+    <script>
+      window.syntheticBefore = { text: "not the player { response }" };
+      var ytInitialPlayerResponse = {"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"SYNTHVID001","title":"Synthetic {title} with \"quotes\"","lengthSeconds":"12","isLiveContent":false},"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"baseUrl":"https://captions.example.invalid/api/timedtext?v=SYNTHVID001&lang=en&expire=4102444800","name":{"simpleText":"English"},"vssId":".en","languageCode":"en","isTranslatable":true},{"baseUrl":"https://captions.example.invalid/api/timedtext?v=SYNTHVID001&lang=en&kind=asr&expire=4102444800","name":{"runs":[{"text":"English (automatic)"}]},"vssId":"a.en","languageCode":"en","kind":"asr","isTranslatable":true}],"translationLanguages":[{"languageCode":"fr","languageName":{"simpleText":"French"}}]}},"streamingData":{"adaptiveFormats":[{"itag":140,"url":"https://audio-primary.example.invalid/media.m4a?expire=4102444800&fixture=primary","mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","bitrate":129000,"contentLength":"193500","approxDurationMs":"12000","audioQuality":"AUDIO_QUALITY_MEDIUM","backupUrls":["https://audio-backup.example.invalid/media.m4a?expire=4102444800&fixture=backup","http://audio-insecure.example.invalid/media.m4a?expire=4102444800"]},{"itag":251,"url":"http://audio-insecure.example.invalid/media.webm?expire=4102444800","mimeType":"audio/webm; codecs=\"opus\"","approxDurationMs":"12000"},{"itag":137,"url":"https://video.example.invalid/media.mp4?expire=4102444800","mimeType":"video/mp4; codecs=\"avc1.640028\"","approxDurationMs":"12000"}]}};
+      window.syntheticAfter = "{still not player JSON}";
+    </script>
+  </head>
+  <body></body>
+</html>

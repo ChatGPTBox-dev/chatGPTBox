@@ -1,6 +1,6 @@
 import BingAIClient from '../clients/bing/index.mjs'
 import { getUserConfig } from '../../config/index.mjs'
-import { pushRecord, setAbortController } from './shared.mjs'
+import { createAdapterDiagnostics, pushRecord, setAbortController } from './shared.mjs'
 import { getModelValue } from '../../utils/model-name-convert.mjs'
 
 /**
@@ -16,12 +16,15 @@ export async function generateAnswersWithBingWebApi(
   session,
   accessToken,
   sydneyMode = false,
+  configOverride,
+  adapterOptions,
 ) {
   const { controller, cleanController, messageListener, disconnectListener } =
     setAbortController(port)
+  const diagnostics = createAdapterDiagnostics(adapterOptions)
   let config
   try {
-    config = await getUserConfig()
+    config = configOverride || (await getUserConfig())
   } catch (error) {
     cleanController()
     throw error
@@ -33,7 +36,7 @@ export async function generateAnswersWithBingWebApi(
   let modelMode = getModelValue(session)
   if (!modelMode) modelMode = config.modelMode
 
-  console.debug('mode', modelMode)
+  diagnostics.debug('mode', modelMode)
 
   const bingAIClient = new BingAIClient({ userToken: accessToken, features: { genImage: false } })
   if (session.bingWeb_jailbreakConversationCache)
@@ -97,7 +100,7 @@ export async function generateAnswersWithBingWebApi(
   }
 
   pushRecord(session, question, answer)
-  console.debug('conversation history', { content: session.conversationRecords })
+  diagnostics.debug('conversation history', { content: session.conversationRecords })
   port.onMessage.removeListener(messageListener)
   port.onDisconnect.removeListener(disconnectListener)
   port.postMessage({ answer: answer, done: true, session: session })

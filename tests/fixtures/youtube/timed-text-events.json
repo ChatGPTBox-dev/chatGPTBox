@@ -1,0 +1,61 @@
+{
+  "events": [
+    {
+      "tStartMs": 2000,
+      "dDurationMs": 1250,
+      "segs": [
+        {
+          "utf8": "Second &amp; short"
+        }
+      ]
+    },
+    {
+      "tStartMs": 0,
+      "dDurationMs": 1500,
+      "segs": [
+        {
+          "utf8": "First &lt;cue&gt;"
+        },
+        {
+          "utf8": " &#39;quoted&#39;"
+        }
+      ]
+    },
+    {
+      "tStartMs": 0,
+      "dDurationMs": 1500,
+      "segs": [
+        {
+          "utf8": "First &lt;cue&gt; &#39;quoted&#39;"
+        }
+      ]
+    },
+    {
+      "tStartMs": -1,
+      "dDurationMs": 500,
+      "segs": [
+        {
+          "utf8": "Invalid time"
+        }
+      ]
+    },
+    {
+      "tStartMs": 4000,
+      "dDurationMs": 0,
+      "segs": [
+        {
+          "utf8": "Invalid duration"
+        }
+      ]
+    },
+    {
+      "tStartMs": 5000,
+      "dDurationMs": 500,
+      "segs": [
+        {
+          "utf8": "   "
+        }
+      ]
+    }
+  ]
+}

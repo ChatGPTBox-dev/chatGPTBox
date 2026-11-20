@@ -197,8 +197,9 @@ function createSessionRequestPort(port, proxyGenerationId, requestGenerationId) 
   })
 }
 
-export function registerPortListener(executor) {
+export function registerPortListener(executor, shouldHandlePort = () => true) {
   Browser.runtime.onConnect.addListener((port) => {
+    if (!shouldHandlePort(port)) return
     console.debug('connected')
     const onMessage = async (msg) => {
       console.debug('received msg', msg)

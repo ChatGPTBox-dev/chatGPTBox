@@ -8,8 +8,8 @@ import {
 } from '../../../src/utils/fetch-sse.mjs'
 import { createMockSseResponse } from '../helpers/sse-response.mjs'
 
-test('fetchSSE streams SSE chunks and calls lifecycle callbacks', async (t) => {
-  t.mock.method(console, 'debug', () => {})
+test('fetchSSE streams SSE chunks without logging expected JSON probe failures', async (t) => {
+  const debugMock = t.mock.method(console, 'debug', () => {})
   const starts = []
   const messages = []
   const errors = []
@@ -40,6 +40,7 @@ test('fetchSSE streams SSE chunks and calls lifecycle callbacks', async (t) => {
   assert.deepEqual(messages, ['{"delta":"A"}', '[DONE]'])
   assert.equal(endCount, 1)
   assert.equal(errors.length, 0)
+  assert.equal(debugMock.mock.callCount(), 0)
 })
 
 test('fetchSSE converts a plain JSON first chunk into fake SSE data', async (t) => {

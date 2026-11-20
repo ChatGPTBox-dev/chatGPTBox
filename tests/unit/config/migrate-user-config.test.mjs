@@ -32,6 +32,74 @@ beforeEach(() => {
   globalThis.__TEST_BROWSER_SHIM__.clearStorage()
 })
 
+test('getUserConfig migrates the legacy video switch into the shared switch', async () => {
+  await Browser.storage.local.set({ bilibiliVideoTranscriptionEnabled: true })
+
+  const config = await getUserConfig()
+  const stored = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(config.videoTranscriptionEnabled, true)
+  assert.equal(stored.videoTranscriptionEnabled, true)
+  assert.equal('bilibiliVideoTranscriptionEnabled' in stored, false)
+})
+
+test('getUserConfig preserves the canonical video switch over the legacy value', async () => {
+  await Browser.storage.local.set({
+    videoTranscriptionEnabled: false,
+    bilibiliVideoTranscriptionEnabled: true,
+  })
+
+  assert.equal((await getUserConfig()).videoTranscriptionEnabled, false)
+  assert.equal(
+    'bilibiliVideoTranscriptionEnabled' in globalThis.__TEST_BROWSER_SHIM__.getStorage(),
+    false,
+  )
+})
+
+test('getUserConfig handles canonical and legacy video switch values', async () => {
+  const cases = [
+    [{ videoTranscriptionEnabled: true }, true],
+    [{ videoTranscriptionEnabled: false }, false],
+    [{ bilibiliVideoTranscriptionEnabled: true }, true],
+    [{ bilibiliVideoTranscriptionEnabled: false }, false],
+    [{}, false],
+    [{ videoTranscriptionEnabled: 'true', bilibiliVideoTranscriptionEnabled: 1 }, false],
+    [{ videoTranscriptionEnabled: 'true', bilibiliVideoTranscriptionEnabled: true }, true],
+  ]
+
+  for (const [stored, expected] of cases) {
+    globalThis.__TEST_BROWSER_SHIM__.replaceStorage(stored)
+    assert.equal((await getUserConfig()).videoTranscriptionEnabled, expected)
+  }
+})
+
+test('getUserConfig video switch migration is idempotent', async () => {
+  await Browser.storage.local.set({ bilibiliVideoTranscriptionEnabled: true })
+
+  const firstConfig = await getUserConfig()
+  const firstStored = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+  const secondConfig = await getUserConfig()
+  const secondStored = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(firstConfig.videoTranscriptionEnabled, true)
+  assert.equal(secondConfig.videoTranscriptionEnabled, true)
+  assert.deepEqual(secondStored, firstStored)
+})
+
+test('getUserConfig preserves the legacy video switch when canonical persistence fails', async (t) => {
+  await Browser.storage.local.set({ bilibiliVideoTranscriptionEnabled: true })
+  t.mock.method(Browser.storage.local, 'set', async () => {
+    throw new Error('set failed')
+  })
+
+  const config = await getUserConfig()
+  const stored = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(config.videoTranscriptionEnabled, true)
+  assert.equal(stored.bilibiliVideoTranscriptionEnabled, true)
+  assert.equal('videoTranscriptionEnabled' in stored, false)
+})
+
 test('getUserConfig promotes legacy customUrl into custom provider and migrates legacy custom key', async () => {
   const customUrl = 'https://proxy.example.com/v1/chat/completions'
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
