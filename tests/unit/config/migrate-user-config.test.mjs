@@ -118,6 +118,46 @@ test('getUserConfig migrates legacy model keys in selected config fields', async
   assert.equal(storage.customApiModes.at(-1).itemName, 'aiml_openai_gpt_5_5')
 })
 
+test('getUserConfig moves the dated AI/ML Claude Sonnet 4.6 key to the canonical preset', async () => {
+  const datedSonnetMode = {
+    groupName: 'aimlModelKeys',
+    itemName: 'aiml_claude_sonnet_4_6_20260218',
+    isCustom: false,
+    customName: '',
+    customUrl: '',
+    apiKey: '',
+    providerId: '',
+    active: true,
+  }
+  globalThis.__TEST_BROWSER_SHIM__.replaceStorage({
+    configSchemaVersion: 2,
+    knownApiModeDefaultIds: [...defaultApiModeIds],
+    modelName: 'aiml_claude_sonnet_4_6_20260218',
+    apiMode: datedSonnetMode,
+    customApiModes: [datedSonnetMode],
+    providerSecrets: {
+      aiml: 'aiml-key',
+    },
+  })
+
+  const config = await getUserConfig()
+  const storage = globalThis.__TEST_BROWSER_SHIM__.getStorage()
+
+  assert.equal(config.modelName, 'aiml_claude_sonnet_4_6')
+  assert.equal(storage.modelName, 'aiml_claude_sonnet_4_6')
+  assert.equal(config.apiMode.itemName, 'aiml_claude_sonnet_4_6')
+  assert.equal(storage.apiMode.itemName, 'aiml_claude_sonnet_4_6')
+  assert.equal(config.customApiModes[0].itemName, 'aiml_claude_sonnet_4_6')
+  assert.equal(storage.customApiModes[0].itemName, 'aiml_claude_sonnet_4_6')
+
+  const request = resolveOpenAICompatibleRequest(config, {
+    modelName: config.modelName,
+    apiMode: config.apiMode,
+  })
+  assert.equal(request.providerId, 'aiml')
+  assert.equal(request.requestUrl, 'https://api.aimlapi.com/v1/chat/completions')
+})
+
 test('getUserConfig reuses custom mode key promoted earlier in the same migration pass', async () => {
   const customUrl = 'https://proxy.example.com/v1/chat/completions'
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage({

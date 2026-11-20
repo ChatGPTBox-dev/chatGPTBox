@@ -43,6 +43,11 @@ const OPENROUTER_ATTRIBUTION_HEADERS = {
   'X-OpenRouter-Title': 'ChatGPTBox',
   'X-OpenRouter-Categories': 'general-chat,writing-assistant',
 }
+const AIML_API_HOSTNAME = 'api.aimlapi.com'
+const AIML_ATTRIBUTION_HEADERS = {
+  'X-AIMLAPI-Source': 'agent/chatgptbox',
+  'X-AIMLAPI-Partner-ID': 'part_suAsqzeIpC2a5yS8K1leCNtf',
+}
 
 function hasOpenAICompatibleRuntimeConfig(config) {
   if (!config || typeof config !== 'object') return false
@@ -113,6 +118,22 @@ function getOpenRouterAttributionHeaders(requestUrl) {
     return {}
   }
   return OPENROUTER_ATTRIBUTION_HEADERS
+}
+
+function getAimlAttributionHeaders(requestUrl) {
+  try {
+    if (new URL(requestUrl).hostname !== AIML_API_HOSTNAME) return {}
+  } catch {
+    return {}
+  }
+  return AIML_ATTRIBUTION_HEADERS
+}
+
+function getAppAttributionHeaders(requestUrl) {
+  return {
+    ...getOpenRouterAttributionHeaders(requestUrl),
+    ...getAimlAttributionHeaders(requestUrl),
+  }
 }
 
 function resolveOllamaKeepAliveBaseUrl(request) {
@@ -329,7 +350,7 @@ export async function generateAnswersWithOpenAICompatibleApi(port, question, ses
     apiKey: request.apiKey,
     config: runtimeConfig,
     provider: providerRequestShapingId,
-    extraHeaders: getOpenRouterAttributionHeaders(request.requestUrl),
+    extraHeaders: getAppAttributionHeaders(request.requestUrl),
     allowLegacyResponseField: request.provider.allowLegacyResponseField,
   })
 
