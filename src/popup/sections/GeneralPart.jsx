@@ -774,6 +774,18 @@ export function GeneralPart({
             }}
           />
         )}
+        {isUsingAzureOpenAiApiModel(config) && (
+          <label style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={config.azureUseResponses === true}
+              onChange={(e) => {
+                updateConfig({ azureUseResponses: e.target.checked })
+              }}
+            />
+            {t('Use Responses API (Azure preview)')}
+          </label>
+        )}
         {isUsingGithubThirdPartyApiModel(config) && (
           <input
             type="text"
