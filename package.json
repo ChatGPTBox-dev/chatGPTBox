@@ -46,7 +46,7 @@
     "file-saver": "^2.0.5",
     "github-markdown-css": "^5.9.0",
     "gpt-3-encoder": "^1.1.4",
-    "i18next": "^22.5.1",
+    "i18next": "^27.2.6",
     "js-sha3": "^0.9.3",
     "katex": "^0.16.11",
     "lodash-es": "^4.17.21",
