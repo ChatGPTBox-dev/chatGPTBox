@@ -43,6 +43,11 @@ const OPENROUTER_ATTRIBUTION_HEADERS = {
   'X-OpenRouter-Title': 'ChatGPTBox',
   'X-OpenRouter-Categories': 'general-chat,writing-assistant',
 }
+const AIML_API_ORIGIN = 'https://api.aimlapi.com'
+const AIML_ATTRIBUTION_HEADERS = {
+  'X-AIMLAPI-Source': 'agent/chatgptbox',
+  'X-AIMLAPI-Partner-ID': 'part_suAsqzeIpC2a5yS8K1leCNtf',
+}
 
 function hasOpenAICompatibleRuntimeConfig(config) {
   if (!config || typeof config !== 'object') return false
@@ -113,6 +118,14 @@ function getOpenRouterAttributionHeaders(requestUrl) {
     return {}
   }
   return OPENROUTER_ATTRIBUTION_HEADERS
+}
+
+function isAimlRequest(requestUrl) {
+  try {
+    return new URL(requestUrl).origin === AIML_API_ORIGIN
+  } catch {
+    return false
+  }
 }
 
 function resolveOllamaKeepAliveBaseUrl(request) {
@@ -319,6 +332,7 @@ export async function generateAnswersWithOpenAICompatibleApi(port, question, ses
 
   const model = resolveModelName(session, runtimeConfig)
   const providerRequestShapingId = resolveProviderRequestShapingId(request)
+  const isAiml = isAimlRequest(request.requestUrl)
   await generateAnswersWithOpenAICompatible({
     port,
     question,
@@ -329,7 +343,11 @@ export async function generateAnswersWithOpenAICompatibleApi(port, question, ses
     apiKey: request.apiKey,
     config: runtimeConfig,
     provider: providerRequestShapingId,
-    extraHeaders: getOpenRouterAttributionHeaders(request.requestUrl),
+    extraHeaders: isAiml
+      ? AIML_ATTRIBUTION_HEADERS
+      : getOpenRouterAttributionHeaders(request.requestUrl),
+    // Never resend attribution headers to a redirect destination.
+    redirect: isAiml ? 'error' : undefined,
     allowLegacyResponseField: request.provider.allowLegacyResponseField,
   })
 

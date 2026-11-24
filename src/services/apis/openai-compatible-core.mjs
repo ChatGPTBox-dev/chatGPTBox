@@ -45,6 +45,7 @@ function hasFinished(data) {
  * @param {string} [params.provider]
  * @param {Record<string, any>} [params.extraBody]
  * @param {Record<string, string>} [params.extraHeaders]
+ * @param {RequestRedirect} [params.redirect]
  * @param {boolean} [params.allowLegacyResponseField]
  */
 export async function generateAnswersWithOpenAICompatible({
@@ -59,6 +60,7 @@ export async function generateAnswersWithOpenAICompatible({
   provider = 'compat',
   extraBody = {},
   extraHeaders = {},
+  redirect,
   allowLegacyResponseField = false,
 }) {
   const {
@@ -125,6 +127,7 @@ export async function generateAnswersWithOpenAICompatible({
 
   await fetchSSE(requestUrl, {
     method: 'POST',
+    ...(redirect === undefined ? {} : { redirect }),
     signal: controller.signal,
     headers: buildHeaders(apiKey, extraHeaders),
     body: JSON.stringify(requestBody),
