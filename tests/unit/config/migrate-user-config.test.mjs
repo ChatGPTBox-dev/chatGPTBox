@@ -118,7 +118,7 @@ test('getUserConfig migrates legacy model keys in selected config fields', async
   assert.equal(storage.customApiModes.at(-1).itemName, 'aiml_openai_gpt_5_5')
 })
 
-test('getUserConfig moves the dated AI/ML Claude Sonnet 4.6 key to the canonical preset', async () => {
+test('getUserConfig migrates the dated AI/ML Sonnet 4.6 key', async () => {
   const datedSonnetMode = {
     groupName: 'aimlModelKeys',
     itemName: 'aiml_claude_sonnet_4_6_20260218',
