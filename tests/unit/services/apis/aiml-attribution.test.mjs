@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { generateAnswersWithOpenAICompatibleApi } from '../../../../src/services/apis/openai-api.mjs'
+import * as openAiApi from '../../../../src/services/apis/openai-api.mjs'
 import { createFakePort } from '../../helpers/port.mjs'
 import { createMockSseResponse } from '../../helpers/sse-response.mjs'
 
@@ -64,7 +64,12 @@ async function captureRequest(t, config, session) {
     ])
   })
 
-  await generateAnswersWithOpenAICompatibleApi(createFakePort(), 'CurrentQ', session, config)
+  await openAiApi.generateAnswersWithOpenAICompatibleApi(
+    createFakePort(),
+    'CurrentQ',
+    session,
+    config,
+  )
 
   return { capturedInput, capturedInit }
 }
@@ -130,7 +135,7 @@ const nonAimlBaseUrls = [
 ]
 
 for (const [label, baseUrl] of nonAimlBaseUrls) {
-  test(`omits AI/ML attribution headers for a ${label} copied from the AI/ML provider`, async (t) => {
+  test(`omits AI/ML attribution for a ${label}`, async (t) => {
     const config = createCustomProviderConfig('aiml-proxy', baseUrl, { sourceProviderId: 'aiml' })
     const session = createCustomProviderSession('aiml-proxy')
 
