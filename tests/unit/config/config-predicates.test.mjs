@@ -106,6 +106,13 @@ test('Claude defaults use Haiku 5.5 and keep Haiku 4.5 selectable', () => {
   assert.ok(claudeApiModelKeys.includes('claudeHaiku45Api'))
 })
 
+test('AI/ML defaults expose one current AI/ML preset', () => {
+  const aimlDefaults = defaultApiModeIds.filter((modelName) => aimlApiModelKeys.includes(modelName))
+  assert.deepEqual(aimlDefaults, ['aiml_openai_gpt_6_1_sol'])
+  assert.equal(isUsingAimlApiModel({ modelName: aimlDefaults[0] }), true)
+  assert.equal(Models[aimlDefaults[0]].value, 'openai/gpt-6.1-sol')
+})
+
 test('getNavigatorLanguage returns zh-Hant for zh-TW style locales', () => {
   setNavigatorLanguage('zh-TW')
   assert.equal(getNavigatorLanguage(), 'zh-Hant')
