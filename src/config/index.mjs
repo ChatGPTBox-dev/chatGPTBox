@@ -196,6 +196,7 @@ export const aimlApiModelKeys = [
   'aiml_google_gemini_2_5_flash',
   'aiml_deepseek_v4_pro',
   'aiml_deepseek_v4_flash',
+  'aiml_openai_gpt_6_1_sol',
 ]
 export const googleApiModelKeys = [
   'googleGemini3_1Pro',
@@ -645,6 +646,10 @@ export const Models = {
     value: 'openai/gpt-4.1-mini',
     desc: 'OpenRouter (GPT-4.1 Mini)',
   },
+  aiml_openai_gpt_6_1_sol: {
+    value: 'openai/gpt-6.1-sol',
+    desc: 'AI/ML (GPT-6.1 Sol)',
+  },
   aiml_openai_gpt_5_5: {
     value: 'openai/gpt-5-5',
     desc: 'AIML (GPT-5.5)',
@@ -798,6 +803,7 @@ export const defaultApiModeIds = [
   'mistralMediumLatest',
   'openRouter_auto',
   'openRouter_free',
+  'aiml_openai_gpt_6_1_sol',
   'nvidiaNim_nemotron_3_super',
 ]
 
