@@ -123,6 +123,7 @@ export function normalizeApiMode(apiMode) {
 const alwaysCustomPresetItemNames = {
   azureOpenAiApiModelKeys: 'azureOpenAi',
   ollamaApiModelKeys: 'ollamaModel',
+  rapidMlxApiModelKeys: 'rapidMlxModel',
 }
 
 function isBuiltInAlwaysCustomPreset(apiMode) {

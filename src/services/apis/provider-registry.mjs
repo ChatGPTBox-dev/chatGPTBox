@@ -87,6 +87,13 @@ const BUILTIN_PROVIDER_TEMPLATE = [
     enabled: true,
   },
   {
+    id: 'rapid-mlx',
+    name: 'Rapid-MLX',
+    chatCompletionsPath: '/chat/completions',
+    builtin: true,
+    enabled: true,
+  },
+  {
     id: 'google',
     name: 'Google',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -145,6 +152,7 @@ function resolveProviderIdFromLegacyModelName(modelName) {
   if (preset === 'ollama' || preset === 'ollamaModel' || preset === 'ollamaApiModelKeys') {
     return 'ollama'
   }
+  if (preset === 'rapidMlxModel' || preset === 'rapidMlxApiModelKeys') return 'rapid-mlx'
   if (preset.startsWith('chatglm') || preset === 'chatglmApiModelKeys') return 'chatglm'
   if (preset.startsWith('googleGemini') || preset === 'googleApiModelKeys') return 'google'
   if (preset.startsWith('xaiGrok') || preset === 'xaiApiModelKeys') return 'xai'
@@ -324,6 +332,13 @@ function buildBuiltinProviders(config) {
         ...provider,
         baseUrl: `${baseUrl}/v1`,
       }
+    }
+    if (provider.id === 'rapid-mlx') {
+      const baseUrl = normalizeBaseUrlWithoutVersionSuffix(
+        config.rapidMlxEndpoint,
+        'http://127.0.0.1:8000/v1',
+      )
+      return { ...provider, baseUrl: `${baseUrl}/v1` }
     }
     if (provider.id === 'legacy-custom-default') {
       return {

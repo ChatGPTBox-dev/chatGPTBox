@@ -146,3 +146,31 @@ and detached since 14 December of 2022
 
 [wong2/chat-gpt-google-extension](https://github.com/wong2/chat-gpt-google-extension) is inspired
 by [ZohaibAhmed/ChatGPT-Google](https://github.com/ZohaibAhmed/ChatGPT-Google) ([upstream-c54528b](https://github.com/wong2/chatgpt-google-extension/commit/c54528b0e13058ab78bfb433c92603db017d1b6b))
+
+## Rapid-MLX (local inference)
+
+[Rapid-MLX](https://rapidmlx.com) runs OpenAI-compatible inference on Apple Silicon Macs.
+Install it with `pip install rapid-mlx`, then start a model with the extension origin allowed:
+
+```sh
+rapid-mlx serve qwen3.5-4b-4bit --cors-origins chrome-extension://eobbhoofkanlmddnplfhnmkfbnlhpbbo
+```
+
+That origin uses ChatGPTBox's Chrome Web Store ID. For an unpacked Chromium install,
+replace the ID with the one shown in `chrome://extensions`. For Firefox, use
+`--cors-origins moz-extension://<uuid>` with the extension's UUID from `about:debugging`.
+Rapid-MLX rejects foreign `Origin` headers unless explicitly allowed.
+
+In the popup, open **Modules > API Modes**, add a mode of type **Rapid-MLX (API)**,
+enter the served model ID, and save. Select that mode in **General**. The default
+Rapid-MLX endpoint is `http://127.0.0.1:8000/v1`; change it in General if needed.
+Leave the API key blank unless you started the server with `--api-key`.
+ChatGPTBox streams responses using `/chat/completions` relative to that base URL.
+
+Local model IDs are entered manually. Obtain the exact ID from the server:
+
+```sh
+curl http://127.0.0.1:8000/v1/models
+```
+
+Use an `id` from the response's `data` array. No model is assumed by the extension.

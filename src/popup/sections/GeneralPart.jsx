@@ -752,6 +752,15 @@ export function GeneralPart({
             </label>
           </div>
         )}
+        {selectedProviderId === 'rapid-mlx' && (
+          <input
+            type="text"
+            value={config.rapidMlxEndpoint}
+            placeholder="http://127.0.0.1:8000/v1"
+            aria-label={t('Rapid-MLX Endpoint')}
+            onChange={(e) => updateConfig({ rapidMlxEndpoint: e.target.value.trim() })}
+          />
+        )}
         {isUsingOllamaApiModel(config) && (
           <input
             type="text"
