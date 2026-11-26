@@ -41,8 +41,9 @@ export const LEGACY_MODEL_KEY_MIGRATIONS = {
   openRouter_deepseek_deepseek_chat_v3_0324_free: 'openRouter_deepseek_v4_flash',
 
   aiml_anthropic_claude_opus_4: 'aiml_claude_opus_4_8',
-  aiml_anthropic_claude_sonnet_4: 'aiml_claude_sonnet_4_6_20260218',
-  aiml_claude_3_7_sonnet_20250219: 'aiml_claude_sonnet_4_6_20260218',
+  aiml_anthropic_claude_sonnet_4: 'aiml_claude_sonnet_4_6',
+  aiml_claude_3_7_sonnet_20250219: 'aiml_claude_sonnet_4_6',
+  aiml_claude_sonnet_4_6_20260218: 'aiml_claude_sonnet_4_6',
   aiml_google_gemini_2_5_pro_preview_05_06: 'aiml_google_gemini_2_5_pro',
   aiml_google_gemini_2_5_flash_preview: 'aiml_google_gemini_2_5_flash',
   aiml_openai_o3_2025_04_16: 'aiml_openai_gpt_5_5',
@@ -75,7 +76,7 @@ const MODEL_KEY_GROUP_OVERRIDES = {
   openRouter_deepseek_v4_flash: 'openRouterApiModelKeys',
 
   aiml_claude_opus_4_8: 'aimlModelKeys',
-  aiml_claude_sonnet_4_6_20260218: 'aimlModelKeys',
+  aiml_claude_sonnet_4_6: 'aimlModelKeys',
   aiml_google_gemini_2_5_pro: 'aimlModelKeys',
   aiml_google_gemini_2_5_flash: 'aimlModelKeys',
   aiml_openai_gpt_5_5: 'aimlModelKeys',
