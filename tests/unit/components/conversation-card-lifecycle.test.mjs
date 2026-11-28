@@ -78,16 +78,33 @@ const baseSession = () => ({
   question: null,
 })
 
+const geminiContinuationSession = () => ({
+  conversationRecords: [{ question: 'Q1', answer: 'A1' }],
+  modelName: 'bardWebFree',
+  apiMode: { groupName: 'bardWebModelKeys', itemName: 'bardWebFree' },
+  question: null,
+  geminiWeb_conversation: {
+    c: 'c-old',
+    r: 'r-old',
+    rc: 'rc-old',
+    accountPath: '',
+  },
+})
+
 const createRuntimePort = () => {
   const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
   const onMessage = createEvent()
   const onDisconnect = createEvent()
   let disconnected = false
   let disconnectCount = 0
+  const postedMessages = []
   const port = {
     onMessage,
     onDisconnect,
-    postMessage() {},
+    postedMessages,
+    postMessage(message) {
+      postedMessages.push(message)
+    },
     disconnect() {
       disconnectCount += 1
       if (disconnected) return
@@ -119,11 +136,17 @@ const resetState = () => {
   state.config = defaultConfig()
   state.ports = []
   state.inputBoxProps = null
+  state.conversationItemProps = null
   state.deleteButtonProps = null
   state.configReadCount = 0
   state.getUserConfig = async () => {
     state.configReadCount += 1
     return { bingAccessToken: 'token', allowEscToCloseAll: false }
+  }
+  state.createSession = async () => {}
+  state.sentRuntimeMessages = []
+  state.sendMessage = async (message) => {
+    state.sentRuntimeMessages.push(message)
   }
   state.generateAnswersCount = 0
   state.generateAnswers = async () => {
@@ -300,6 +323,373 @@ test('unmount disconnects the owned runtime Port without reconnecting', () => {
   assert.equal(port.disconnected, true)
   assert.equal(port.onDisconnect.size(), 0)
   assert.equal(state.ports.length, 1)
+})
+
+test('unmount after a submitted Gemini continuation persists unsafe state', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let persistedSession
+
+  mountCard(container, {
+    session: geminiContinuationSession(),
+    onUpdate: (_port, session) => {
+      if (session.geminiWeb_conversationUnsafe === true) persistedSession = session
+    },
+  })
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+
+  const submit = state.inputBoxProps.onSubmit('Q2')
+  await nextTask()
+  act(() => {
+    state.ports[0].onMessage.trigger({ geminiWebContinuationSubmitted: true })
+  })
+  act(() => render(null, container))
+  await submit
+
+  assert.equal(persistedSession?.geminiWeb_conversationUnsafe, true)
+  assert.equal(persistedSession?.geminiWeb_conversation?.c, 'c-old')
+})
+
+test('unmount after switching providers preserves submitted Gemini uncertainty', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let latestSession
+  let persistedSession
+
+  mountCard(container, {
+    session: geminiContinuationSession(),
+    onUpdate: (_port, session) => {
+      latestSession = session
+      if (session.geminiWeb_conversationUnsafe === true) persistedSession = session
+    },
+  })
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+
+  const submit = state.inputBoxProps.onSubmit('Q2')
+  await nextTask()
+  act(() => {
+    state.ports[0].onMessage.trigger({ geminiWebContinuationSubmitted: true })
+  })
+
+  const selector = container.querySelector('select')
+  assert.ok(selector)
+  act(() => {
+    selector.value = '-1'
+    selector.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await waitFor(
+    () => latestSession?.modelName === 'customModel',
+    'provider switch did not update the session',
+  )
+
+  act(() => render(null, container))
+  await submit
+
+  assert.equal(persistedSession?.modelName, 'customModel')
+  assert.equal(persistedSession?.geminiWeb_conversationUnsafe, true)
+  assert.equal(persistedSession?.geminiWeb_conversation?.c, 'c-old')
+})
+
+test('auto-regeneration after a provider switch preserves Gemini uncertainty', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let latestSession
+
+  state.config.autoRegenAfterSwitchModel = true
+  mountCard(container, {
+    session: geminiContinuationSession(),
+    onUpdate: (_port, currentSession) => {
+      latestSession = currentSession
+    },
+  })
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+
+  const submit = state.inputBoxProps.onSubmit('Q2')
+  await nextTask()
+  act(() => {
+    state.ports[0].onMessage.trigger({ geminiWebContinuationSubmitted: true })
+  })
+  const port = state.ports[0]
+  const messageCount = port.postedMessages.length
+  const selector = container.querySelector('select')
+  act(() => {
+    selector.value = '-1'
+    selector.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await waitFor(
+    () => latestSession?.modelName === 'customModel',
+    'provider switch did not update the session',
+  )
+  await waitFor(
+    () =>
+      port.postedMessages
+        .slice(messageCount)
+        .some((message) => message.session?.modelName === 'customModel'),
+    'provider switch did not send a replacement request',
+  )
+  const replacement = port.postedMessages
+    .slice(messageCount)
+    .find((message) => message.session?.modelName === 'customModel')
+  assert.equal(replacement.session.geminiWeb_conversationUnsafe, true)
+  assert.equal(latestSession?.geminiWeb_conversationUnsafe, true)
+  await submit
+})
+
+test('unmount during a submitted Gemini retry preserves the original answer', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let persistedSession
+  const session = geminiContinuationSession()
+  session.conversationRecords.push({ question: 'Q2', answer: 'A2' })
+  session.geminiWeb_previousConversation = {
+    c: 'c-old',
+    r: 'r-before',
+    rc: 'rc-before',
+    accountPath: '',
+    turnIndex: 1,
+  }
+  session.geminiWeb_lastRecordIndex = 1
+
+  mountCard(container, {
+    session,
+    onUpdate: (_port, nextSession) => {
+      if (nextSession.geminiWeb_conversationUnsafe === true) {
+        persistedSession = nextSession
+      }
+    },
+  })
+  await waitFor(
+    () => typeof state.conversationItemProps?.onRetry === 'function',
+    'Retry handler did not render',
+  )
+
+  let retry
+  act(() => {
+    retry = state.conversationItemProps.onRetry()
+  })
+  await retry
+  const submitted = state.ports[0].postedMessages.at(-1)
+  assert.deepEqual(
+    submitted.session.geminiWeb_retryConversation,
+    session.geminiWeb_previousConversation,
+  )
+  act(() => {
+    state.ports[0].onMessage.trigger({
+      geminiWebContinuationSubmitted: true,
+      requestGenerationId: submitted.requestGenerationId,
+    })
+    render(null, container)
+  })
+
+  assert.equal(persistedSession?.geminiWeb_conversationUnsafe, true)
+  assert.deepEqual(persistedSession?.conversationRecords, [
+    { question: 'Q1', answer: 'A1' },
+    { question: 'Q2', answer: 'A2' },
+  ])
+  assert.equal(Object.hasOwn(persistedSession, 'geminiWeb_retryConversation'), false)
+})
+
+test('delayed Gemini unsafe notice does not overwrite a finalized retry', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let latestSession
+  const session = geminiContinuationSession()
+  session.conversationRecords.push({ question: 'Q2', answer: 'A2' })
+  session.geminiWeb_previousConversation = {
+    c: 'c-old',
+    r: 'r-before',
+    rc: 'rc-before',
+    accountPath: '',
+    turnIndex: 1,
+  }
+  session.geminiWeb_lastRecordIndex = 1
+
+  mountCard(container, {
+    session,
+    onUpdate: (_port, nextSession) => {
+      latestSession = nextSession
+    },
+  })
+  await waitFor(
+    () => typeof state.conversationItemProps?.onRetry === 'function',
+    'Retry handler did not render',
+  )
+
+  let retry
+  act(() => {
+    retry = state.conversationItemProps.onRetry()
+  })
+  await retry
+  const submitted = state.ports[0].postedMessages.at(-1)
+  assert.deepEqual(
+    submitted.session.geminiWeb_retryConversation,
+    session.geminiWeb_previousConversation,
+  )
+  act(() => {
+    state.ports[0].onMessage.trigger({
+      geminiWebContinuationSubmitted: true,
+      requestGenerationId: submitted.requestGenerationId,
+    })
+    state.ports[0].onMessage.trigger({ done: true })
+  })
+  await waitFor(
+    () => latestSession?.geminiWeb_conversationUnsafe === true,
+    'stopped retry did not retain Gemini uncertainty',
+  )
+  act(() => {
+    state.ports[0].onMessage.trigger({ geminiWebConversationUnsafe: true })
+  })
+
+  assert.deepEqual(latestSession?.conversationRecords, [
+    { question: 'Q1', answer: 'A1' },
+    { question: 'Q2', answer: 'A2' },
+  ])
+  assert.equal(Object.hasOwn(latestSession, 'geminiWeb_retryConversation'), false)
+  assert.equal(latestSession?.geminiWeb_conversationUnsafe, true)
+})
+
+test('a late Gemini submission notice after Stop preserves continuation uncertainty', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let latestSession
+  mountCard(container, {
+    session: geminiContinuationSession(),
+    onUpdate: (_port, session) => {
+      latestSession = session
+    },
+  })
+  await waitFor(() => state.inputBoxProps?.onSubmit, 'InputBox did not render')
+  await state.inputBoxProps.onSubmit('Q2')
+  const port = state.ports[0]
+  const generation = port.postedMessages.at(-1).requestGenerationId
+  await state.inputBoxProps.postMessage({ stop: true })
+  act(() => port.onMessage.trigger({ done: true }))
+  act(() =>
+    port.onMessage.trigger({
+      requestGenerationId: generation,
+      geminiWebConversationUnsafe: true,
+      geminiWebContinuationRevision: JSON.stringify(['c-old', 'r-old', 'rc-old', null]),
+    }),
+  )
+  await waitFor(
+    () => latestSession?.geminiWeb_conversationUnsafe === true,
+    'Late Gemini unsafe outcome was lost',
+  )
+})
+
+test('unmount before Gemini prompt submission keeps continuation retry-safe', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let unsafeUpdateCount = 0
+
+  mountCard(container, {
+    session: geminiContinuationSession(),
+    onUpdate: (_port, session) => {
+      if (session.geminiWeb_conversationUnsafe === true) unsafeUpdateCount += 1
+    },
+  })
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+
+  const submit = state.inputBoxProps.onSubmit('Q2')
+  await nextTask()
+  act(() => render(null, container))
+  await submit
+
+  assert.equal(unsafeUpdateCount, 0)
+})
+
+test('stop acknowledgement after a submitted Gemini continuation marks it unsafe', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let latestSession
+
+  mountCard(container, {
+    session: geminiContinuationSession(),
+    onUpdate: (_port, session) => {
+      latestSession = session
+    },
+  })
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+
+  const submit = state.inputBoxProps.onSubmit('Q2')
+  await nextTask()
+  const port = state.ports[0]
+  act(() => {
+    port.onMessage.trigger({ geminiWebContinuationSubmitted: true })
+  })
+  await state.inputBoxProps.postMessage({ stop: true })
+  assert.equal(port.postedMessages.at(-1).stop, true)
+  act(() => port.onMessage.trigger({ done: true }))
+  await waitFor(
+    () => latestSession?.geminiWeb_conversationUnsafe === true,
+    'submitted continuation was not marked unsafe after stop acknowledgement',
+  )
+  assert.equal(latestSession.geminiWeb_conversation.c, 'c-old')
+  await submit
+})
+
+test('remote runtime disconnect marks an in-flight Gemini continuation unsafe in foreground state', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let latestSession
+  let latestPort
+  const geminiSession = geminiContinuationSession()
+
+  mountCard(container, {
+    session: geminiSession,
+    onUpdate: (port, session) => {
+      latestSession = session
+      latestPort = port
+    },
+  })
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+
+  const submit = state.inputBoxProps.onSubmit('Q2')
+  await nextTask()
+  const initialPort = state.ports[0]
+
+  act(() => {
+    initialPort.onMessage.trigger({ geminiWebContinuationSubmitted: true })
+  })
+  act(() => initialPort.emitRemoteDisconnect())
+  await waitFor(
+    () => latestSession?.geminiWeb_conversationUnsafe === true,
+    'Gemini continuation was not marked unsafe after runtime disconnect',
+  )
+
+  assert.equal(state.ports.length, 2)
+  assert.equal(latestPort, state.ports[1])
+  assert.equal(latestSession.geminiWeb_conversation.c, 'c-old')
+  await submit
+
+  act(() => render(null, container))
 })
 
 test('remote runtime Port disconnect reconnects and unmount cleans the replacement', () => {
@@ -502,6 +892,40 @@ test('successful clear replacement Port is disposed on unmount', async () => {
   assert.equal(replacementPort.disconnectCount, 1)
   assert.equal(replacementPort.disconnected, true)
   assert.equal(state.ports.length, 2)
+})
+
+test('clearing a submitted Gemini turn does not poison the replacement Port', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let latestSession
+  let latestPort
+  mountCard(container, {
+    session: geminiContinuationSession(),
+    onUpdate: (port, session) => {
+      latestPort = port
+      latestSession = session
+    },
+  })
+  await waitFor(
+    () => typeof state.inputBoxProps?.onSubmit === 'function',
+    'InputBox did not render',
+  )
+  await state.inputBoxProps.onSubmit('Q2')
+  act(() => state.ports[0].onMessage.trigger({ geminiWebContinuationSubmitted: true }))
+  await act(async () => {
+    await state.deleteButtonProps.onConfirm()
+  })
+  await waitFor(
+    () => state.ports.length === 2 && latestSession?.conversationRecords.length === 0,
+    'clear did not replace the Port',
+  )
+  act(() => state.ports[1].emitRemoteDisconnect())
+  await waitFor(
+    () => state.ports.length === 3 && latestPort === state.ports[2],
+    'replacement Port did not publish its session',
+  )
+  assert.notEqual(latestSession.geminiWeb_conversationUnsafe, true)
 })
 
 test('clear continuation does not reconnect after unmount', async () => {
@@ -817,4 +1241,274 @@ test('provider failure disconnects fake Port and removes stale listeners', async
   assert.equal(disconnectCount, 1)
 
   act(() => render(null, container))
+})
+
+test('retry after a pre-submit rejection replaces the same completed Gemini turn', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const session = geminiContinuationSession()
+  session.question = 'Q2'
+  session.conversationRecords.push({ question: 'Q2', answer: 'A2' })
+  session.geminiWeb_previousConversation = { c: 'c-old', r: 'r-before', rc: 'rc-before' }
+  session.geminiWeb_lastRecordIndex = 1
+
+  mountCard(container, { session })
+  await waitFor(
+    () => typeof state.conversationItemProps?.onRetry === 'function',
+    'Retry handler did not render',
+  )
+  let retry
+  act(() => {
+    retry = state.conversationItemProps.onRetry()
+  })
+  await retry
+  const port = state.ports[0]
+  const firstRequest = port.postedMessages.at(-1).session
+  assert.deepEqual(firstRequest.geminiWeb_retryConversation, session.geminiWeb_previousConversation)
+
+  act(() => port.onMessage.trigger({ error: 'Model mismatch' }))
+  await waitFor(() => state.conversationItemProps?.type === 'error', 'Retry error did not render')
+  const messageCount = port.postedMessages.length
+  act(() => {
+    retry = state.conversationItemProps.onRetry()
+  })
+  await retry
+  assert.ok(port.postedMessages.length > messageCount)
+  const secondRequest = port.postedMessages.at(-1).session
+  assert.deepEqual(
+    secondRequest.geminiWeb_retryConversation,
+    firstRequest.geminiWeb_retryConversation,
+  )
+  assert.deepEqual(secondRequest.conversationRecords, [{ question: 'Q1', answer: 'A1' }])
+  assert.equal(secondRequest.question, 'Q2')
+})
+
+test('a rejected archive write preserves the active conversation and does not navigate', async (t) => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const session = { ...geminiContinuationSession(), sessionId: 'original' }
+  let latestSession
+  state.createSession = async () => {
+    throw new Error('Storage unavailable')
+  }
+  const alert = t.mock.method(window, 'alert', () => {})
+  t.mock.method(console, 'error', () => {})
+
+  mountCard(container, {
+    session,
+    onUpdate: (_port, nextSession) => {
+      latestSession = nextSession
+    },
+  })
+  await waitFor(() => latestSession, 'Conversation did not render')
+  const archive = container.querySelector('[title="Store to Independent Conversation Page"]')
+  assert.ok(archive)
+  act(() => archive.click())
+  await waitFor(() => alert.mock.callCount() === 1, 'Archive failure was not surfaced')
+  assert.equal(latestSession.sessionId, 'original')
+  assert.deepEqual(state.sentRuntimeMessages, [])
+})
+
+test('the first in-flight Gemini turn cannot be archived before its answer arrives', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let saves = 0
+  state.createSession = async () => {
+    saves += 1
+  }
+  mountCard(container, {
+    session: {
+      ...baseSession(),
+      modelName: 'bardWebFree',
+      apiMode: { groupName: 'bardWebModelKeys' },
+    },
+  })
+  await waitFor(() => state.inputBoxProps?.onSubmit, 'InputBox did not render')
+  await state.inputBoxProps.onSubmit('First question')
+  await waitFor(() => state.inputBoxProps?.enabled === false, 'Generation did not start')
+  const archive = container.querySelector('[title="Store to Independent Conversation Page"]')
+  assert.ok(archive)
+  act(() => archive.click())
+  await nextTask()
+  assert.equal(saves, 0)
+  assert.deepEqual(state.sentRuntimeMessages, [])
+})
+
+test('a superseded Gemini submission notice remains relevant after another request starts', async () => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let latestSession
+  mountCard(container, {
+    session: geminiContinuationSession(),
+    onUpdate: (_port, session) => {
+      latestSession = session
+    },
+  })
+  await waitFor(() => state.inputBoxProps?.onSubmit, 'InputBox did not render')
+  await state.inputBoxProps.onSubmit('Q2')
+  const port = state.ports[0]
+  const generation = port.postedMessages.at(-1).requestGenerationId
+  await state.inputBoxProps.postMessage({ stop: true })
+  act(() => port.onMessage.trigger({ done: true }))
+  await waitFor(() => state.inputBoxProps?.enabled === true, 'Stop did not restore readiness')
+  const messageCount = port.postedMessages.length
+  await state.inputBoxProps.onSubmit('Q3')
+  const replacement = port.postedMessages
+    .slice(messageCount)
+    .find((message) => message.session?.question === 'Q3')
+  assert.ok(replacement)
+  assert.notEqual(replacement.requestGenerationId, generation)
+  act(() =>
+    port.onMessage.trigger({
+      requestGenerationId: generation,
+      geminiWebConversationUnsafe: true,
+      geminiWebContinuationRevision: JSON.stringify(['c-old', 'r-old', 'rc-old', null]),
+    }),
+  )
+  await waitFor(
+    () => latestSession?.geminiWeb_conversationUnsafe === true,
+    'Late Gemini unsafe outcome was lost',
+  )
+})
+
+test('archive navigation failure retries opening without duplicating the saved conversation', async (t) => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  let saves = 0
+  let opens = 0
+  state.createSession = async () => {
+    saves += 1
+  }
+  state.sendMessage = async (message) => {
+    if (message.type === 'OPEN_URL' && ++opens === 1) throw new Error('Navigation failed')
+  }
+  const alert = t.mock.method(window, 'alert', () => {})
+  t.mock.method(console, 'error', () => {})
+  mountCard(container, { session: geminiContinuationSession() })
+  const archive = container.querySelector('[title="Store to Independent Conversation Page"]')
+  assert.ok(archive)
+  act(() => archive.click())
+  await waitFor(() => alert.mock.callCount() === 1, 'navigation failure was not surfaced')
+  act(() => archive.click())
+  await waitFor(() => opens === 2, 'navigation was not retried')
+  assert.equal(saves, 1)
+})
+
+for (const answer of ['A', '']) {
+  test(`redundant completion notifications preserve the retry target with ${
+    answer ? 'nonempty' : 'empty'
+  } answers`, async () => {
+    const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+    const container = document.createElement('div')
+    document.body.append(container)
+    mountCard(container)
+    await waitFor(() => state.inputBoxProps?.onSubmit, 'InputBox did not render')
+    await state.inputBoxProps.onSubmit('Q')
+    const port = state.ports[0]
+    const request = port.postedMessages.at(-1)
+    const completed = { ...request.session, conversationRecords: [{ question: 'Q', answer }] }
+    act(() =>
+      port.onMessage.trigger({
+        answer: answer || null,
+        done: true,
+        session: completed,
+        requestGenerationId: request.requestGenerationId,
+      }),
+    )
+    await waitFor(
+      () => state.inputBoxProps?.enabled === true,
+      'Completion did not restore readiness',
+    )
+    act(() =>
+      port.onMessage.trigger({ done: true, requestGenerationId: request.requestGenerationId }),
+    )
+    await nextTask()
+    const count = port.postedMessages.length
+    let retry
+    act(() => {
+      retry = state.conversationItemProps.onRetry()
+    })
+    await retry
+    assert.ok(port.postedMessages.length > count)
+    assert.deepEqual(port.postedMessages.at(-1).session.conversationRecords, [])
+    assert.equal(port.postedMessages.at(-1).session.question, 'Q')
+  })
+}
+
+test('retrying an archive after an uncertain write uses the original archive ID', async (t) => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const saves = []
+  state.createSession = async (session) => {
+    saves.push(session)
+    if (saves.length === 1) throw new Error('Write response lost')
+  }
+  const alert = t.mock.method(window, 'alert', () => {})
+  t.mock.method(console, 'error', () => {})
+  mountCard(container, { session: geminiContinuationSession() })
+  const archive = container.querySelector('[title="Store to Independent Conversation Page"]')
+  assert.ok(archive)
+  act(() => archive.click())
+  await waitFor(() => alert.mock.callCount() === 1, 'write failure was not surfaced')
+  act(() => archive.click())
+  await waitFor(
+    () => state.sentRuntimeMessages.some((message) => message.type === 'OPEN_URL'),
+    'archive did not open',
+  )
+  assert.equal(saves.length, 2)
+  assert.equal(saves[0].sessionId, saves[1].sessionId)
+})
+
+test('archive retry saves a new snapshot after the conversation changes', async (t) => {
+  const state = globalThis.__CONVERSATION_LIFECYCLE_TEST__
+  const container = document.createElement('div')
+  document.body.append(container)
+  const saves = []
+  let opens = 0
+  state.createSession = async (session) => {
+    saves.push(structuredClone(session))
+  }
+  state.sendMessage = async (message) => {
+    if (message.type === 'OPEN_URL' && ++opens === 1) throw new Error('Navigation failed')
+  }
+  const alert = t.mock.method(window, 'alert', () => {})
+  t.mock.method(console, 'error', () => {})
+  mountCard(container, { session: geminiContinuationSession() })
+  await waitFor(() => state.inputBoxProps?.onSubmit, 'InputBox did not render')
+  const archive = container.querySelector('[title="Store to Independent Conversation Page"]')
+  assert.ok(archive)
+  act(() => archive.click())
+  await waitFor(() => alert.mock.callCount() === 1, 'navigation failure was not surfaced')
+  await state.inputBoxProps.onSubmit('New question')
+  const port = state.ports[0]
+  const request = port.postedMessages.at(-1)
+  act(() =>
+    port.onMessage.trigger({
+      answer: 'New answer',
+      done: true,
+      session: {
+        ...request.session,
+        conversationRecords: [
+          ...request.session.conversationRecords,
+          { question: 'New question', answer: 'New answer' },
+        ],
+      },
+      requestGenerationId: request.requestGenerationId,
+    }),
+  )
+  await waitFor(() => state.inputBoxProps?.enabled === true, 'Completion did not restore readiness')
+  act(() => archive.click())
+  await waitFor(() => opens === 2, 'updated archive did not open')
+  assert.equal(saves.length, 2)
+  assert.deepEqual(saves[1].conversationRecords.at(-1), {
+    question: 'New question',
+    answer: 'New answer',
+  })
+  assert.notEqual(saves[0].sessionId, saves[1].sessionId)
 })

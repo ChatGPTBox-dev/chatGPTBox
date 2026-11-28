@@ -1,4 +1,13 @@
-import { AlwaysCustomGroups, ModelGroups, ModelMode, Models } from '../config/index.mjs'
+import {
+  AlwaysCustomGroups,
+  defaultConfig,
+  ModelGroups,
+  ModelMode,
+  Models,
+} from '../config/index.mjs'
+import { resolveGeminiWebPreset } from './gemini-web-preset.mjs'
+
+const GEMINI_WEB_DEFAULT_MODEL = 'bardWebFree'
 
 function normalizeProviderId(value) {
   return String(value || '')
@@ -174,7 +183,33 @@ export function getApiModesFromConfig(config, onlyActive) {
       }
       return Boolean(apiMode.itemName)
     })
-  const activeApiModes = Array.isArray(config.activeApiModes) ? config.activeApiModes : []
+  const configuredActiveApiModes = Array.isArray(config.activeApiModes) ? config.activeApiModes : []
+  const configuredKnownDefaultIds = Array.isArray(config.knownApiModeDefaultIds)
+    ? config.knownApiModeDefaultIds
+    : []
+  const hasConfiguredGeminiWebMode = normalizedCustomApiModes.some(
+    (apiMode) => apiMode.groupName === 'bardWebModelKeys',
+  )
+  const hasHandledGeminiWebDefault = configuredKnownDefaultIds.includes(GEMINI_WEB_DEFAULT_MODEL)
+  const usesLiveDefaultApiModes =
+    Number(config.configSchemaVersion) >= 2 &&
+    configuredKnownDefaultIds.length === 0 &&
+    normalizedCustomApiModes.length === 0 &&
+    configuredActiveApiModes.length === defaultConfig.activeApiModes.length &&
+    configuredActiveApiModes.every(
+      (modelName, index) => modelName === defaultConfig.activeApiModes[index],
+    )
+  const shouldIncludeGeminiWebDefault =
+    Object.hasOwn(config, 'geminiWebModel') &&
+    usesLiveDefaultApiModes &&
+    !hasConfiguredGeminiWebMode &&
+    !hasHandledGeminiWebDefault &&
+    !configuredActiveApiModes.includes(GEMINI_WEB_DEFAULT_MODEL)
+  const activeApiModes = hasConfiguredGeminiWebMode
+    ? configuredActiveApiModes.filter((modelName) => modelName !== GEMINI_WEB_DEFAULT_MODEL)
+    : shouldIncludeGeminiWebDefault
+    ? [...configuredActiveApiModes, GEMINI_WEB_DEFAULT_MODEL]
+    : configuredActiveApiModes
   const customApiModeIndexesByCanonicalModelName = normalizedCustomApiModes.reduce(
     (result, apiMode, index) => {
       const canonicalModelName = apiModeToModelName(apiMode)
@@ -296,7 +331,10 @@ export function reconcileMaterializedApiModeDefaults(config, defaultIds, knownDe
       },
       false,
     )
-    const materializedMode = materializedModes[0]
+    const { canonicalModelName } = resolveCanonicalActiveApiModeInfo(defaultId, config)
+    const materializedMode = materializedModes.find(
+      (apiMode) => apiModeToModelName(apiMode) === canonicalModelName,
+    )
     if (!materializedMode) continue
 
     const identity = getApiModeDefaultIdentity(materializedMode)
@@ -320,15 +358,32 @@ export function getApiModesStringArrayFromConfig(config, onlyActive) {
   return getApiModesFromConfig(config, onlyActive).map(apiModeToModelName)
 }
 
-export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = false } = {}) {
+export function isApiModeSelected(
+  apiMode,
+  configOrSession,
+  { sessionCompat = false, geminiWebFallbackConfig = configOrSession } = {},
+) {
   const normalizeForCompare = (value, { includeProviderState = true } = {}) => {
     const normalized = normalizeApiMode(value)
     if (!normalized) return null
+    const isGeminiWebMode = normalized.groupName === 'bardWebModelKeys'
     const normalizedForCompare = {
       groupName: normalized.groupName,
       itemName: normalized.itemName,
-      isCustom: normalized.isCustom,
-      customName: normalized.customName,
+      ...(isGeminiWebMode
+        ? {}
+        : {
+            isCustom: normalized.isCustom,
+            customName: normalized.customName,
+          }),
+    }
+    if (isGeminiWebMode) {
+      const { model, extendedThinking } = resolveGeminiWebPreset(
+        normalized,
+        geminiWebFallbackConfig,
+      )
+      normalizedForCompare.geminiWebModel = model
+      normalizedForCompare.geminiWebExtendedThinking = extendedThinking
     }
     if (includeProviderState) {
       normalizedForCompare.providerId = normalized.providerId
@@ -340,6 +395,22 @@ export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = fa
   const matchesModelName = (targetApiMode) => {
     const targetModelName = apiModeToModelName(targetApiMode)
     if (!configOrSession?.modelName || !targetModelName) return false
+    if (
+      targetApiMode.groupName === 'bardWebModelKeys' &&
+      modelNameToPresetPart(configOrSession.modelName) === 'bardWebFree'
+    ) {
+      const selected = resolveGeminiWebPreset(
+        modelNameToApiMode(configOrSession.modelName),
+        geminiWebFallbackConfig,
+      )
+      const target = resolveGeminiWebPreset(targetApiMode, geminiWebFallbackConfig)
+      return (
+        selected.source !== 'invalid' &&
+        target.source !== 'invalid' &&
+        selected.model === target.model &&
+        selected.extendedThinking === target.extendedThinking
+      )
+    }
     if (configOrSession.modelName === targetModelName) return true
     if (!targetApiMode?.active) return false
     const { canonicalModelName } = resolveCanonicalActiveApiModeInfo(
@@ -353,6 +424,18 @@ export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = fa
     if (!targetApiMode || !selectedApiMode || !rawSelectedApiMode) return false
     if (selectedApiMode.groupName !== targetApiMode.groupName) return false
 
+    const isGeminiWebMode = selectedApiMode.groupName === 'bardWebModelKeys'
+    if (isGeminiWebMode) {
+      const selectedPreset = resolveGeminiWebPreset(selectedApiMode, geminiWebFallbackConfig)
+      const targetPreset = resolveGeminiWebPreset(targetApiMode, geminiWebFallbackConfig)
+      if (
+        selectedPreset.model !== targetPreset.model ||
+        selectedPreset.extendedThinking !== targetPreset.extendedThinking
+      ) {
+        return false
+      }
+    }
+
     const isLegacyCustomSession =
       selectedApiMode.groupName === 'customApiModelKeys' &&
       (!Object.hasOwn(rawSelectedApiMode, 'itemName') ||
@@ -362,9 +445,10 @@ export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = fa
       if (targetApiMode.groupName !== 'customApiModelKeys') return false
       if (selectedApiMode.customName !== targetApiMode.customName) return false
     } else if (
-      selectedApiMode.itemName !== targetApiMode.itemName ||
-      selectedApiMode.isCustom !== targetApiMode.isCustom ||
-      selectedApiMode.customName !== targetApiMode.customName
+      !isGeminiWebMode &&
+      (selectedApiMode.itemName !== targetApiMode.itemName ||
+        selectedApiMode.isCustom !== targetApiMode.isCustom ||
+        selectedApiMode.customName !== targetApiMode.customName)
     ) {
       return false
     }
@@ -420,17 +504,29 @@ export function isApiModeSelected(apiMode, configOrSession, { sessionCompat = fa
 export function getUniquelySelectedApiModeIndex(
   apiModes,
   configOrSession,
-  { sessionCompat = false } = {},
+  { sessionCompat = false, geminiWebFallbackConfig = configOrSession } = {},
 ) {
   if (!Array.isArray(apiModes) || apiModes.length === 0) return -1
 
   const selectedIndexes = []
   for (const [index, apiMode] of apiModes.entries()) {
-    if (!isApiModeSelected(apiMode, configOrSession, { sessionCompat })) continue
+    if (!isApiModeSelected(apiMode, configOrSession, { sessionCompat, geminiWebFallbackConfig }))
+      continue
     selectedIndexes.push(index)
   }
 
   if (selectedIndexes.length === 1) return selectedIndexes[0]
+  const selectedMode = normalizeApiMode(configOrSession?.apiMode)
+  if (selectedIndexes.length > 1 && selectedMode?.groupName === 'bardWebModelKeys') {
+    const matchingRows = selectedIndexes.filter((index) => {
+      const candidate = normalizeApiMode(apiModes[index])
+      return (
+        candidate.isCustom === selectedMode.isCustom &&
+        candidate.customName === selectedMode.customName
+      )
+    })
+    if (matchingRows.length === 1) return matchingRows[0]
+  }
   if (!sessionCompat || selectedIndexes.length === 0) return -1
 
   const selectedCustomUrl = normalizeProviderEndpointUrl(configOrSession?.apiMode?.customUrl)

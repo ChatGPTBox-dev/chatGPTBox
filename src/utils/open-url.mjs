@@ -1,6 +1,6 @@
 import Browser from 'webextension-polyfill'
 
-export function openUrl(url) {
+export function openUrl(url, { propagateError = false } = {}) {
   return Browser.tabs
     .query({ url, currentWindow: true })
     .then(async (tabs) => {
@@ -12,5 +12,6 @@ export function openUrl(url) {
     })
     .catch((error) => {
       console.error('failed to open url', error)
+      if (propagateError) throw error
     })
 }

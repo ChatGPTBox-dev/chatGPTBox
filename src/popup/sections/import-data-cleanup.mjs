@@ -5,6 +5,7 @@ import {
   canonicalizeSessionModelFields,
 } from '../../config/model-key-migrations.mjs'
 import { LEGACY_API_KEY_FIELD_BY_PROVIDER_ID } from '../../config/openai-provider-mappings.mjs'
+import { GEMINI_CONTINUATION_STORAGE_PREFIX } from '../../services/apis/gemini-web-continuation.mjs'
 
 const conflictingKeyPairs = [
   ['claudeApiKey', 'anthropicApiKey'],
@@ -78,8 +79,33 @@ async function preserveExistingBuiltinSecrets(storageArea, data, normalizedData)
   }
 }
 
+function invalidateImportedGeminiContinuation(session) {
+  const fields = [
+    'geminiWeb_conversation',
+    'bard_conversationObj',
+    'geminiWeb_retryConversation',
+    'geminiWeb_previousConversation',
+  ]
+  const hasContinuation = fields.some((key) => {
+    const conversation = session?.[key]
+    return (
+      ['c', 'r', 'rc'].some((id) => Boolean(conversation?.[id])) ||
+      (Array.isArray(conversation?.metadata) && conversation.metadata.some(Boolean))
+    )
+  })
+  return hasContinuation ? { ...session, geminiWeb_conversationUnsafe: true } : session
+}
+
+export function prepareExportData(data) {
+  // The continuation ledger belongs to the live browser profile, not a backup.
+  return Object.fromEntries(
+    Object.entries(data).filter(([key]) => !key.startsWith(GEMINI_CONTINUATION_STORAGE_PREFIX)),
+  )
+}
+
 export function prepareImportData(data) {
-  const normalizedData = { ...data }
+  // Never overwrite the live ledger with entries from an older backup.
+  const normalizedData = prepareExportData(data)
   const keysToRemove = []
   const importsCompleteProviderState =
     Object.hasOwn(data, 'customOpenAIProviders') && Object.hasOwn(data, 'providerSecrets')
@@ -134,7 +160,9 @@ export function prepareImportData(data) {
     )
   }
   if (Array.isArray(normalizedData.sessions)) {
-    normalizedData.sessions = normalizedData.sessions.map(canonicalizeSessionModelFields)
+    normalizedData.sessions = normalizedData.sessions.map((session) =>
+      invalidateImportedGeminiContinuation(canonicalizeSessionModelFields(session)),
+    )
   }
 
   return { normalizedData, keysToRemove }

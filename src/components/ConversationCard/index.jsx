@@ -26,16 +26,22 @@ import FileSaver from 'file-saver'
 import { render } from 'preact'
 import FloatingToolbar from '../FloatingToolbar'
 import { useClampWindowSize } from '../../hooks/use-clamp-window-size'
-import { getUserConfig, isUsingBingWebModel, Models } from '../../config/index.mjs'
+import {
+  getUserConfig,
+  isUsingBingWebModel,
+  isUsingGeminiWebModel,
+  Models,
+} from '../../config/index.mjs'
 import { useTranslation } from 'react-i18next'
 import DeleteButton from '../DeleteButton'
 import { useConfig } from '../../hooks/use-config.mjs'
-import { createSession } from '../../services/local-session.mjs'
+import { createSession } from '../../services/local-session-client.mjs'
 import { v4 as uuidv4 } from 'uuid'
 import { initSession } from '../../services/init-session.mjs'
 import { findLastIndex } from 'lodash-es'
 import { generateAnswersWithBingWebApi } from '../../services/apis/bing-web.mjs'
 import { handlePortError } from '../../services/wrappers.mjs'
+import { getGeminiContinuationRevision } from '../../services/apis/gemini-web-continuation.mjs'
 import {
   getApiModeDisplayLabel,
   getConversationAiName,
@@ -44,11 +50,14 @@ import { getDisplayErrorText } from '../../utils/error-text.mjs'
 import {
   createConversationPortMessage,
   createRetrySession,
+  finalizeCompletedSession,
   finalizeInterruptedSession,
   getCompletedAnswerUpdate,
   getInterruptedCompletionState,
+  getSessionContentRevision,
   isSupersededGenerationMessage,
   isSupersededRequestMessage,
+  shouldReplaceLastRetryRecord,
 } from './session.mjs'
 
 const logo = Browser.runtime.getURL('logo.png')
@@ -79,10 +88,19 @@ function ConversationCard(props) {
   const replacedPortRef = useRef(null)
   const partialAnswerRef = useRef('')
   const retryRecordRef = useRef(null)
+  const retryTargetIndexRef = useRef(session.conversationRecords.length - 1)
+  const requestRecordCountRef = useRef(session.conversationRecords.length)
   const retryGenerationIdRef = useRef(0)
   const requestGenerationIdRef = useRef(0)
+  const runtimeGeminiContinuationInFlightRef = useRef(false)
+  const activeGeminiRequestRef = useRef(false)
+  const archiveNavigationPendingRef = useRef(null)
+  const archiveInFlightRef = useRef(false)
   const disposedRef = useRef(false)
   const portRef = useRef(port)
+  const sessionRef = useRef(session)
+  const onUpdateRef = useRef(props.onUpdate)
+  const conversationItemDataRef = useRef([])
   const foregroundMessageListeners = useRef([])
   const foregroundPortsRef = useRef(new Set())
   const completeDraggable = useMemo(() => !isSafari() && !isFirefox() && !isMobile(), [])
@@ -93,18 +111,25 @@ function ConversationCard(props) {
    * @type {[ConversationItemData[], (conversationItemData: ConversationItemData[]) => void]}
    */
   const [conversationItemData, setConversationItemData] = useState([])
+  sessionRef.current = session
+  onUpdateRef.current = props.onUpdate
+  conversationItemDataRef.current = conversationItemData
   const config = useConfig()
   const customOpenAIProviders = Array.isArray(config.customOpenAIProviders)
     ? config.customOpenAIProviders
     : []
-  const currentAiName = getConversationAiName(session, t, customOpenAIProviders)
+  const currentAiName = getConversationAiName(session, t, customOpenAIProviders, config)
   const selectedApiModeIndex = useMemo(
-    () => getUniquelySelectedApiModeIndex(apiModes, session, { sessionCompat: true }),
-    [apiModes, session],
+    () =>
+      getUniquelySelectedApiModeIndex(apiModes, session, {
+        sessionCompat: true,
+        geminiWebFallbackConfig: config,
+      }),
+    [apiModes, session, config],
   )
   const selectedApiModeLabel =
     selectedApiModeIndex !== -1
-      ? getApiModeDisplayLabel(apiModes[selectedApiModeIndex], t, customOpenAIProviders)
+      ? getApiModeDisplayLabel(apiModes[selectedApiModeIndex], t, customOpenAIProviders, config)
       : ''
   const selectedApiModeValue = selectedApiModeLabel
     ? String(selectedApiModeIndex)
@@ -112,8 +137,30 @@ function ConversationCard(props) {
     ? '-1'
     : UNMATCHED_API_MODE_VALUE
 
+  const markRuntimeGeminiContinuationUnsafe = ({ updateState = true } = {}) => {
+    if (!runtimeGeminiContinuationInFlightRef.current) return
+    runtimeGeminiContinuationInFlightRef.current = false
+    const currentSession = sessionRef.current
+    const retryRecord = retryRecordRef.current
+    const restoredSession = retryRecord
+      ? finalizeInterruptedSession(currentSession, '', retryRecord)
+      : currentSession
+    const unsafeSession = {
+      ...restoredSession,
+      geminiWeb_conversationUnsafe: true,
+    }
+    if (retryRecord) {
+      retryTargetIndexRef.current = retryRecord.recordIndex
+      retryRecordRef.current = null
+    }
+    sessionRef.current = unsafeSession
+    if (updateState) setSession(unsafeSession)
+    else onUpdateRef.current?.(portRef.current, unsafeSession, conversationItemDataRef.current)
+  }
+
   const disposeOwnedTransports = () => {
     if (disposedRef.current) return
+    markRuntimeGeminiContinuationUnsafe({ updateState: false })
     disposedRef.current = true
     requestGenerationIdRef.current += 1
     retryGenerationIdRef.current += 1
@@ -161,7 +208,12 @@ function ConversationCard(props) {
   }, [])
 
   useEffect(() => {
-    if (props.onUpdate) props.onUpdate(port, session, conversationItemData)
+    if (props.onUpdate) {
+      const persistedSession = retryRecordRef.current
+        ? finalizeInterruptedSession(session, '', retryRecordRef.current)
+        : session
+      props.onUpdate(port, persistedSession, conversationItemData)
+    }
   }, [port, session, conversationItemData])
 
   useEffect(() => {
@@ -183,6 +235,7 @@ function ConversationCard(props) {
       const newSession = initSession({ ...session, question: props.question })
       partialAnswerRef.current = ''
       retryRecordRef.current = null
+      retryTargetIndexRef.current = -1
       setSession(newSession)
       await postMessage({ session: newSession })
     }
@@ -219,25 +272,84 @@ function ConversationCard(props) {
 
   const portMessageListener = (msg) => {
     if (disposedRef.current) return
-    if (isSupersededRequestMessage(msg, requestGenerationIdRef.current)) return
-    if (isSupersededGenerationMessage(msg, retryGenerationIdRef.current)) return
+    const superseded =
+      isSupersededRequestMessage(msg, requestGenerationIdRef.current) ||
+      isSupersededGenerationMessage(msg, retryGenerationIdRef.current)
+    if (superseded) {
+      // The background reservation blocks pending requests. Only a confirmed unsafe outcome
+      // permanently invalidates a superseded revision.
+      if (msg.geminiWebContinuationRevision && msg.geminiWebConversationUnsafe === true) {
+        setSession((currentSession) => {
+          const revision = getGeminiContinuationRevision(
+            currentSession.geminiWeb_conversation ?? currentSession.bard_conversationObj,
+          )
+          if (revision !== msg.geminiWebContinuationRevision) return currentSession
+          return { ...currentSession, geminiWeb_conversationUnsafe: true }
+        })
+      }
+      return
+    }
 
+    if (msg.geminiWebContinuationSubmitted === true) {
+      runtimeGeminiContinuationInFlightRef.current = true
+    }
+    if (msg.geminiWebConversationUnsafe === true) {
+      setSession((currentSession) => ({ ...currentSession, geminiWeb_conversationUnsafe: true }))
+    }
+    if (msg.geminiWebContinuationSafe === true) {
+      runtimeGeminiContinuationInFlightRef.current = false
+    }
     if (msg.answer) {
       partialAnswerRef.current = msg.answer
       updateAnswer(msg.answer, false, 'answer')
     }
     if (msg.session) {
-      setSession(msg.done ? { ...msg.session, isRetry: false } : msg.session)
+      const retryRecord = retryRecordRef.current
+      setSession((currentSession) => {
+        const nextSession = msg.done
+          ? finalizeCompletedSession(msg.session, retryRecord)
+          : { ...msg.session }
+        if (
+          (!msg.done || !isUsingGeminiWebModel(msg.session)) &&
+          currentSession.geminiWeb_conversationUnsafe === true
+        ) {
+          nextSession.geminiWeb_conversationUnsafe = true
+        }
+        return nextSession
+      })
     }
     if (msg.done) {
+      activeGeminiRequestRef.current = false
       const partialAnswer = partialAnswerRef.current
       const retryRecord = retryRecordRef.current
-      const completionState = getInterruptedCompletionState(msg, partialAnswer, retryRecord)
+      if (runtimeGeminiContinuationInFlightRef.current && !msg.session) {
+        markRuntimeGeminiContinuationUnsafe()
+      } else {
+        runtimeGeminiContinuationInFlightRef.current = false
+      }
+      const completionState = getInterruptedCompletionState(
+        msg,
+        partialAnswer,
+        retryRecord,
+        sessionRef.current,
+      )
       if (completionState.shouldFinalize) {
         setSession((currentSession) =>
           finalizeInterruptedSession(currentSession, partialAnswer, retryRecord),
         )
       }
+      if (
+        msg.session &&
+        (partialAnswer || msg.session.conversationRecords.length > requestRecordCountRef.current)
+      ) {
+        retryTargetIndexRef.current = msg.session.conversationRecords.length - 1
+      } else if (retryRecord) {
+        retryTargetIndexRef.current = retryRecord.recordIndex
+      } else if (completionState.shouldFinalize && partialAnswer) {
+        retryTargetIndexRef.current = sessionRef.current.conversationRecords.length
+      }
+      // A redundant terminal notice must not discard an already completed retry target.
+      // New submissions and clear reset the index before receiving their first response.
       partialAnswerRef.current = ''
       retryRecordRef.current = null
       const answerUpdate = getCompletedAnswerUpdate(completionState.restoredRetryAnswer)
@@ -245,6 +357,8 @@ function ConversationCard(props) {
       setIsReady(true)
     }
     if (msg.error) {
+      activeGeminiRequestRef.current = false
+      runtimeGeminiContinuationInFlightRef.current = false
       const retryRecord = retryRecordRef.current
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       switch (msg.error) {
@@ -303,6 +417,7 @@ function ConversationCard(props) {
         }
       }
       partialAnswerRef.current = ''
+      retryTargetIndexRef.current = retryRecord?.recordIndex ?? -1
       retryRecordRef.current = null
       setIsReady(true)
     }
@@ -315,7 +430,12 @@ function ConversationCard(props) {
    */
   const postMessage = async ({ session, stop, stopGenerationId }) => {
     if (disposedRef.current) return
-    const requestGenerationId = session ? ++requestGenerationIdRef.current : undefined
+    const requestGenerationId =
+      session || (stop && !useForegroundFetch) ? ++requestGenerationIdRef.current : undefined
+    if (session) {
+      requestRecordCountRef.current = session.conversationRecords.length
+      activeGeminiRequestRef.current = isUsingGeminiWebModel(session)
+    }
     if (useForegroundFetch) {
       if (stop && stopGenerationId === undefined) {
         const stoppedRequestGenerationId = requestGenerationIdRef.current
@@ -409,14 +529,23 @@ function ConversationCard(props) {
         }
       }
     } else {
-      port.postMessage(
-        createConversationPortMessage({
-          session,
-          stop,
-          stopGenerationId,
-          requestGenerationId,
-        }),
-      )
+      try {
+        port.postMessage(
+          createConversationPortMessage({
+            session,
+            stop,
+            stopGenerationId,
+            requestGenerationId,
+            persistedApiMode: session ? props.getPersistedApiMode?.(session.sessionId) : null,
+          }),
+        )
+      } catch (error) {
+        if (session) {
+          runtimeGeminiContinuationInFlightRef.current = false
+          activeGeminiRequestRef.current = false
+        }
+        throw error
+      }
     }
   }
 
@@ -427,6 +556,17 @@ function ConversationCard(props) {
         return
       }
       if (disposedRef.current) return
+      activeGeminiRequestRef.current = false
+      const retryRecord = retryRecordRef.current
+      markRuntimeGeminiContinuationUnsafe()
+      if (retryRecord) {
+        // A disconnect can also interrupt a replacement before submission.
+        setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
+        retryTargetIndexRef.current = retryRecord.recordIndex
+        retryRecordRef.current = null
+        partialAnswerRef.current = ''
+        updateAnswer(retryRecord.answer, false, 'answer', true)
+      }
       const nextPort = Browser.runtime.connect()
       portRef.current = nextPort
       setPort(nextPort)
@@ -479,16 +619,14 @@ function ConversationCard(props) {
     setIsReady(false)
 
     const conversationRecords = session.conversationRecords.map((record) => ({ ...record }))
-    if (retryRecordRef.current === null && conversationRecords.length > 0) {
-      const lastRecord = conversationRecords[conversationRecords.length - 1]
-      if (
-        conversationItemData[conversationItemData.length - 1].done &&
-        conversationItemData.length > 1 &&
-        lastRecord.question === conversationItemData[conversationItemData.length - 2].content
-      ) {
-        retryRecordRef.current = conversationRecords.pop()
-      }
+    if (
+      retryRecordRef.current === null &&
+      shouldReplaceLastRetryRecord(conversationRecords, retryTargetIndexRef.current)
+    ) {
+      const recordIndex = conversationRecords.length - 1
+      retryRecordRef.current = { ...conversationRecords.pop(), recordIndex }
     }
+    retryTargetIndexRef.current = -1
     const newSession = createRetrySession(session, conversationRecords, retryRecordRef.current)
     setSession(newSession)
     try {
@@ -503,6 +641,7 @@ function ConversationCard(props) {
       const retryRecord = retryRecordRef.current
       setSession((currentSession) => finalizeInterruptedSession(currentSession, '', retryRecord))
       partialAnswerRef.current = ''
+      retryTargetIndexRef.current = retryRecord?.recordIndex ?? -1
       retryRecordRef.current = null
       updateAnswer(e, false, 'error')
       setIsReady(true)
@@ -603,8 +742,11 @@ function ConversationCard(props) {
                 modelName,
                 apiMode,
                 aiName: apiMode
-                  ? getApiModeDisplayLabel(apiMode, t, customOpenAIProviders)
+                  ? getApiModeDisplayLabel(apiMode, t, customOpenAIProviders, config)
                   : modelNameToDesc(modelName, t, config.customModelName),
+                ...(runtimeGeminiContinuationInFlightRef.current && config.autoRegenAfterSwitchModel
+                  ? { geminiWeb_conversationUnsafe: true }
+                  : {}),
               }
               if (config.autoRegenAfterSwitchModel && conversationItemData.length > 0)
                 getRetryFn(newSession)()
@@ -617,7 +759,7 @@ function ConversationCard(props) {
               </option>
             )}
             {apiModes.map((apiMode, index) => {
-              const desc = getApiModeDisplayLabel(apiMode, t, customOpenAIProviders)
+              const desc = getApiModeDisplayLabel(apiMode, t, customOpenAIProviders, config)
               if (desc) {
                 return (
                   <option value={index} key={index}>
@@ -692,6 +834,9 @@ function ConversationCard(props) {
                 )
               }
               if (disposedRef.current) return
+              runtimeGeminiContinuationInFlightRef.current = false
+              activeGeminiRequestRef.current = false
+              archiveNavigationPendingRef.current = null
               if (!useForegroundFetch) {
                 replacedPortRef.current = port
                 port.disconnect()
@@ -701,6 +846,7 @@ function ConversationCard(props) {
               }
               partialAnswerRef.current = ''
               retryRecordRef.current = null
+              retryTargetIndexRef.current = -1
               Browser.runtime.sendMessage({
                 type: 'DELETE_CONVERSATION',
                 data: {
@@ -722,22 +868,89 @@ function ConversationCard(props) {
             <span
               title={t('Store to Independent Conversation Page')}
               className="gpt-util-icon"
-              onClick={() => {
-                const newSession = {
-                  ...session,
-                  sessionName: new Date().toLocaleString(),
-                  autoClean: false,
-                  sessionId: uuidv4(),
-                }
-                setSession(newSession)
-                createSession(newSession).then(() =>
-                  Browser.runtime.sendMessage({
+              onClick={async () => {
+                if (
+                  archiveInFlightRef.current ||
+                  (!isReady &&
+                    (activeGeminiRequestRef.current ||
+                      isUsingGeminiWebModel(session) ||
+                      session.geminiWeb_conversation?.c ||
+                      session.bard_conversationObj?.c))
+                )
+                  return
+                archiveInFlightRef.current = true
+                const archiveGeneration = requestGenerationIdRef.current
+                try {
+                  const archiveSnapshot = {
+                    ...session,
+                    ...(runtimeGeminiContinuationInFlightRef.current
+                      ? { geminiWeb_conversationUnsafe: true }
+                      : {}),
+                  }
+                  const archiveFingerprint = (snapshot) =>
+                    JSON.stringify([
+                      getSessionContentRevision(snapshot),
+                      snapshot.geminiWeb_conversationUnsafe === true ||
+                        runtimeGeminiContinuationInFlightRef.current,
+                      snapshot.geminiWeb_conversationPending === true,
+                    ])
+                  const fingerprint = archiveFingerprint(archiveSnapshot)
+                  let pending = archiveNavigationPendingRef.current
+                  if (!pending || pending.fingerprint !== fingerprint) {
+                    pending = {
+                      fingerprint,
+                      sessionId: uuidv4(),
+                      sessionName: new Date().toLocaleString(),
+                      saved: false,
+                    }
+                    // Keep the ID even if the write commits but its response is lost.
+                    archiveNavigationPendingRef.current = pending
+                  }
+                  if (!pending.saved) {
+                    const newSession = {
+                      ...archiveSnapshot,
+                      sessionName: pending.sessionName,
+                      autoClean: false,
+                      sessionId: pending.sessionId,
+                    }
+                    await createSession(newSession)
+                    pending.saved = true
+                    if (disposedRef.current || archiveGeneration !== requestGenerationIdRef.current)
+                      return
+                    setSession((currentSession) =>
+                      currentSession === session ? newSession : currentSession,
+                    )
+                  }
+                  if (
+                    disposedRef.current ||
+                    archiveNavigationPendingRef.current !== pending ||
+                    archiveFingerprint(sessionRef.current) !== fingerprint
+                  )
+                    return
+                  const navigation = await Browser.runtime.sendMessage({
                     type: 'OPEN_URL',
                     data: {
-                      url: Browser.runtime.getURL('IndependentPanel.html') + '?from=store',
+                      url:
+                        Browser.runtime.getURL('IndependentPanel.html') +
+                        '?from=store&sessionId=' +
+                        encodeURIComponent(pending.sessionId),
+                      reportFailure: true,
                     },
-                  }),
-                )
+                  })
+                  if (navigation?.ok === false) throw new Error('Could not open conversation page')
+                  if (archiveNavigationPendingRef.current === pending)
+                    archiveNavigationPendingRef.current = null
+                } catch (error) {
+                  console.error('[ConversationCard] Failed to archive or open conversation:', error)
+                  if (!disposedRef.current) {
+                    const message = archiveNavigationPendingRef.current?.saved
+                      ? t('Conversation saved, but the page could not be opened. Retry to open it.')
+                      : t('Error')
+                    window.alert(`${message}: ${error?.message || String(error)}`)
+                  }
+                } finally {
+                  archiveInFlightRef.current = false
+                }
               }}
             >
               <ArchiveIcon size={16} />
@@ -831,6 +1044,7 @@ function ConversationCard(props) {
             )
             partialAnswerRef.current = ''
             retryRecordRef.current = null
+            retryTargetIndexRef.current = -1
             setConversationItemData([...conversationItemData, newQuestion, newAnswer])
             setIsReady(false)
 
@@ -841,6 +1055,7 @@ function ConversationCard(props) {
             } catch (e) {
               if (disposedRef.current) return
               updateAnswer(e, false, 'error')
+              setIsReady(true)
             }
             if (disposedRef.current || !bodyRef.current) return
             bodyRef.current.scrollTo({
@@ -858,6 +1073,7 @@ ConversationCard.propTypes = {
   session: PropTypes.object.isRequired,
   question: PropTypes.string,
   onUpdate: PropTypes.func,
+  getPersistedApiMode: PropTypes.func,
   draggable: PropTypes.bool,
   closeable: PropTypes.bool,
   onClose: PropTypes.func,

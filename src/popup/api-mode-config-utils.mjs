@@ -1,6 +1,13 @@
 import { defaultApiModeIds } from '../config/index.mjs'
 import { canonicalizeModelKeyArray } from '../config/model-key-migrations.mjs'
-import { isApiModeSelected } from '../utils/model-name-convert.mjs'
+import {
+  getUniquelySelectedApiModeIndex,
+  isApiModeSelected,
+  modelNameToPresetPart,
+  normalizeApiMode,
+} from '../utils/model-name-convert.mjs'
+
+const GEMINI_WEB_DEFAULT_MODEL = 'bardWebFree'
 
 export const API_MODE_LIST_CONFIG_KEYS = [
   'activeApiModes',
@@ -9,9 +16,13 @@ export const API_MODE_LIST_CONFIG_KEYS = [
 ]
 
 export function buildApiModeListConfigUpdate(config, nextApiModes, { selectionPatch = {} } = {}) {
+  const implicitDefaultIds = Object.hasOwn(config ?? {}, 'geminiWebModel')
+    ? [GEMINI_WEB_DEFAULT_MODEL]
+    : []
   const knownApiModeDefaultIds = canonicalizeModelKeyArray([
     ...(Array.isArray(config?.knownApiModeDefaultIds) ? config.knownApiModeDefaultIds : []),
     ...defaultApiModeIds,
+    ...implicitDefaultIds,
   ])
 
   return {
@@ -22,11 +33,35 @@ export function buildApiModeListConfigUpdate(config, nextApiModes, { selectionPa
   }
 }
 
-export function getSelectionPatchWhenApiModeDisabled(apiMode, apiModes, config) {
+export function getSelectionPatchWhenApiModeDisabled(apiMode, nextApiModes, config) {
   if (!isApiModeSelected(apiMode, config)) return {}
 
+  const activeModes = nextApiModes.filter((candidate) => candidate.active !== false)
+  if (config.apiMode?.groupName === 'bardWebModelKeys') {
+    const selectedIndex = getUniquelySelectedApiModeIndex(activeModes, config)
+    if (selectedIndex !== -1) {
+      const selected = normalizeApiMode(config.apiMode)
+      const remaining = activeModes[selectedIndex]
+      const normalized = normalizeApiMode(remaining)
+      if (
+        normalized.isCustom === selected.isCustom &&
+        normalized.customName === selected.customName
+      ) {
+        return {}
+      }
+      return { apiMode: remaining }
+    }
+  }
+
+  if (
+    !config.apiMode &&
+    modelNameToPresetPart(config.modelName) === GEMINI_WEB_DEFAULT_MODEL &&
+    activeModes.some((candidate) => isApiModeSelected(candidate, config))
+  )
+    return {}
+
   const fallbackConfig = { ...config, apiMode: null }
-  const hasFallback = apiModes.some((candidate) => isApiModeSelected(candidate, fallbackConfig))
+  const hasFallback = activeModes.some((candidate) => isApiModeSelected(candidate, fallbackConfig))
   const disabledModeIsFallback = isApiModeSelected(apiMode, fallbackConfig)
 
   return {
