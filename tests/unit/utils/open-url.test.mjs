@@ -121,3 +121,14 @@ test('openUrl logs a tabs.create failure and fulfills', async (t) => {
   assert.equal(await openUrl('https://example.com'), undefined)
   assert.deepEqual(loggedErrors, [['failed to open url', error]])
 })
+
+test('openUrl propagates navigation failure when requested', async (t) => {
+  t.mock.method(console, 'error', () => {})
+  overrideTabs(t, {
+    query: async () => [],
+    create: async () => {
+      throw new Error('create failed')
+    },
+  })
+  await assert.rejects(openUrl('https://example.com', { propagateError: true }), /create failed/)
+})

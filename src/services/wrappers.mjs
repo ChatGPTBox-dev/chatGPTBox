@@ -16,10 +16,13 @@ import { isAbortError } from '../utils/abort-error.mjs'
 import { formatErrorMessage, formatErrorText } from '../utils/error-text.mjs'
 import {
   apiModeToModelName,
+  modelNameToApiMode,
   modelNameToDesc,
+  modelNameToPresetPart,
   normalizeApiMode,
 } from '../utils/model-name-convert.mjs'
 import { acknowledgePortStop } from './apis/shared.mjs'
+import { getGeminiContinuationRevision } from './apis/gemini-web-continuation.mjs'
 
 export async function getChatGptAccessToken() {
   await clearOldAccessToken()
@@ -57,12 +60,6 @@ export async function getBingAccessToken() {
   return (await Browser.cookies.get({ url: 'https://bing.com/', name: '_U' }))?.value
 }
 
-export async function getBardCookies() {
-  const token = (await Browser.cookies.get({ url: 'https://google.com/', name: '__Secure-1PSID' }))
-    ?.value
-  return '__Secure-1PSID=' + token
-}
-
 export async function getClaudeSessionKey() {
   return (await Browser.cookies.get({ url: 'https://claude.ai/', name: 'sessionKey' }))?.value
 }
@@ -88,6 +85,33 @@ const transportErrorSummaryKeys = {
   [FETCH_REQUEST_FAILED]: 'The browser could not complete the request to the API endpoint.',
   [FETCH_RESPONSE_STREAM_FAILED]: 'The response stream from the API endpoint was interrupted.',
   [INVALID_API_ENDPOINT]: 'The configured API endpoint URL is invalid.',
+}
+
+const geminiWebDynamicErrors = [
+  {
+    pattern: /^Gemini Web: HTTP (\d+)\. Check your login and limits on Gemini\.$/,
+    key: 'Gemini Web: HTTP {{status}}. Check your login and limits on Gemini.',
+    valueKey: 'status',
+  },
+  {
+    pattern: /^Gemini Web: This Google account cannot select models \((\d+)\)\.$/,
+    key: 'Gemini Web: This Google account cannot select models ({{status}}).',
+    valueKey: 'status',
+  },
+  {
+    pattern:
+      /^Gemini Web: The website rejected the request \((\d+)\)\. Check Gemini in your browser\.$/,
+    key: 'Gemini Web: The website rejected the request ({{code}}). Check Gemini in your browser.',
+    valueKey: 'code',
+  },
+]
+
+function translateGeminiWebError(message, translate) {
+  for (const { pattern, key, valueKey } of geminiWebDynamicErrors) {
+    const match = pattern.exec(message)
+    if (match) return translate(key, { [valueKey]: match[1] })
+  }
+  return translate(message)
 }
 
 export function handlePortError(session, port, err, translate = t) {
@@ -120,6 +144,10 @@ export function handlePortError(session, port, err, translate = t) {
       details.push(formatErrorDetail('API endpoint: %s', err.requestOrigin, translate))
     if (message) details.push(formatErrorDetail('Browser message: %s', message, translate))
     postError(details.join('\n\n'))
+    return
+  }
+  if (err?.code === 'GEMINI_WEB_PROTOCOL_ERROR' && message) {
+    postError(translateGeminiWebError(message, translate))
     return
   }
   const formattedMessage = formatErrorMessage(message)
@@ -162,6 +190,9 @@ export function handlePortError(session, port, err, translate = t) {
 }
 
 export function claimLatestPortSessionRequest(port) {
+  if (typeof port._abortSupersededSessionRequest === 'function') {
+    port._abortSupersededSessionRequest()
+  }
   const requestId = (port._latestSessionRequestId ?? 0) + 1
   port._latestSessionRequestId = requestId
   port._sessionRequestGeneration = (port._sessionRequestGeneration ?? 0) + 1
@@ -178,15 +209,27 @@ function invalidateDisconnectedPortSessionRequests(port) {
   port._sessionRequestGeneration = (port._sessionRequestGeneration ?? 0) + 1
 }
 
-function createSessionRequestPort(port, proxyGenerationId, requestGenerationId) {
+function createSessionRequestPort(port, proxyGenerationId, requestGenerationId, geminiRevision) {
   const sessionRequestGeneration = port._sessionRequestGeneration
   return new Proxy(port, {
     get(target, property, receiver) {
       if (property === 'postMessage') {
         return (message) => {
-          if (target._sessionRequestGeneration !== sessionRequestGeneration) return
+          if (
+            target._sessionRequestGeneration !== sessionRequestGeneration &&
+            message.geminiWebConversationUnsafe !== true &&
+            message.geminiWebContinuationSubmitted !== true
+          ) {
+            return
+          }
+          const safetyNotice =
+            message.geminiWebConversationUnsafe === true ||
+            message.geminiWebContinuationSubmitted === true
           target.postMessage({
             ...message,
+            ...(safetyNotice && geminiRevision
+              ? { geminiWebContinuationRevision: geminiRevision }
+              : {}),
             ...(proxyGenerationId === undefined ? {} : { proxyGenerationId }),
             ...(requestGenerationId === undefined ? {} : { requestGenerationId }),
           })
@@ -197,7 +240,7 @@ function createSessionRequestPort(port, proxyGenerationId, requestGenerationId) 
   })
 }
 
-export function registerPortListener(executor) {
+export function registerPortListener(executor, resolveStoredProviderMode) {
   Browser.runtime.onConnect.addListener((port) => {
     console.debug('connected')
     const onMessage = async (msg) => {
@@ -210,27 +253,53 @@ export function registerPortListener(executor) {
       const session = msg.session
       if (!session) return
       const isLatestSessionRequest = claimLatestPortSessionRequest(port)
+      const revision = getGeminiContinuationRevision(
+        session.geminiWeb_conversation ?? session.bard_conversationObj,
+      )
+      if (revision && port._geminiUnsafeRevisions?.has(revision)) {
+        session.geminiWeb_conversationUnsafe = true
+      }
       const requestPort = createSessionRequestPort(
         port,
         msg.proxyGenerationId,
         msg.requestGenerationId,
+        revision,
       )
-      const config = await getUserConfig()
-      if (!isLatestSessionRequest()) return
-      const language =
-        config.preferredLanguage === 'auto' ? config.userLanguage : config.preferredLanguage
-      const translate = getFixedT(language)
-      if (!session.modelName) session.modelName = config.modelName
-      if (!session.apiMode && session.modelName !== 'customModel') session.apiMode = config.apiMode
-      if (session.apiMode) session.apiMode = normalizeApiMode(session.apiMode)
-      if (!session.aiName)
-        session.aiName = modelNameToDesc(
-          session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName,
-          translate,
-          config.customModelName,
-        )
-      requestPort.postMessage({ session })
+      let translate = t
       try {
+        const config = await getUserConfig()
+        if (!isLatestSessionRequest()) return
+        if (
+          resolveStoredProviderMode &&
+          msg.persistedApiMode?.groupName === 'customApiModelKeys' &&
+          session.apiMode?.groupName === 'customApiModelKeys' &&
+          session.sessionId
+        ) {
+          const nextMode = await resolveStoredProviderMode(session, msg.persistedApiMode, config)
+          if (!isLatestSessionRequest()) return
+          if (nextMode !== session.apiMode) {
+            session.apiMode = nextMode
+            session.aiName = null
+          }
+        }
+        const language =
+          config.preferredLanguage === 'auto' ? config.userLanguage : config.preferredLanguage
+        translate = getFixedT(language)
+        if (!session.modelName) session.modelName = config.modelName
+        if (!session.apiMode && session.modelName !== 'customModel') {
+          session.apiMode =
+            modelNameToPresetPart(session.modelName) === 'bardWebFree'
+              ? modelNameToApiMode(session.modelName)
+              : config.apiMode
+        }
+        if (session.apiMode) session.apiMode = normalizeApiMode(session.apiMode)
+        if (!session.aiName)
+          session.aiName = modelNameToDesc(
+            session.apiMode ? apiModeToModelName(session.apiMode) : session.modelName,
+            translate,
+            config.customModelName,
+          )
+        requestPort.postMessage({ session })
         await executor(
           session,
           requestPort,

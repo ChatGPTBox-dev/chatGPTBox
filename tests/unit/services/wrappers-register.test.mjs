@@ -39,15 +39,29 @@ globalThis.chrome.cookies = {
 
 import {
   registerPortListener,
+  claimLatestPortSessionRequest,
   getChatGptAccessToken,
   getBingAccessToken,
-  getBardCookies,
   getClaudeSessionKey,
 } from '../../../src/services/wrappers.mjs'
 import Browser from 'webextension-polyfill'
 import { normalizeApiMode } from '../../../src/utils/model-name-convert.mjs'
+import { resolveStoredProviderMode } from '../../../src/services/local-session.mjs'
 import { FETCH_REQUEST_FAILED } from '../../../src/utils/fetch-sse.mjs'
 import { formatErrorMessage } from '../../../src/utils/error-text.mjs'
+
+test('claimLatestPortSessionRequest aborts a registered superseded request', () => {
+  const port = createFakePort()
+  let abortCount = 0
+  port._abortSupersededSessionRequest = () => {
+    abortCount += 1
+  }
+
+  const isLatest = claimLatestPortSessionRequest(port)
+
+  assert.equal(abortCount, 1)
+  assert.equal(isLatest(), true)
+})
 
 const setStorage = (values) => {
   globalThis.__TEST_BROWSER_SHIM__.replaceStorage(values)
@@ -114,6 +128,38 @@ test('registerPortListener calls executor with session, port, and config', async
   assert.ok(result.config)
   // Session should be posted back before executor runs
   assert.equal(port.postedMessages[0].session, result.session)
+})
+
+test('replacement provider inherits uncertainty from a submitted Gemini continuation', async (t) => {
+  t.mock.method(console, 'debug', () => {})
+  setStorage({ modelName: 'chatgptApi4oMini' })
+
+  let resolveExec
+  const execDone = new Promise((resolve) => {
+    resolveExec = resolve
+  })
+  const executor = t.mock.fn(async (session) => {
+    resolveExec(session)
+  })
+
+  registerPortListener(executor)
+  const port = createFakePort()
+  triggerConnect(port)
+  port._abortSupersededSessionRequest = () => {
+    port._geminiUnsafeRevisions = new Set([JSON.stringify(['c-old', 'r-old', 'rc-old', null])])
+  }
+
+  const replacement = {
+    modelName: 'customModel',
+    conversationRecords: [{ question: 'Q1', answer: 'A1' }],
+    geminiWeb_conversation: { c: 'c-old', r: 'r-old', rc: 'rc-old' },
+  }
+  port.emitMessage({ session: replacement })
+  const actual = await execDone
+
+  assert.equal(actual.geminiWeb_conversationUnsafe, true)
+  assert.equal(port.postedMessages[0].session.geminiWeb_conversationUnsafe, true)
+  assert.deepEqual(actual.conversationRecords, replacement.conversationRecords)
 })
 
 test('registerPortListener scopes error translations to each request', async (t) => {
@@ -628,24 +674,6 @@ test('getBingAccessToken returns undefined when cookie missing', async () => {
 })
 
 // ---------------------------------------------------------------------------
-// getBardCookies
-// ---------------------------------------------------------------------------
-
-test('getBardCookies returns formatted cookie string', async () => {
-  cookieJar['https://google.com/'] = [{ name: '__Secure-1PSID', value: 'bard-sid' }]
-
-  const cookies = await getBardCookies()
-  assert.equal(cookies, '__Secure-1PSID=bard-sid')
-})
-
-test('getBardCookies returns __Secure-1PSID=undefined when cookie missing', async () => {
-  cookieJar['https://google.com/'] = []
-
-  const cookies = await getBardCookies()
-  assert.equal(cookies, '__Secure-1PSID=undefined')
-})
-
-// ---------------------------------------------------------------------------
 // getClaudeSessionKey
 // ---------------------------------------------------------------------------
 
@@ -661,4 +689,67 @@ test('getClaudeSessionKey returns undefined when cookie missing', async () => {
 
   const key = await getClaudeSessionKey()
   assert.equal(key, undefined)
+})
+
+test('superseded Gemini safety notices carry the original saved revision', async () => {
+  const requestPorts = []
+  let resolveExec
+  registerPortListener(async (_session, requestPort) => {
+    requestPorts.push(requestPort)
+    resolveExec()
+  })
+  const port = createFakePort()
+  triggerConnect(port)
+  const previous = { c: 'c_same', r: 'r_old', rc: 'rc_old', turnIndex: 1 }
+  const current = { c: 'c_same', r: 'r_new', rc: 'rc_new', turnIndex: 2 }
+  for (const [index, conversation] of [previous, current].entries()) {
+    const ready = new Promise((resolve) => {
+      resolveExec = resolve
+    })
+    port.emitMessage({
+      session: { conversationRecords: [], geminiWeb_conversation: conversation },
+      requestGenerationId: index + 1,
+    })
+    await ready
+  }
+  requestPorts[0].postMessage({ geminiWebConversationUnsafe: true })
+  assert.deepEqual(port.postedMessages.at(-1), {
+    geminiWebConversationUnsafe: true,
+    requestGenerationId: 1,
+    geminiWebContinuationRevision: JSON.stringify(['c_same', 'r_old', 'rc_old', 1]),
+  })
+})
+
+test('mounted panel requests use a migrated provider unless the user changes selection', async () => {
+  const original = {
+    groupName: 'customApiModelKeys',
+    itemName: 'gpt-4',
+    customName: 'Mode',
+    isCustom: true,
+    providerId: 'source',
+  }
+  const migrated = { ...original, providerId: 'override' }
+  setStorage({
+    sessions: [{ sessionId: 'saved', conversationRecords: [], apiMode: migrated }],
+  })
+  let resolveExec
+  registerPortListener(async (session) => {
+    resolveExec(session)
+  }, resolveStoredProviderMode)
+  const port = createFakePort()
+  triggerConnect(port)
+
+  for (const [requested, expected] of [
+    [original, 'override'],
+    [{ ...original, providerId: 'explicit-choice' }, 'explicit-choice'],
+  ]) {
+    const ready = new Promise((resolve) => {
+      resolveExec = resolve
+    })
+    port.emitMessage({
+      session: { sessionId: 'saved', conversationRecords: [], apiMode: requested },
+      persistedApiMode: original,
+    })
+    assert.equal((await ready).apiMode.providerId, expected)
+  }
 })

@@ -1,8 +1,11 @@
 import { AlwaysCustomGroups } from '../../config/index.mjs'
+import { getGeminiWebModelLabel, resolveGeminiWebPreset } from '../../utils/gemini-web-preset.mjs'
 import {
   apiModeToModelName,
   getUniquelySelectedApiModeIndex,
+  modelNameToApiMode,
   modelNameToDesc,
+  modelNameToPresetPart,
 } from '../../utils/model-name-convert.mjs'
 
 export const UNMATCHED_API_MODE_VALUE = '__current-api-mode__'
@@ -621,7 +624,22 @@ export function getReferencedCustomProviderIdsFromSessions(
   return Array.from(referencedProviderIds)
 }
 
-export function getApiModeDisplayLabel(apiMode, t, providers = []) {
+function getGeminiWebDisplayLabel(apiMode, t, fallbackConfig) {
+  if (normalizeText(apiMode?.groupName) !== 'bardWebModelKeys') return ''
+  const productLabel = `Google ${t ? t('Gemini (Web)') : 'Gemini (Web)'}`
+  const { model, extendedThinking, source } = resolveGeminiWebPreset(apiMode, fallbackConfig)
+  if (source === 'default' || source === 'invalid') return productLabel
+
+  const modelLabel = getGeminiWebModelLabel(model, t ? t('Auto') : 'Auto')
+  const thinkingLabel = t ? t('Extended thinking') : 'Extended thinking'
+  const modeLabel = extendedThinking ? `${modelLabel} + ${thinkingLabel}` : modelLabel
+  return `${productLabel} (${modeLabel})`
+}
+
+export function getApiModeDisplayLabel(apiMode, t, providers = [], fallbackConfig = {}) {
+  const geminiLabel = getGeminiWebDisplayLabel(apiMode, t, fallbackConfig)
+  if (geminiLabel) return geminiLabel
+
   const modelName = apiModeToModelName(apiMode)
   const fallbackLabel = modelNameToDesc(modelName, t)
 
@@ -659,9 +677,15 @@ export function getApiModeDisplayLabel(apiMode, t, providers = []) {
   return `${providerName} (${customModelName})`
 }
 
-export function getConversationAiName(session, t, providers = []) {
-  const apiMode = session?.apiMode
-  let providerAwareName = apiMode ? getApiModeDisplayLabel(apiMode, t, providers) : ''
+export function getConversationAiName(session, t, providers = [], fallbackConfig = {}) {
+  const legacyGeminiMode =
+    !session?.apiMode && modelNameToPresetPart(session?.modelName) === 'bardWebFree'
+      ? modelNameToApiMode(session.modelName)
+      : null
+  const apiMode = session?.apiMode ?? legacyGeminiMode
+  let providerAwareName = apiMode
+    ? getApiModeDisplayLabel(apiMode, t, providers, fallbackConfig)
+    : ''
   const hasMissingCustomProvider =
     normalizeText(apiMode?.groupName) === 'customApiModelKeys' &&
     normalizeProviderId(apiMode?.providerId) &&

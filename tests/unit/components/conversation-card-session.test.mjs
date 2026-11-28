@@ -67,7 +67,7 @@ test('finalizeInterruptedSession restores a retry answer when interrupted before
   }
   const retryRecord = { question: 'Q1', answer: 'Old answer' }
 
-  const updatedSession = finalizeInterruptedSession(session, '', retryRecord)
+  const updatedSession = finalizeInterruptedSession(session, '', { ...retryRecord, recordIndex: 0 })
 
   assert.equal(session.isRetry, true)
   assert.deepEqual(session.conversationRecords, [])
@@ -83,7 +83,7 @@ test('finalizeInterruptedSession restores a retry record even before retry state
     conversationRecords: [],
   }
 
-  const updatedSession = finalizeInterruptedSession(session, '', retryRecord)
+  const updatedSession = finalizeInterruptedSession(session, '', { ...retryRecord, recordIndex: 0 })
 
   assert.equal(updatedSession.isRetry, false)
   assert.deepEqual(updatedSession.conversationRecords, [retryRecord])
@@ -110,7 +110,7 @@ test('finalizeInterruptedSession does not duplicate an already restored retry re
     conversationRecords: [retryRecord],
   }
 
-  const updatedSession = finalizeInterruptedSession(session, '', retryRecord)
+  const updatedSession = finalizeInterruptedSession(session, '', { ...retryRecord, recordIndex: 0 })
 
   assert.deepEqual(updatedSession.conversationRecords, [retryRecord])
 })

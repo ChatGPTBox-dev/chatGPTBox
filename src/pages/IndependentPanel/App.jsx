@@ -5,13 +5,14 @@ import {
   updateSession,
   getSession,
   deleteSession,
-} from '../../services/local-session.mjs'
+} from '../../services/local-session-client.mjs'
 import { useEffect, useRef, useState } from 'react'
 import './styles.scss'
 import { useConfig } from '../../hooks/use-config.mjs'
 import { useTranslation } from 'react-i18next'
 import ConfirmButton from '../../components/ConfirmButton'
 import ConversationCard from '../../components/ConversationCard'
+import { getSessionContentRevision } from '../../components/ConversationCard/session.mjs'
 import DeleteButton from '../../components/DeleteButton'
 import { openUrl } from '../../utils/index.mjs'
 import Browser from 'webextension-polyfill'
@@ -26,8 +27,110 @@ function App() {
   const [currentSession, setCurrentSession] = useState(null)
   const [renderContent, setRenderContent] = useState(false)
   const currentPort = useRef(null)
+  const activeSessionIdRef = useRef(null)
+  const selectionGenerationRef = useRef(0)
+  const persistQueueRef = useRef(Promise.resolve())
+  const lastPersistedSnapshotRef = useRef('')
+  const lastRequestedSnapshotRef = useRef('')
+  const rejectedSnapshotRef = useRef('')
+  const lastSettledUnsafeSnapshotRef = useRef('')
 
-  const setSessionIdSafe = async (sessionId) => {
+  const enqueueSessionMutation = (operation) => {
+    persistQueueRef.current = persistQueueRef.current.catch(() => {}).then(operation)
+    return persistQueueRef.current
+  }
+
+  const sessionFingerprint = (session) => JSON.stringify({ ...session, updatedAt: undefined })
+
+  const getPersistedSession = (id) => {
+    if (!lastPersistedSnapshotRef.current) return null
+    const previous = JSON.parse(lastPersistedSnapshotRef.current)
+    return previous.sessionId === id ? previous : null
+  }
+
+  const getPersistedApiMode = (id) => {
+    const previous = lastRequestedSnapshotRef.current
+      ? JSON.parse(lastRequestedSnapshotRef.current)
+      : null
+    const apiMode = previous?.sessionId === id ? previous.apiMode : null
+    if (apiMode?.groupName !== 'customApiModelKeys') return null
+    const { groupName, itemName, customName, isCustom, customUrl, providerId } = apiMode
+    return { groupName, itemName, customName, isCustom, customUrl, providerId }
+  }
+
+  const persistSession = (session, { completed, cleared }) => {
+    const snapshot = { ...session }
+    return enqueueSessionMutation(async () => {
+      const fingerprint = sessionFingerprint(snapshot)
+      if (
+        fingerprint === lastRequestedSnapshotRef.current ||
+        fingerprint === rejectedSnapshotRef.current
+      )
+        return
+      const previous = getPersistedSession(snapshot.sessionId)
+      const writeMode =
+        cleared &&
+        previous &&
+        (snapshot.createdAt !== previous.createdAt || previous.conversationRecords.length > 0)
+          ? 'clear'
+          : completed || cleared
+          ? 'full'
+          : 'unsafe'
+      if (writeMode === 'unsafe' && fingerprint === lastSettledUnsafeSnapshotRef.current) return
+      const nextSessions = await updateSession(
+        snapshot,
+        getPersistedApiMode(snapshot.sessionId),
+        getSessionContentRevision(previous),
+        writeMode,
+      )
+      // An acknowledged safety-only no-op is not a successful full transcript save.
+      // Cache it separately so storage failures and later completed turns can still retry.
+      if (activeSessionIdRef.current === snapshot.sessionId) {
+        lastSettledUnsafeSnapshotRef.current = writeMode === 'unsafe' ? fingerprint : ''
+      }
+      const saved = nextSessions.find((item) => item.sessionId === snapshot.sessionId)
+      if (
+        saved &&
+        getSessionContentRevision(saved) === getSessionContentRevision(snapshot) &&
+        (snapshot.geminiWeb_conversationUnsafe !== true ||
+          saved.geminiWeb_conversationUnsafe === true)
+      ) {
+        if (activeSessionIdRef.current === snapshot.sessionId) {
+          lastPersistedSnapshotRef.current = sessionFingerprint(saved)
+          if (writeMode !== 'unsafe') {
+            lastRequestedSnapshotRef.current = fingerprint
+            rejectedSnapshotRef.current = ''
+          }
+        }
+      } else if (completed || cleared) {
+        // Do not rebase stale local history onto the newer stored transcript.
+        if (activeSessionIdRef.current === snapshot.sessionId)
+          rejectedSnapshotRef.current = fingerprint
+        if (
+          window.confirm(
+            t(
+              'This conversation changed elsewhere and was not saved. Export your unsaved conversation before reopening it?',
+            ),
+          )
+        ) {
+          const blob = new Blob([JSON.stringify([snapshot], null, 2)], {
+            type: 'text/json;charset=utf-8',
+          })
+          FileSaver.saveAs(blob, 'unsaved-conversation.json')
+        }
+      }
+      setSessions(nextSessions)
+    })
+  }
+
+  const setSessionIdSafe = async (nextSessionId) => {
+    const generation = ++selectionGenerationRef.current
+    await persistQueueRef.current.catch(() => {})
+    const { session, currentSessions } = await getSession(nextSessionId)
+    if (generation !== selectionGenerationRef.current) return
+    const target = session?.sessionId ?? currentSessions[0]?.sessionId
+    if (!target || target === activeSessionIdRef.current) return
+    activeSessionIdRef.current = target
     if (currentPort.current) {
       try {
         currentPort.current.postMessage({ stop: true })
@@ -37,9 +140,7 @@ function App() {
       }
       currentPort.current = null
     }
-    const { session, currentSessions } = await getSession(sessionId)
-    if (session) setSessionId(sessionId)
-    else if (currentSessions.length > 0) setSessionId(currentSessions[0].sessionId)
+    setSessionId(target)
   }
 
   useEffect(() => {
@@ -49,7 +150,8 @@ function App() {
   useEffect(() => {
     // eslint-disable-next-line
     ;(async () => {
-      const urlFrom = new URLSearchParams(window.location.search).get('from')
+      const params = new URLSearchParams(window.location.search)
+      const urlFrom = params.get('from')
       const sessions = await getSessions()
       if (
         urlFrom !== 'store' &&
@@ -59,7 +161,9 @@ function App() {
         await createNewChat()
       } else {
         setSessions(sessions)
-        await setSessionIdSafe(sessions[0].sessionId)
+        const archived =
+          urlFrom === 'store' && sessions.find((item) => item.sessionId === params.get('sessionId'))
+        await setSessionIdSafe((archived || sessions[0]).sessionId)
       }
     })()
   }, [])
@@ -72,7 +176,13 @@ function App() {
     // eslint-disable-next-line
     ;(async () => {
       if (sessions.length > 0) {
-        setCurrentSession((await getSession(sessionId)).session)
+        const { session } = await getSession(sessionId)
+        if (activeSessionIdRef.current !== sessionId) return
+        lastPersistedSnapshotRef.current = session ? sessionFingerprint(session) : ''
+        lastRequestedSnapshotRef.current = lastPersistedSnapshotRef.current
+        rejectedSnapshotRef.current = ''
+        lastSettledUnsafeSnapshotRef.current = ''
+        setCurrentSession(session)
         setRenderContent(false)
         setTimeout(() => {
           setRenderContent(true)
@@ -86,19 +196,20 @@ function App() {
   }
 
   const createNewChat = async () => {
-    const { session, currentSessions } = await createSession()
+    const { session, currentSessions } = await enqueueSessionMutation(() => createSession())
     setSessions(currentSessions)
     await setSessionIdSafe(session.sessionId)
   }
 
   const exportConversations = async () => {
+    await persistQueueRef.current.catch(() => {})
     const sessions = await getSessions()
     const blob = new Blob([JSON.stringify(sessions, null, 2)], { type: 'text/json;charset=utf-8' })
     FileSaver.saveAs(blob, 'conversations.json')
   }
 
   const clearConversations = async () => {
-    const sessions = await resetSessions()
+    const sessions = await enqueueSessionMutation(() => resetSessions())
     setSessions(sessions)
     await setSessionIdSafe(sessions[0].sessionId)
   }
@@ -138,12 +249,21 @@ function App() {
                     <DeleteButton
                       size={14}
                       text={t('Delete Conversation')}
-                      onConfirm={() =>
-                        deleteSession(session.sessionId).then((sessions) => {
-                          setSessions(sessions)
-                          setSessionIdSafe(sessions[0].sessionId)
-                        })
-                      }
+                      onConfirm={() => {
+                        const selectionGeneration = selectionGenerationRef.current
+                        return enqueueSessionMutation(() => deleteSession(session.sessionId)).then(
+                          (nextSessions) => {
+                            setSessions(nextSessions)
+                            if (
+                              selectionGenerationRef.current === selectionGeneration &&
+                              activeSessionIdRef.current === session.sessionId &&
+                              !nextSessions.some((item) => item.sessionId === session.sessionId)
+                            ) {
+                              return setSessionIdSafe(nextSessions[0].sessionId)
+                            }
+                          },
+                        )
+                      }}
                     />
                   </span>
                 </button>
@@ -170,11 +290,29 @@ function App() {
                 session={currentSession}
                 notClampSize={true}
                 pageMode={true}
+                getPersistedApiMode={getPersistedApiMode}
                 onUpdate={(port, session, cData) => {
-                  currentPort.current = port
-                  if (cData.length > 0 && cData[cData.length - 1].done) {
-                    updateSession(session).then(setSessions)
-                    setCurrentSession(session)
+                  const isActive = activeSessionIdRef.current === session.sessionId
+                  if (isActive) currentPort.current = port
+                  const completed = cData.length > 0 && cData[cData.length - 1].done
+                  const cleared =
+                    cData.length === 0 &&
+                    session.conversationRecords.length === 0 &&
+                    session.question == null
+                  if (completed || cleared || session.geminiWeb_conversationUnsafe === true) {
+                    persistSession(session, { completed, cleared }).catch((error) => {
+                      console.error('[IndependentPanel] Failed to save conversation:', error)
+                      if (
+                        (completed || cleared) &&
+                        window.confirm(`${t('Error')}: ${error.message || error}\n${t('Export')}?`)
+                      ) {
+                        const blob = new Blob([JSON.stringify([session], null, 2)], {
+                          type: 'text/json;charset=utf-8',
+                        })
+                        FileSaver.saveAs(blob, 'unsaved-conversation.json')
+                      }
+                    })
+                    if (isActive && (completed || cleared)) setCurrentSession(session)
                   }
                 }}
               />

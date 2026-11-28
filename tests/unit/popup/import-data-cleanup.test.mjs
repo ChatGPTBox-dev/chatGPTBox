@@ -5,7 +5,9 @@ import { defaultApiModeIds, defaultConfig, getUserConfig } from '../../../src/co
 import {
   importDataIntoStorage,
   prepareImportData,
+  prepareExportData,
 } from '../../../src/popup/sections/import-data-cleanup.mjs'
+import { createGeminiContinuationGuard } from '../../../src/services/apis/gemini-web-continuation.mjs'
 
 test('prepareImportData normalizes a legacy-only backup to Anthropic keys and removes legacy keys later', () => {
   const { normalizedData, keysToRemove } = prepareImportData({
@@ -396,4 +398,90 @@ test('importDataIntoStorage leaves normalized values in storage when remove fail
     claudeApiKey: 'new-key',
     anthropicApiKey: 'new-key',
   })
+})
+
+test('import preserves live guard entries and invalidates restored Gemini state', async () => {
+  const key = 'geminiWebContinuation:conversation-hash'
+  const foreignKey = 'geminiWebContinuation:foreign-hash'
+  const currentGuard = { revision: 'new-revision' }
+  const stored = { [key]: currentGuard }
+  const storageArea = {
+    async set(data) {
+      Object.assign(stored, data)
+    },
+  }
+  const session = {
+    sessionId: 'saved',
+    conversationRecords: [{ question: 'Q', answer: 'A' }],
+    geminiWeb_conversation: { c: 'c_old', r: 'r_old', rc: 'rc_old', turnIndex: 1 },
+  }
+  const backup = {
+    [key]: { revision: 'old-revision' },
+    [foreignKey]: { pending: true },
+    sessions: [session, { sessionId: 'fresh', conversationRecords: [] }],
+  }
+
+  await importDataIntoStorage(storageArea, backup)
+
+  assert.deepEqual(stored[key], currentGuard)
+  assert.equal(Object.hasOwn(stored, foreignKey), false)
+  assert.deepEqual(stored.sessions[0], { ...session, geminiWeb_conversationUnsafe: true })
+  assert.deepEqual(stored.sessions[1], backup.sessions[1])
+  assert.equal(Object.hasOwn(session, 'geminiWeb_conversationUnsafe'), false)
+})
+
+test('import also invalidates legacy Gemini state after switching to another provider', () => {
+  const session = {
+    modelName: 'customModel',
+    bard_conversationObj: { metadata: ['c_old', 'r_old', 'rc_old'] },
+  }
+  const { normalizedData } = prepareImportData({ sessions: [session] })
+  assert.equal(normalizedData.sessions[0].geminiWeb_conversationUnsafe, true)
+})
+
+test('export omits the live continuation ledger without modifying stored data', () => {
+  const key = 'geminiWebContinuation:current'
+  const data = {
+    [key]: { revision: 'new' },
+    sessions: [{ sessionId: 'saved', conversationRecords: [] }],
+    themeMode: 'dark',
+  }
+
+  assert.deepEqual(prepareExportData(data), { sessions: data.sessions, themeMode: 'dark' })
+  assert.equal(Object.hasOwn(data, key), true)
+})
+
+test('restoring an old backup cannot reopen a superseded remote revision', async () => {
+  const values = {}
+  const storage = {
+    async get(key) {
+      return { [key]: values[key] }
+    },
+    async set(data) {
+      Object.assign(values, data)
+    },
+    async remove(key) {
+      delete values[key]
+    },
+  }
+  const guard = createGeminiContinuationGuard(storage, async (value) => value)
+  const old = { c: 'same', r: 'r1', rc: 'rc1', turnIndex: 1 }
+  const current = { c: 'same', r: 'r2', rc: 'rc2', turnIndex: 2 }
+  const first = await guard.begin(old, old)
+  await first.complete(old)
+  await first.release({ safe: false })
+  const legacyBackup = {
+    ...values,
+    sessions: [{ sessionId: 'saved', geminiWeb_conversation: old }],
+  }
+  const second = await guard.begin(old, old)
+  await second.complete(current)
+  await second.release({ safe: false })
+
+  await importDataIntoStorage(storage, legacyBackup)
+
+  assert.equal(values.sessions[0].geminiWeb_conversationUnsafe, true)
+  await assert.rejects(guard.begin(old, old), /previous Gemini request/)
+  const next = await guard.begin(current, current)
+  await next.release({ safe: true })
 })

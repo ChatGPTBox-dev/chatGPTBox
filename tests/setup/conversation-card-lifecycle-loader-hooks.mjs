@@ -14,7 +14,7 @@ const stubs = new Map([
   ['react-i18next', 'test:conversation-i18n'],
   ['../DeleteButton', 'test:conversation-delete-button'],
   ['../../hooks/use-config.mjs', 'test:conversation-use-config'],
-  ['../../services/local-session.mjs', 'test:conversation-local-session'],
+  ['../../services/local-session-client.mjs', 'test:conversation-local-session'],
   ['uuid', 'test:conversation-uuid'],
   ['../../services/init-session.mjs', 'test:conversation-init-session'],
   ['lodash-es', 'test:conversation-lodash'],
@@ -40,7 +40,12 @@ const sources = {
       return null
     }
   `,
-  'test:conversation-item': 'export default function ConversationItem() { return null }',
+  'test:conversation-item': `
+    export default function ConversationItem(props) {
+      globalThis.__CONVERSATION_LIFECYCLE_TEST__.conversationItemProps = props
+      return null
+    }
+  `,
   'test:conversation-utils': `
     export const apiModeToModelName = () => 'test-model'
     export const createElementAtPosition = () => document.createElement('div')
@@ -76,6 +81,8 @@ const sources = {
   'test:conversation-config': `
     export const getUserConfig = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.getUserConfig()
     export const isUsingBingWebModel = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.foreground
+    export const isUsingGeminiWebModel = (session) =>
+      session?.apiMode?.groupName === 'bardWebModelKeys' || session?.modelName === 'bardWebFree'
     export const Models = { customModel: { desc: 'Custom Model' } }
   `,
   'test:conversation-i18n': 'export const useTranslation = () => ({ t: (value) => value })',
@@ -88,8 +95,14 @@ const sources = {
   'test:conversation-use-config': `
     export const useConfig = () => globalThis.__CONVERSATION_LIFECYCLE_TEST__.config
   `,
-  'test:conversation-local-session': 'export const createSession = async () => {}',
-  'test:conversation-uuid': `export const v4 = () => 'test-session-id'`,
+  'test:conversation-local-session': `
+    export const createSession = (...args) =>
+      globalThis.__CONVERSATION_LIFECYCLE_TEST__.createSession(...args)
+  `,
+  'test:conversation-uuid': `
+    let nextId = 0
+    export const v4 = () => 'test-session-id-' + ++nextId
+  `,
   'test:conversation-init-session': `
     export const initSession = (session) => ({ conversationRecords: [], ...session })
   `,
@@ -117,7 +130,7 @@ const sources = {
       runtime: {
         connect: () => state.createPort(),
         getURL: (path) => 'chrome-extension://test/' + path,
-        sendMessage: async () => {},
+        sendMessage: (...args) => state.sendMessage(...args),
         onMessage: state.runtimeOnMessage,
       },
     }

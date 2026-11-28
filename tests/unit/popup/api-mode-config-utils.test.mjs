@@ -57,11 +57,7 @@ test('getSelectionPatchWhenApiModeDisabled preserves canonicalized legacy fallba
       apiMode: selectedApiMode,
     }
     assert.deepEqual(
-      getSelectionPatchWhenApiModeDisabled(
-        selectedApiMode,
-        [fallback.apiMode, selectedApiMode],
-        config,
-      ),
+      getSelectionPatchWhenApiModeDisabled(selectedApiMode, [fallback.apiMode], config),
       {
         modelName: fallback.modelName,
         apiMode: null,
@@ -78,13 +74,10 @@ test('getSelectionPatchWhenApiModeDisabled clears a disabled legacy fallback', (
     apiMode: fallbackApiMode,
   }
 
-  assert.deepEqual(
-    getSelectionPatchWhenApiModeDisabled(fallbackApiMode, [fallbackApiMode], config),
-    {
-      modelName: 'customModel',
-      apiMode: null,
-    },
-  )
+  assert.deepEqual(getSelectionPatchWhenApiModeDisabled(fallbackApiMode, [], config), {
+    modelName: 'customModel',
+    apiMode: null,
+  })
 })
 
 test('getSelectionPatchWhenApiModeDisabled preserves duplicate custom fallbacks', () => {
@@ -101,7 +94,6 @@ test('getSelectionPatchWhenApiModeDisabled preserves duplicate custom fallbacks'
       [
         { ...fallbackApiMode, providerId: 'provider-a' },
         { ...fallbackApiMode, providerId: 'provider-b' },
-        selectedApiMode,
       ],
       config,
     ),
@@ -236,5 +228,17 @@ test('a list request does not commit an earlier failed selection request', () =>
   assert.deepEqual(mergeConfigUpdate(optimisticList, selectionRollback), {
     ...persisted,
     customApiModes: [{ itemName: 'persisted-list' }],
+  })
+})
+
+test('a legacy suffixed Gemini selection survives removal of an equivalent preset', () => {
+  const config = { modelName: 'bardWebFree-Pro', apiMode: null, geminiWebModel: 'flash' }
+  const removed = modelNameToApiMode('bardWebFree-Pro')
+  const remaining = { ...removed, geminiWebModel: 'pro', geminiWebExtendedThinking: false }
+  const flash = { ...removed, geminiWebModel: 'flash', geminiWebExtendedThinking: false }
+  assert.deepEqual(getSelectionPatchWhenApiModeDisabled(removed, [remaining, flash], config), {})
+  assert.deepEqual(getSelectionPatchWhenApiModeDisabled(removed, [flash], config), {
+    modelName: 'customModel',
+    apiMode: null,
   })
 })

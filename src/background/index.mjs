@@ -38,7 +38,6 @@ import {
 import '../_locales/i18n'
 import { openUrl } from '../utils/open-url'
 import {
-  getBardCookies,
   getBingAccessToken,
   getChatGptAccessToken,
   getClaudeSessionKey,
@@ -47,7 +46,9 @@ import {
 import { refreshMenu } from './menus.mjs'
 import { registerCommands } from './commands.mjs'
 import { registerBlockingHeaderListeners } from './webrequest-listeners.mjs'
-import { generateAnswersWithBardWebApi } from '../services/apis/bard-web.mjs'
+import { generateAnswersWithGeminiWebApi } from '../services/apis/gemini-web.mjs'
+import { createGeminiContinuationGuard } from '../services/apis/gemini-web-continuation.mjs'
+import { handleLocalSessionMessage, resolveStoredProviderMode } from '../services/local-session.mjs'
 import { generateAnswersWithClaudeWebApi } from '../services/apis/claude-web.mjs'
 import { generateAnswersWithMoonshotWebApi } from '../services/apis/moonshot-web.mjs'
 import { isUsingModelName } from '../utils/model-name-convert.mjs'
@@ -413,6 +414,8 @@ function isUsingOpenAICompatibleApiSession(session) {
   )
 }
 
+const geminiContinuationGuard = createGeminiContinuationGuard(Browser.storage.local)
+
 async function executeApi(
   session,
   port,
@@ -569,14 +572,15 @@ async function executeApi(
       }
     } else if (isUsingGeminiWebModel(session)) {
       console.debug('[background] Using Gemini Web Model')
-      const cookies = await getBardCookies()
       if (!isLatestSessionRequest()) return
-      await generateAnswersWithBardWebApi(
+      await generateAnswersWithGeminiWebApi(
         port,
         session.question,
         session,
-        cookies,
+        config,
         isLatestSessionRequest,
+        connectionPort,
+        geminiContinuationGuard,
       )
     } else if (isUsingOpenAICompatibleApiSession(session)) {
       console.debug('[background] Using OpenAI-compatible API provider')
@@ -604,6 +608,8 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
   console.debug('[background] Received message type:', message?.type, 'from sender:', sender?.id)
   try {
     switch (message.type) {
+      case 'LOCAL_SESSION':
+        return handleLocalSessionMessage(message.data, sender)
       case 'FEEDBACK': {
         console.log('[background] Processing FEEDBACK message')
         const token = await getChatGptAccessToken()
@@ -653,6 +659,14 @@ Browser.runtime.onMessage.addListener(async (message, sender) => {
         break
       case 'OPEN_URL':
         console.log('[background] Processing OPEN_URL message:', message.data)
+        if (message.data.reportFailure) {
+          try {
+            await openUrl(message.data.url, { propagateError: true })
+            return { ok: true }
+          } catch {
+            return { ok: false }
+          }
+        }
         openUrl(message.data.url)
         break
       case 'OPEN_CHAT_WINDOW': {
@@ -974,6 +988,7 @@ try {
         connectionPort,
       )
     },
+    resolveStoredProviderMode,
   )
   console.log('[background] Port listener registered successfully.')
 } catch (error) {

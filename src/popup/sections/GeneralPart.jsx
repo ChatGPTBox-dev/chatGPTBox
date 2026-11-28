@@ -19,8 +19,13 @@ import { languageList } from '../../config/language.mjs'
 import PropTypes from 'prop-types'
 import { config as menuConfig } from '../../content-script/menu-tools'
 import { PencilIcon } from '@primer/octicons-react'
-import { importDataIntoStorage } from './import-data-cleanup.mjs'
+import { prepareExportData } from './import-data-cleanup.mjs'
 import { resolveOpenAICompatibleRequest } from '../../services/apis/provider-registry.mjs'
+import {
+  importLocalData,
+  migrateProviderOverrideSessions,
+  rollbackProviderOverrideSessions,
+} from '../../services/local-session-client.mjs'
 import {
   getApiModeDisplayLabel,
   getSelectedApiModeOptionValue,
@@ -30,7 +35,6 @@ import {
   buildProviderOverrideFinalConfigUpdate,
   createProviderApiKeyDraftSelectionSignature,
   resolveOverrideCommitContext,
-  resolveCommittedMigratedSessions,
   resolveCommittedOverrideSourceProvider,
   resolvePersistedProviderApiKeyForSelection,
   shouldResetProviderApiKeyDraftAfterPersistFailure,
@@ -41,7 +45,6 @@ import {
   createProviderSecretOverrideCommitSelectionSignature,
   hasSelectedModeOwnProviderSecretOverride,
   resolveProviderSecretTargetId,
-  rollbackProviderSecretOverrideSessionMigration,
 } from './provider-secret-utils.mjs'
 
 GeneralPart.propTypes = {
@@ -70,13 +73,6 @@ function getProviderApiKeySetupUrl(providerId) {
       return 'https://console.mistral.ai/api-keys'
     default:
       return ''
-  }
-}
-
-function normalizeLoadedSessionsResult(stored) {
-  return {
-    ok: true,
-    sessions: Array.isArray(stored?.sessions) ? stored.sessions : [],
   }
 }
 
@@ -123,6 +119,7 @@ export function GeneralPart({
         config.apiMode,
         t,
         Array.isArray(config.customOpenAIProviders) ? config.customOpenAIProviders : [],
+        config,
       ) || t(Models.customModel.desc)
     : modelNameToDesc(config.modelName, t, config.customModelName)
   const selectedProviderRequest = resolveOpenAICompatibleRequest(config, selectedProviderSession)
@@ -178,15 +175,6 @@ export function GeneralPart({
     setProviderApiKeyDraft(selectedProviderApiKey)
   }, [selectedProviderApiKey, selectedProviderId, selectedProviderSecretTargetId])
 
-  const loadLatestSessions = async () => {
-    try {
-      const stored = await Browser.storage.local.get('sessions')
-      return normalizeLoadedSessionsResult(stored)
-    } catch {
-      return { ok: false, sessions: [] }
-    }
-  }
-
   const commitSelectedModeProviderKeyOverride = async (nextApiKey) => {
     const normalizedNextApiKey = String(nextApiKey || '').trim()
     overrideCommitPendingCountRef.current += 1
@@ -230,15 +218,6 @@ export function GeneralPart({
             existingProviders,
           )
 
-        const committedSessionsResult = await resolveCommittedMigratedSessions(
-          loadLatestSessions,
-          sessionMigration,
-        )
-        if (!committedSessionsResult.ok) {
-          return
-        }
-        const latestSessions = committedSessionsResult.sessions
-        const updatedSessions = committedSessionsResult.migratedSessions
         if (
           !isOverrideCommitCurrent(
             commitGeneration,
@@ -250,41 +229,28 @@ export function GeneralPart({
           return
         }
 
-        if (updatedSessions !== latestSessions) {
-          try {
-            await Browser.storage.local.set({ sessions: updatedSessions })
-          } catch (error) {
-            console.error(
-              '[popup] Failed to persist migrated sessions for provider override',
-              error,
-            )
-            return
-          }
+        let committedSessionsResult
+        try {
+          committedSessionsResult = await migrateProviderOverrideSessions(sessionMigration)
+        } catch (error) {
+          console.error('[popup] Failed to persist migrated sessions for provider override', error)
+          return
         }
+        if (!committedSessionsResult.ok) return
+
+        const latestSessions = committedSessionsResult.sessions
+        const updatedSessions = committedSessionsResult.migratedSessions
 
         const rollbackMigratedSessions = async (message, error) => {
-          if (updatedSessions === latestSessions || !sessionMigration) return
+          if (!committedSessionsResult.changed || !sessionMigration) return
           if (error) {
             console.error(message, error)
           } else {
             console.error(message)
           }
 
-          const currentSessionsResult = await loadLatestSessions()
-          if (!currentSessionsResult.ok) {
-            console.error(
-              '[popup] Failed to reload sessions for provider override selective rollback',
-            )
-            return
-          }
-          const rolledBackSessions = rollbackProviderSecretOverrideSessionMigration(
-            currentSessionsResult.sessions,
-            latestSessions,
-            sessionMigration,
-          )
-          if (rolledBackSessions === currentSessionsResult.sessions) return
           try {
-            await Browser.storage.local.set({ sessions: rolledBackSessions })
+            await rollbackProviderOverrideSessions(latestSessions, sessionMigration)
           } catch (rollbackError) {
             console.error(
               '[popup] Failed to persist selective rollback for provider override sessions',
@@ -523,6 +489,7 @@ export function GeneralPart({
                 apiMode,
                 t,
                 Array.isArray(config.customOpenAIProviders) ? config.customOpenAIProviders : [],
+                config,
               )
               if (desc) {
                 return (
@@ -974,7 +941,7 @@ export function GeneralPart({
                 throw new Error('Invalid backup file')
               }
 
-              await importDataIntoStorage(Browser.storage.local, parsedData)
+              await importLocalData(parsedData)
               window.location.reload()
             } catch (error) {
               console.error('[popup] Failed to import data', error)
@@ -994,10 +961,10 @@ export function GeneralPart({
           className="secondary"
           onClick={async (e) => {
             e.preventDefault()
-            const blob = new Blob(
-              [JSON.stringify(await Browser.storage.local.get(null), null, 2)],
-              { type: 'text/json;charset=utf-8' },
-            )
+            const data = prepareExportData(await Browser.storage.local.get(null))
+            const blob = new Blob([JSON.stringify(data, null, 2)], {
+              type: 'text/json;charset=utf-8',
+            })
             FileSaver.saveAs(blob, 'chatgptbox-data.json')
           }}
         >
