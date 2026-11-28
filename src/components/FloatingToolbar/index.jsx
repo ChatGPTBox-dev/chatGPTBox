@@ -300,7 +300,7 @@ function FloatingToolbar(props) {
     for (const tool of config.customSelectionTools) {
       if (tool.active) {
         pushTool(tool.iconKey, tool.name, async (selection) => {
-          return tool.prompt.replace('{{selection}}', selection)
+          return tool.prompt.replace('{{selection}}', () => selection)
         })
       }
     }

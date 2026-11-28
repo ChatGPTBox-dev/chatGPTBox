@@ -102,6 +102,17 @@ English &nbsp;&nbsp;|&nbsp;&nbsp; [Indonesia](README_IN.md) &nbsp;&nbsp;|&nbsp;&
   section.
 - 😉 Chat to improve the answer quality.
 
+## Custom selection tools and page context
+
+In the extension popup, go to **Modules → Selection Tools → New** to create a custom tool.
+Include `{{selection}}` in the prompt template, for example `Explain this passage in plain language. {{selection}}`.
+Select text on a page and choose your tool from the floating toolbar. ChatGPTBox replaces the first
+`{{selection}}` with the selected text. This is the only supported placeholder, so `{{page}}` stays as literal text.
+
+To ask about the current page, right-click the page and choose **Summarize Page** from the ChatGPTBox
+menu. ChatGPTBox includes text extracted from the page in the initial prompt. Ask follow-up questions
+in the same chat.
+
 ## Preview
 
 <div align="center">
